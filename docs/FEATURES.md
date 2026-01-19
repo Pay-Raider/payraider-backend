@@ -250,44 +250,101 @@
 
 ---
 
+## ✅ On-Chain Verification
+
+Unlike typical dashboards, Ndii provides **verifiable analytics**:
+
+### How Verification Works
+1. **Backend computes** analytics from Stellar data
+2. **Backend hashes** the snapshot (SHA-256)
+3. **Smart contract** stores hash + timestamp on-chain
+4. **Anyone can verify** off-chain data against on-chain proof
+5. **Audit trail** preserved forever on Stellar ledger
+
+### Verification Command
+```bash
+curl https://api.ndii.io/api/verify \
+  -d '{
+    "snapshot_epoch": 1234,
+    "expected_hash": "abc123..."
+  }'
+
+# Response:
+{
+  "valid": true,
+  "on_chain_hash": "abc123...",
+  "timestamp": "2025-01-19T14:30:00Z",
+  "contract_id": "CAE3HQ...",
+  "stellar_proof": "..."
+}
+```
+
+### Who Benefits from Verification
+- **Regulatory bodies** – Audit analytics independently
+- **Anchor compliance teams** – Prove data integrity
+- **Institutional users** – Verify before making decisions
+- **Research & academia** – Trust data sources
+
+---
+
 ## 🔄 Data Refresh & Timing
 
-| Metric | Refresh Rate | Data Window |
-|--------|-------------|-------------|
-| Real-time KPIs | Every 1 minute | Current state |
-| Payment Success Rate | Every 5 minutes | Last 24 hours |
-| Corridor Metrics | Every 15 minutes | Last 7 days |
-| Anchor Scores | Hourly | Last 30 days |
-| Liquidity Trends | Every 30 minutes | Last 90 days |
-| Historical Analytics | Daily | Last 12 months |
+| Metric | Computation | On-Chain Anchor | Data Window |
+|--------|------------|------------------|-------------|
+| Real-time KPIs | Every 1 minute | N/A | Current state |
+| Payment Success Rate | Every 5 minutes | Hourly | Last 24 hours |
+| Corridor Metrics | Every 15 minutes | Every 4 hours | Last 7 days |
+| Anchor Scores | Every 30 minutes | Hourly | Last 30 days |
+| Liquidity Trends | Every 30 minutes | Twice daily | Last 90 days |
+| Historical Analytics | Daily | Daily | Last 12 months |
+| Full Snapshot Hash | Every epoch | ✅ On-chain | Immutable proof |
 
 ---
 
 ## 🚀 Future Feature Roadmap
 
-### Phase 2: Predictive Analytics
+### Phase 2: Backend & Smart Contract
+- [ ] Rust analytics engine deployment
+- [ ] Soroban contract mainnet launch
+- [ ] Real-time data ingestion pipeline
+- [ ] On-chain snapshot anchoring
+- [ ] Verification UI in dashboard
+
+### Phase 3: Predictive Analytics
 - [ ] ML-based payment success prediction
 - [ ] Anomaly detection for fraud/risk
 - [ ] Liquidity forecasting
-- [ ] Route optimization AI
+- [ ] Route optimization AI engine
+- [ ] Supply-demand modeling
 
-### Phase 3: Alerting & Automation
+### Phase 4: Alerting & Automation
 - [ ] Real-time alerts for threshold breaches
 - [ ] Custom alert rules (corridor, anchor, metric)
-- [ ] Webhook notifications
-- [ ] Automated routing failover
+- [ ] Webhook notifications & integrations
+- [ ] Automated routing failover recommendations
+- [ ] Slack/Discord/Email notifications
 
-### Phase 4: Advanced Reporting
-- [ ] Custom report generation
-- [ ] Data export (CSV, JSON)
-- [ ] Historical comparisons
+### Phase 5: Advanced Reporting & Export
+- [ ] Custom report generation (PDF, Excel)
+- [ ] Data export (CSV, JSON, Parquet)
+- [ ] Historical comparisons & trends
 - [ ] Benchmarking against network averages
+- [ ] SLA monitoring & uptime tracking
 
-### Phase 5: Ecosystem Integration
-- [ ] API for wallet/app integration
+### Phase 6: Ecosystem Integration
+- [ ] Public REST API (v1)
 - [ ] Real-time WebSocket feeds
 - [ ] Third-party analytics plugins
-- [ ] Open data lake access
+- [ ] Open data lake access (BigQuery, S3)
+- [ ] GraphQL API option
+- [ ] SDK for wallets & apps
+
+### Phase 7: Advanced On-Chain Features
+- [ ] Decentralized oracle for settlement times
+- [ ] Liquidity pool recommendations contract
+- [ ] Automated market maker (AMM) integration
+- [ ] Cross-chain analytics (if Stellar bridges)
+- [ ] NFT certificates for top performers
 
 ---
 

@@ -1,72 +1,102 @@
 # Ndii Intelligence Dashboard - Architecture & Data Design
 
-## 🏗️ System Architecture
+## 🏗️ Full-Stack System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    User Interface Layer                         │
-│  React SPA | TypeScript | Vite | Tailwind CSS | shadcn-ui      │
-│                                                                 │
-│  Landing Page → Dashboard → Corridors → Anchors → Analytics    │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    State Management Layer                       │
-│  TanStack React Query | React Router | Context API              │
-│                                                                 │
-│  - Data caching and synchronization                            │
-│  - Route state management                                       │
-│  - Global notifications (Sonner/Toaster)                        │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      API Layer (Future)                         │
-│  REST Endpoints | WebSocket (real-time) | GraphQL (optional)   │
-│                                                                 │
-│  GET /api/metrics/kpi                                          │
-│  GET /api/corridors                                            │
-│  GET /api/anchors                                              │
-│  GET /api/payments/trends                                      │
-│  GET /api/liquidity                                            │
-│  POST /api/predictions                                         │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Business Logic / Metrics Engine              │
-│  Payment Success Scoring | Corridor Analysis | Anchor Scoring   │
-│                                                                 │
-│  • Aggregate payment outcomes                                   │
-│  • Calculate corridor health scores                             │
-│  • Rank anchor reliability                                      │
-│  • Compute liquidity metrics                                    │
-│  • Generate time-series trends                                  │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Data Access Layer                          │
-│  Database Queries | Cache | Data Transformation                 │
-│                                                                 │
-│  • Payment transaction queries                                  │
-│  • Order book snapshots                                         │
-│  • Historical ledger data                                       │
-│  • Time-series aggregations                                     │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Data Source Layer                            │
-│  Stellar RPC | Horizon API | Indexed DB | Order Books           │
-│                                                                 │
-│  • Real-time ledger (RPC)                                       │
-│  • Historical transactions (Horizon)                            │
-│  • Indexed analytics (Custom DB)                                │
-│  • Order book snapshots (DEX)                                   │
-└─────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                  FRONTEND LAYER (React SPA)                        │
+│  Dashboard | Corridors | Anchors | Analytics | On-Chain Verify    │
+│  Tech: React 18 + TypeScript | Vite | Tailwind | shadcn-ui        │
+└─────────────────────────────────┬────────────────────────────────┘
+                                  │
+                                  ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                  API LAYER (Node.js + Express)                     │
+│              REST Endpoints & Real-time WebSockets                 │
+│                                                                    │
+│  GET /api/metrics/kpi      GET /api/corridors                     │
+│  GET /api/anchors          GET /api/payments/trends               │
+│  GET /api/liquidity        POST /api/verify (contract proof)      │
+└─────────────────────────────────┬────────────────────────────────┘
+                                  │
+                                  ▼
+┌────────────────────────────────────────────────────────────────────┐
+│            BACKEND: ANALYTICS ENGINE (Rust Core)                  │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │ Data Ingestion                                               │ │
+│  │ • Pull Stellar RPC (real-time ledger, payments, trades)    │ │
+│  │ • Pull Horizon API (historical transactions)               │ │
+│  │ • Read Order Book snapshots                                │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                          │                                        │
+│                          ▼                                        │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │ Metrics Computation                                          │ │
+│  │ • Payment Success Rate (by corridor, anchor, asset)        │ │
+│  │ • Liquidity Depth & Order Book Analysis                    │ │
+│  │ • Settlement Latency & Confirmation Time                   │ │
+│  │ • Corridor Health Scores & Anchor Reliability Ranking      │ │
+│  │ • TVL Trends & Volume Aggregations                         │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                          │                                        │
+│                          ▼                                        │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │ Snapshot Generation                                          │ │
+│  │ • Serialize metrics to deterministic JSON                  │ │
+│  │ • Compute SHA-256 hash of snapshot                         │ │
+│  │ • Prepare for on-chain submission                          │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                          │                                        │
+│                          ▼                                        │
+│              Submit Hash to Smart Contract                         │
+└─────────────────────────────────┬────────────────────────────────┘
+                                  │
+                                  ▼
+┌────────────────────────────────────────────────────────────────────┐
+│         SMART CONTRACT LAYER (Soroban, Rust)                      │
+│                 On-Chain Analytics Anchor                          │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │ Contract State                                               │ │
+│  │ • snapshots: Map<epoch, SnapshotData>                      │ │
+│  │ • latest_epoch: u64                                         │ │
+│  │ • submission_timestamp: u64                                 │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │ Contract Functions                                           │ │
+│  │ • submit_snapshot(hash, epoch, timestamp)  [Admin]         │ │
+│  │ • get_snapshot(epoch) → SnapshotData                       │ │
+│  │ • latest_snapshot() → (hash, epoch, timestamp)             │ │
+│  │ • verify_snapshot(expected_hash) → bool  [Public]          │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────┬────────────────────────────────┘
+                                  │
+                                  ▼
+┌────────────────────────────────────────────────────────────────────┐
+│         DATABASE LAYER (PostgreSQL + TimescaleDB)                  │
+│         ┌────────────────────────────────────────────────────┐    │
+│         │ Payments Table        │ Order Books Table          │    │
+│         │ Corridors Metrics     │ Anchor Performance Data    │    │
+│         │ Historical Snapshots  │ Audit Logs & Timestamps    │    │
+│         └────────────────────────────────────────────────────┘    │
+└─────────────────────────────────┬────────────────────────────────┘
+                                  │
+                                  ▼
+┌────────────────────────────────────────────────────────────────────┐
+│              DATA SOURCES (Stellar Blockchain)                     │
+│  Stellar RPC | Horizon API | Ledger | Order Books | Trades        │
+│  Payment Operations | Account Data | Network State | Trustlines   │
+└────────────────────────────────────────────────────────────────────┘
 ```
+
+### Architectural Principles
+1. **Frontend = Visualization** – React displays data elegantly
+2. **API = Translation** – Node.js bridges frontend and backend
+3. **Backend = Intelligence** – Rust computes real metrics
+4. **Contract = Verification** – Soroban anchors proofs on-chain
+5. **Blockchain = Source of Truth** – Immutable record
 
 ---
 
@@ -538,9 +568,124 @@ describe('Dashboard User Flow', () => {
 
 ---
 
+## � Smart Contract Schema (Soroban)
+
+```rust
+// analytics_attestation.rs
+
+use soroban_sdk::{contract, contractimpl, Bytes, Map, Env, Symbol};
+
+#[derive(Clone)]
+pub struct SnapshotData {
+    pub hash: Bytes,              // SHA-256 hash of analytics snapshot
+    pub epoch: u64,               // Unique identifier for this snapshot
+    pub timestamp: u64,           // Submission timestamp (Stellar network)
+    pub submitter: Bytes,         // Public key of submitter (Stellar account)
+}
+
+#[contract]
+pub struct AnalyticsAttestation;
+
+#[contractimpl]
+impl AnalyticsAttestation {
+    /// Submit a new analytics snapshot
+    pub fn submit_snapshot(
+        env: &Env,
+        hash: Bytes,
+        epoch: u64,
+        timestamp: u64,
+        submitter: Bytes,
+    ) -> Result<(), String> {
+        // Verify submitter authorization
+        // Store snapshot
+        // Update latest_epoch
+        // Emit event
+    }
+
+    /// Retrieve snapshot by epoch
+    pub fn get_snapshot(env: &Env, epoch: u64) -> Result<SnapshotData, String> {
+        // Query stored snapshot
+        // Return data or error if not found
+    }
+
+    /// Get most recent snapshot
+    pub fn latest_snapshot(env: &Env) -> Result<SnapshotData, String> {
+        // Fetch latest epoch
+        // Return most recent snapshot
+    }
+
+    /// Verify off-chain analytics against on-chain proof
+    pub fn verify_snapshot(env: &Env, expected_hash: Bytes) -> Result<bool, String> {
+        // Get latest snapshot
+        // Compare hash
+        // Return verification result
+    }
+}
+```
+
+---
+
+## 🔗 Backend Flow Diagram
+
+```rust
+// Main Rust Backend Service
+
+use stellar_rs::Client;  // Stellar SDK
+use sha2::{Sha256, Digest};
+use serde_json::json;
+
+async fn analytics_pipeline() {
+    loop {
+        // 1. Ingest
+        let payments = stellar_client.fetch_payments(duration).await;
+        let order_books = stellar_client.fetch_orderbooks().await;
+        
+        // 2. Process
+        let success_rate = compute_success_rate(&payments);
+        let corridor_scores = compute_corridor_scores(&payments);
+        let anchor_scores = compute_anchor_scores(&payments);
+        let liquidity_depth = compute_liquidity_depth(&order_books);
+        
+        // 3. Aggregate
+        let snapshot = json!({
+            "timestamp": current_timestamp(),
+            "epoch": epoch_number,
+            "metrics": {
+                "payment_success_rate": success_rate,
+                "corridor_scores": corridor_scores,
+                "anchor_scores": anchor_scores,
+                "liquidity_depth": liquidity_depth,
+            }
+        });
+        
+        // 4. Hash
+        let mut hasher = Sha256::new();
+        hasher.update(snapshot.to_string().as_bytes());
+        let snapshot_hash = format!("{:x}", hasher.finalize());
+        
+        // 5. Submit to Contract
+        soroban_client.submit_snapshot(
+            snapshot_hash,
+            epoch_number,
+            current_timestamp(),
+        ).await;
+        
+        // 6. Expose via API
+        api.publish_metrics(&snapshot);
+        
+        // Wait for next period (e.g., 1 hour)
+        sleep(Duration::from_secs(3600)).await;
+        epoch_number += 1;
+    }
+}
+```
+
+---
+
 ## 📞 Architecture Questions?
 
 For technical details, data integration, or scalability discussions:
 - Open an [Architecture Discussion](https://github.com/Ndifreke000/stellar-insights/discussions)
-- Check [Features.md](./FEATURES.md) for use cases
+- Check [FEATURES.md](./FEATURES.md) for use cases and business value
 - Review [README.md](../README.md) for overview
+- Explore [Smart Contract Guide](https://developers.stellar.org/docs/smart-contracts) for Soroban details
