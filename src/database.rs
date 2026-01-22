@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::analytics::compute_anchor_metrics;
