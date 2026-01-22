@@ -13,6 +13,7 @@ use backend::database::Database;
 use backend::handlers::*;
 use backend::api::anchors::get_anchors;
 use backend::ingestion::DataIngestionService;
+use backend::api::corridors::{get_corridors, get_corridor_by_asset_pair};
 use backend::rpc::StellarRpcClient;
 use backend::rpc_handlers;
 
@@ -118,6 +119,12 @@ async fn main() -> Result<()> {
         )
         .layer(cors)
         .route("/api/anchors/:id/assets", get(get_anchor_assets).post(create_anchor_asset))
+        .with_state(db.clone());
+
+    // Build corridor router
+    let corridor_routes = Router::new()
+        .route("/api/corridors", get(get_corridors))
+        .route("/api/corridors/:asset_pair", get(get_corridor_by_asset_pair))
         .with_state(db);
 
     // Build RPC router
@@ -133,6 +140,7 @@ async fn main() -> Result<()> {
     // Merge routers
     let app = Router::new()
         .merge(anchor_routes)
+        .merge(corridor_routes)
         .merge(rpc_routes)
         .layer(cors);
 

@@ -4,6 +4,14 @@ use uuid::Uuid;
 
 pub mod corridor;
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SortBy {
+    #[default]
+    SuccessRate,
+    Volume,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Anchor {
     pub id: Uuid,
