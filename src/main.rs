@@ -12,6 +12,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use backend::database::Database;
 use backend::handlers::*;
 use backend::api::anchors::get_anchors;
+use backend::ingestion::DataIngestionService;
 use backend::rpc::StellarRpcClient;
 use backend::rpc_handlers;
 
@@ -64,6 +65,30 @@ async fn main() -> Result<()> {
     );
 
     let rpc_client = Arc::new(StellarRpcClient::new(rpc_url, horizon_url, mock_mode));
+
+    // Initialize Data Ingestion Service
+    let ingestion_service = Arc::new(DataIngestionService::new(
+        Arc::clone(&rpc_client),
+        Arc::clone(&db),
+    ));
+
+    // Start background sync task
+    let ingestion_clone = Arc::clone(&ingestion_service);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300)); // 5 minutes
+        loop {
+            interval.tick().await;
+            if let Err(e) = ingestion_clone.sync_all_metrics().await {
+                tracing::error!("Metrics synchronization failed: {}", e);
+            }
+        }
+    });
+
+    // Run initial sync
+    tracing::info!("Running initial metrics synchronization...");
+    if let Err(e) = ingestion_service.sync_all_metrics().await {
+        tracing::warn!("Initial sync failed: {}", e);
+    }
 
     // CORS configuration
     let cors = CorsLayer::new()
