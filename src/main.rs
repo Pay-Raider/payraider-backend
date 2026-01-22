@@ -11,6 +11,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use backend::database::Database;
 use backend::handlers::*;
+use backend::api::anchors::get_anchors;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -50,7 +51,7 @@ async fn main() -> Result<()> {
     // Build router
     let app = Router::new()
         .route("/health", get(health_check))
-        .route("/api/anchors", get(list_anchors).post(create_anchor))
+        .route("/api/anchors", get(get_anchors).post(create_anchor))
         .route("/api/anchors/:id", get(get_anchor))
         .route("/api/anchors/account/:stellar_account", get(get_anchor_by_account))
         .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
