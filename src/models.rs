@@ -4,6 +4,14 @@ use uuid::Uuid;
 
 pub mod corridor;
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SortBy {
+    #[default]
+    SuccessRate,
+    Volume,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Anchor {
     pub id: Uuid,
@@ -107,4 +115,59 @@ pub struct CreateAnchorRequest {
     pub name: String,
     pub stellar_account: String,
     pub home_domain: Option<String>,
+}
+
+// =========================
+// Corridor domain (new)
+// =========================
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Corridor {
+    pub id: Uuid,
+    pub name: Option<String>,
+    pub source_asset_code: String,
+    pub source_asset_issuer: String,
+    pub dest_asset_code: String,
+    pub dest_asset_issuer: String,
+    pub total_transactions: i64,
+    pub successful_transactions: i64,
+    pub failed_transactions: i64,
+    pub avg_settlement_latency_ms: i32,
+    pub liquidity_depth_usd: f64,
+    pub success_rate: f64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorridorMetrics {
+    pub success_rate: f64,
+    pub avg_settlement_latency_ms: Option<i32>,
+    pub liquidity_depth_usd: f64,
+    pub total_transactions: i64,
+    pub successful_transactions: i64,
+    pub failed_transactions: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CorridorMetricsHistory {
+    pub id: Uuid,
+    pub corridor_id: Uuid,
+    pub timestamp: DateTime<Utc>,
+    pub success_rate: f64,
+    pub avg_settlement_latency_ms: i32,
+    pub liquidity_depth_usd: f64,
+    pub total_transactions: i64,
+    pub successful_transactions: i64,
+    pub failed_transactions: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCorridorRequest {
+    pub name: Option<String>,
+    pub source_asset_code: String,
+    pub source_asset_issuer: String,
+    pub dest_asset_code: String,
+    pub dest_asset_issuer: String,
 }

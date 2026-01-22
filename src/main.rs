@@ -13,6 +13,8 @@ use backend::database::Database;
 use backend::handlers::*;
 use backend::api::anchors::get_anchors;
 use backend::api::corridors::{list_corridors, get_corridor_detail};
+use backend::ingestion::DataIngestionService;
+use backend::api::corridors::{get_corridors, get_corridor_by_asset_pair};
 use backend::rpc::StellarRpcClient;
 use backend::rpc_handlers;
 
@@ -31,8 +33,9 @@ async fn main() -> Result<()> {
         .init();
 
     // Database connection
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:password@localhost:5432/stellar_insights".to_string());
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "postgresql://postgres:password@localhost:5432/stellar_insights".to_string()
+    });
 
     tracing::info!("Connecting to database...");
     let pool = PgPoolOptions::new()
@@ -66,6 +69,30 @@ async fn main() -> Result<()> {
 
     let rpc_client = Arc::new(StellarRpcClient::new(rpc_url, horizon_url, mock_mode));
 
+    // Initialize Data Ingestion Service
+    let ingestion_service = Arc::new(DataIngestionService::new(
+        Arc::clone(&rpc_client),
+        Arc::clone(&db),
+    ));
+
+    // Start background sync task
+    let ingestion_clone = Arc::clone(&ingestion_service);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300)); // 5 minutes
+        loop {
+            interval.tick().await;
+            if let Err(e) = ingestion_clone.sync_all_metrics().await {
+                tracing::error!("Metrics synchronization failed: {}", e);
+            }
+        }
+    });
+
+    // Run initial sync
+    tracing::info!("Running initial metrics synchronization...");
+    if let Err(e) = ingestion_service.sync_all_metrics().await {
+        tracing::warn!("Initial sync failed: {}", e);
+    }
+
     // CORS configuration
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -77,11 +104,30 @@ async fn main() -> Result<()> {
         .route("/health", get(health_check))
         .route("/api/anchors", get(get_anchors).post(create_anchor))
         .route("/api/anchors/:id", get(get_anchor))
-        .route("/api/anchors/account/:stellar_account", get(get_anchor_by_account))
+        .route(
+            "/api/anchors/account/:stellar_account",
+            get(get_anchor_by_account),
+        )
         .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
+        .route(
+            "/api/anchors/:id/assets",
+            get(get_anchor_assets).post(create_anchor_asset),
+        )
+        .route("/api/corridors", get(list_corridors).post(create_corridor))
+        .route(
+            "/api/corridors/:id/metrics-from-transactions",
+            put(update_corridor_metrics_from_transactions),
+        )
+        .layer(cors)
         .route("/api/anchors/:id/assets", get(get_anchor_assets).post(create_anchor_asset))
         .route("/api/corridors", get(list_corridors))
         .route("/api/corridors/:corridor_key", get(get_corridor_detail))
+        .with_state(db.clone());
+
+    // Build corridor router
+    let corridor_routes = Router::new()
+        .route("/api/corridors", get(get_corridors))
+        .route("/api/corridors/:asset_pair", get(get_corridor_by_asset_pair))
         .with_state(db);
 
     // Build RPC router
@@ -97,6 +143,7 @@ async fn main() -> Result<()> {
     // Merge routers
     let app = Router::new()
         .merge(anchor_routes)
+        .merge(corridor_routes)
         .merge(rpc_routes)
         .layer(cors);
 
