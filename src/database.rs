@@ -21,6 +21,10 @@ impl Database {
         &self.pool
     }
 
+    pub fn corridor_aggregates(&self) -> crate::db::aggregates::CorridorAggregates {
+        crate::db::aggregates::CorridorAggregates::new(self.pool.clone())
+    }
+
     // Anchor operations
     pub async fn create_anchor(&self, req: CreateAnchorRequest) -> Result<Anchor> {
         let anchor = sqlx::query_as::<_, Anchor>(

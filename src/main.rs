@@ -12,6 +12,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use backend::database::Database;
 use backend::handlers::*;
 use backend::api::anchors::get_anchors;
+use backend::api::corridors::{list_corridors, get_corridor_detail};
 use backend::rpc::StellarRpcClient;
 use backend::rpc_handlers;
 
@@ -79,6 +80,8 @@ async fn main() -> Result<()> {
         .route("/api/anchors/account/:stellar_account", get(get_anchor_by_account))
         .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
         .route("/api/anchors/:id/assets", get(get_anchor_assets).post(create_anchor_asset))
+        .route("/api/corridors", get(list_corridors))
+        .route("/api/corridors/:corridor_key", get(get_corridor_detail))
         .with_state(db);
 
     // Build RPC router
