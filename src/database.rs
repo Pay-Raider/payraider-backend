@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use crate::analytics::compute_anchor_metrics;
 use crate::models::{
-    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, CreateAnchorRequest,
+    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, Corridor, CorridorMetrics,
+    CorridorMetricsHistory, CreateAnchorRequest, CreateCorridorRequest,
 };
 
 pub struct Database {
@@ -52,7 +53,10 @@ impl Database {
         Ok(anchor)
     }
 
-    pub async fn get_anchor_by_stellar_account(&self, stellar_account: &str) -> Result<Option<Anchor>> {
+    pub async fn get_anchor_by_stellar_account(
+        &self,
+        stellar_account: &str,
+    ) -> Result<Option<Anchor>> {
         let anchor = sqlx::query_as::<_, Anchor>(
             r#"
             SELECT * FROM anchors WHERE stellar_account = $1
@@ -268,5 +272,127 @@ impl Database {
             assets,
             metrics_history,
         }))
+    }
+}
+
+// =========================
+// Corridor operations (new)
+// =========================
+impl Database {
+    pub async fn create_corridor(&self, req: CreateCorridorRequest) -> Result<Corridor> {
+        let corridor = sqlx::query_as::<_, Corridor>(
+            r#"
+            INSERT INTO corridors (
+                name, source_asset_code, source_asset_issuer,
+                dest_asset_code, dest_asset_issuer
+            )
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (source_asset_code, source_asset_issuer, dest_asset_code, dest_asset_issuer)
+            DO UPDATE SET name = COALESCE(EXCLUDED.name, corridors.name)
+            RETURNING *
+            "#,
+        )
+        .bind(req.name)
+        .bind(req.source_asset_code)
+        .bind(req.source_asset_issuer)
+        .bind(req.dest_asset_code)
+        .bind(req.dest_asset_issuer)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(corridor)
+    }
+
+    pub async fn get_corridor_by_id(&self, id: Uuid) -> Result<Option<Corridor>> {
+        let corridor = sqlx::query_as::<_, Corridor>(
+            r#"
+            SELECT * FROM corridors WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(corridor)
+    }
+
+    pub async fn list_corridors(&self, limit: i64, offset: i64) -> Result<Vec<Corridor>> {
+        let corridors = sqlx::query_as::<_, Corridor>(
+            r#"
+            SELECT * FROM corridors
+            ORDER BY success_rate DESC, updated_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(corridors)
+    }
+
+    pub async fn update_corridor_metrics(
+        &self,
+        corridor_id: Uuid,
+        metrics: CorridorMetrics,
+    ) -> Result<Corridor> {
+        let corridor = sqlx::query_as::<_, Corridor>(
+            r#"
+            UPDATE corridors
+            SET total_transactions = $1,
+                successful_transactions = $2,
+                failed_transactions = $3,
+                avg_settlement_latency_ms = $4,
+                liquidity_depth_usd = $5,
+                success_rate = $6
+            WHERE id = $7
+            RETURNING *
+            "#,
+        )
+        .bind(metrics.total_transactions)
+        .bind(metrics.successful_transactions)
+        .bind(metrics.failed_transactions)
+        .bind(metrics.avg_settlement_latency_ms.unwrap_or(0))
+        .bind(metrics.liquidity_depth_usd)
+        .bind(metrics.success_rate)
+        .bind(corridor_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        self.record_corridor_metrics_history(corridor_id, &metrics)
+            .await?;
+
+        Ok(corridor)
+    }
+
+    pub async fn record_corridor_metrics_history(
+        &self,
+        corridor_id: Uuid,
+        metrics: &CorridorMetrics,
+    ) -> Result<CorridorMetricsHistory> {
+        let history = sqlx::query_as::<_, CorridorMetricsHistory>(
+            r#"
+            INSERT INTO corridor_metrics_history (
+                corridor_id, timestamp, success_rate, avg_settlement_latency_ms,
+                liquidity_depth_usd, total_transactions, successful_transactions,
+                failed_transactions
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
+            "#,
+        )
+        .bind(corridor_id)
+        .bind(Utc::now())
+        .bind(metrics.success_rate)
+        .bind(metrics.avg_settlement_latency_ms.unwrap_or(0))
+        .bind(metrics.liquidity_depth_usd)
+        .bind(metrics.total_transactions)
+        .bind(metrics.successful_transactions)
+        .bind(metrics.failed_transactions)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(history)
     }
 }

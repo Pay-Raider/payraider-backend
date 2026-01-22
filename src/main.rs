@@ -30,8 +30,9 @@ async fn main() -> Result<()> {
         .init();
 
     // Database connection
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:password@localhost:5432/stellar_insights".to_string());
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "postgresql://postgres:password@localhost:5432/stellar_insights".to_string()
+    });
 
     tracing::info!("Connecting to database...");
     let pool = PgPoolOptions::new()
@@ -76,8 +77,21 @@ async fn main() -> Result<()> {
         .route("/health", get(health_check))
         .route("/api/anchors", get(get_anchors).post(create_anchor))
         .route("/api/anchors/:id", get(get_anchor))
-        .route("/api/anchors/account/:stellar_account", get(get_anchor_by_account))
+        .route(
+            "/api/anchors/account/:stellar_account",
+            get(get_anchor_by_account),
+        )
         .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
+        .route(
+            "/api/anchors/:id/assets",
+            get(get_anchor_assets).post(create_anchor_asset),
+        )
+        .route("/api/corridors", get(list_corridors).post(create_corridor))
+        .route(
+            "/api/corridors/:id/metrics-from-transactions",
+            put(update_corridor_metrics_from_transactions),
+        )
+        .layer(cors)
         .route("/api/anchors/:id/assets", get(get_anchor_assets).post(create_anchor_asset))
         .with_state(db);
 
