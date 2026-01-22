@@ -141,7 +141,10 @@ pub async fn update_anchor_metrics(
 ) -> ApiResult<Json<crate::models::Anchor>> {
     // Verify anchor exists
     if db.get_anchor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!("Anchor with id {} not found", id)));
+        return Err(ApiError::NotFound(format!(
+            "Anchor with id {} not found",
+            id
+        )));
     }
 
     let anchor = db
@@ -165,7 +168,10 @@ pub async fn get_anchor_assets(
 ) -> ApiResult<Json<Vec<crate::models::Asset>>> {
     // Verify anchor exists
     if db.get_anchor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!("Anchor with id {} not found", id)));
+        return Err(ApiError::NotFound(format!(
+            "Anchor with id {} not found",
+            id
+        )));
     }
 
     let assets = db.get_assets_by_anchor(id).await?;
@@ -187,10 +193,15 @@ pub async fn create_anchor_asset(
 ) -> ApiResult<Json<crate::models::Asset>> {
     // Verify anchor exists
     if db.get_anchor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!("Anchor with id {} not found", id)));
+        return Err(ApiError::NotFound(format!(
+            "Anchor with id {} not found",
+            id
+        )));
     }
 
-    let asset = db.create_asset(id, req.asset_code, req.asset_issuer).await?;
+    let asset = db
+        .create_asset(id, req.asset_code, req.asset_issuer)
+        .await?;
 
     Ok(Json(asset))
 }

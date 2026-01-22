@@ -1,10 +1,11 @@
 use anyhow::Result;
 use axum::{
-    routing::{get, post, put},
+    routing::{get, put},
     Router,
 };
 use dotenv::dotenv;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use std::str::FromStr;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -27,14 +28,12 @@ async fn main() -> Result<()> {
         .init();
 
     // Database connection
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:password@localhost:5432/stellar_insights".to_string());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:stellar_insights.db".to_string());
 
     tracing::info!("Connecting to database...");
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await?;
+    let options = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
+    let pool = SqlitePool::connect_with(options).await?;
 
     tracing::info!("Running database migrations...");
     sqlx::migrate!("./migrations").run(&pool).await?;
@@ -52,9 +51,15 @@ async fn main() -> Result<()> {
         .route("/health", get(health_check))
         .route("/api/anchors", get(list_anchors).post(create_anchor))
         .route("/api/anchors/:id", get(get_anchor))
-        .route("/api/anchors/account/:stellar_account", get(get_anchor_by_account))
+        .route(
+            "/api/anchors/account/:stellar_account",
+            get(get_anchor_by_account),
+        )
         .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
-        .route("/api/anchors/:id/assets", get(get_anchor_assets).post(create_anchor_asset))
+        .route(
+            "/api/anchors/:id/assets",
+            get(get_anchor_assets).post(create_anchor_asset),
+        )
         .layer(cors)
         .with_state(db);
 

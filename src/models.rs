@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
+// In models.rs
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Anchor {
-    pub id: Uuid,
+    pub id: String,
     pub name: String,
     pub stellar_account: String,
     pub home_domain: Option<String>,
@@ -21,8 +21,8 @@ pub struct Anchor {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Asset {
-    pub id: Uuid,
-    pub anchor_id: Uuid,
+    pub id: String,
+    pub anchor_id: String,
     pub asset_code: String,
     pub asset_issuer: String,
     pub total_supply: Option<f64>,
@@ -33,8 +33,8 @@ pub struct Asset {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AnchorMetricsHistory {
-    pub id: Uuid,
-    pub anchor_id: Uuid,
+    pub id: String,
+    pub anchor_id: String,
     pub timestamp: DateTime<Utc>,
     pub success_rate: f64,
     pub failure_rate: f64,
@@ -76,7 +76,7 @@ impl AnchorStatus {
     }
 
     pub fn from_metrics(success_rate: f64, failure_rate: f64) -> Self {
-        if success_rate > 98.0 && failure_rate < 1.0 {
+        if success_rate > 98.0 && failure_rate <= 1.0 {
             AnchorStatus::Green
         } else if success_rate >= 95.0 && failure_rate <= 5.0 {
             AnchorStatus::Yellow
@@ -98,6 +98,40 @@ pub struct AnchorDetailResponse {
     pub anchor: Anchor,
     pub assets: Vec<Asset>,
     pub metrics_history: Vec<AnchorMetricsHistory>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Corridor {
+    pub id: String,
+    pub source_asset_code: String,
+    pub source_asset_issuer: String,
+    pub destination_asset_code: String,
+    pub destination_asset_issuer: String,
+    pub reliability_score: f64,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Metric {
+    pub id: String,
+    pub name: String,
+    pub value: f64,
+    pub entity_id: Option<String>,
+    pub entity_type: Option<String>,
+    pub timestamp: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Snapshot {
+    pub id: String,
+    pub entity_id: String,
+    pub entity_type: String,
+    pub data: String, // JSON serialized
+    pub timestamp: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
