@@ -197,6 +197,46 @@ impl Database {
         Ok(count.0)
     }
 
+    // Update anchor metrics from RPC ingestion
+    pub async fn update_anchor_from_rpc(
+        &self,
+        stellar_account: &str,
+        total_transactions: i64,
+        successful_transactions: i64,
+        failed_transactions: i64,
+        total_volume_usd: f64,
+        avg_settlement_time_ms: i32,
+        reliability_score: f64,
+        status: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE anchors
+            SET total_transactions = $1,
+                successful_transactions = $2,
+                failed_transactions = $3,
+                total_volume_usd = $4,
+                avg_settlement_time_ms = $5,
+                reliability_score = $6,
+                status = $7,
+                updated_at = NOW()
+            WHERE stellar_account = $8
+            "#,
+        )
+        .bind(total_transactions)
+        .bind(successful_transactions)
+        .bind(failed_transactions)
+        .bind(total_volume_usd)
+        .bind(avg_settlement_time_ms)
+        .bind(reliability_score)
+        .bind(status)
+        .bind(stellar_account)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     // Metrics history operations
     pub async fn record_anchor_metrics_history(
         &self,
