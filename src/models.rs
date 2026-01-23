@@ -132,3 +132,27 @@ pub struct CreateCorridorRequest {
     pub dest_asset_code: String,
     pub dest_asset_issuer: String,
 }
+
+// =========================
+// Payment domain
+// =========================
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PaymentRecord {
+    pub id: String,
+    pub transaction_hash: String,
+    pub source_account: String,
+    pub destination_account: String,
+    pub asset_type: String,
+    pub asset_code: Option<String>,
+    pub asset_issuer: Option<String>,
+    pub amount: f64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct IngestionState {
+    pub task_name: String,
+    pub last_cursor: String,
+    pub updated_at: DateTime<Utc>,
+}

@@ -5,7 +5,9 @@ use uuid::Uuid;
 
 use crate::analytics::compute_anchor_metrics;
 use crate::models::{
-    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, AnchorStatus, CreateAnchorRequest, CreateCorridorRequest, SortBy,
+    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, Corridor, CorridorMetrics,
+    CorridorMetricsHistory, CreateAnchorRequest, CreateCorridorRequest, IngestionState,
+    PaymentRecord, SortBy,
 };
 use crate::models::corridor::{Corridor, CorridorMetrics, CorridorMetricsHistory};
 
@@ -535,5 +537,67 @@ impl Database {
         .await?;
 
         Ok(history)
+    }
+
+    // Payment operations
+    pub async fn save_payments(&self, payments: Vec<PaymentRecord>) -> Result<()> {
+        if payments.is_empty() {
+            return Ok(());
+        }
+
+        for payment in payments {
+            sqlx::query(
+                r#"
+                INSERT INTO payments (
+                    id, transaction_hash, source_account, destination_account,
+                    asset_type, asset_code, asset_issuer, amount, created_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (id) DO NOTHING
+                "#,
+            )
+            .bind(&payment.id)
+            .bind(&payment.transaction_hash)
+            .bind(&payment.source_account)
+            .bind(&payment.destination_account)
+            .bind(&payment.asset_type)
+            .bind(&payment.asset_code)
+            .bind(&payment.asset_issuer)
+            .bind(payment.amount)
+            .bind(payment.created_at)
+            .execute(&self.pool)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn get_ingestion_cursor(&self, task_name: &str) -> Result<Option<String>> {
+        let state = sqlx::query_as::<_, IngestionState>(
+            "SELECT * FROM ingestion_state WHERE task_name = $1",
+        )
+        .bind(task_name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(state.map(|s| s.last_cursor))
+    }
+
+    pub async fn update_ingestion_cursor(&self, task_name: &str, cursor: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO ingestion_state (task_name, last_cursor, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (task_name) DO UPDATE SET
+                last_cursor = EXCLUDED.last_cursor,
+                updated_at = EXCLUDED.updated_at
+            "#,
+        )
+        .bind(task_name)
+        .bind(cursor)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 }

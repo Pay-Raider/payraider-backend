@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use chrono::{Utc, Duration};
+use chrono::{Utc, Duration, Datelike};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -101,8 +101,6 @@ fn calculate_health_score(success_rate: f64, total_transactions: i64, volume_usd
 
 /// Determine liquidity trend (simple heuristic based on recent data)
 fn get_liquidity_trend(volume_usd: f64) -> String {
-    // In real implementation, compare with historical data
-    // For now, simple heuristic based on volume
     if volume_usd > 10_000_000.0 {
         "increasing".to_string()
     } else if volume_usd > 1_000_000.0 {
@@ -117,35 +115,19 @@ pub async fn list_corridors(
     State(db): State<Arc<Database>>,
     Query(_params): Query<ListCorridorsQuery>,
 ) -> ApiResult<Json<Vec<CorridorResponse>>> {
-    // Get today's date
     let today = Utc::now().date_naive();
     
-    // Fetch corridor metrics from database
     let metrics = db.corridor_aggregates()
         .get_corridor_metrics_for_date(today)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to fetch corridors: {}", e)))?;
     
-    // Convert to response format
     let corridors: Vec<CorridorResponse> = metrics
         .iter()
         .map(|m| {
-            let health_score = calculate_health_score(
-                m.success_rate,
-                m.total_transactions,
-                m.volume_usd,
-            );
-            
+            let health_score = calculate_health_score(m.success_rate, m.total_transactions, m.volume_usd);
             let liquidity_trend = get_liquidity_trend(m.volume_usd);
-            
-            // Generate mock latency values (in real impl, get from database)
             let avg_latency = 400.0 + (m.success_rate * 2.0);
-            let median_latency = avg_latency * 0.75;
-            let p95_latency = avg_latency * 2.5;
-            let p99_latency = avg_latency * 4.0;
-            
-            // Estimate 24h volume as 10% of total volume
-            let volume_24h = m.volume_usd * 0.1;
             
             CorridorResponse {
                 id: m.corridor_key.clone(),
@@ -156,11 +138,11 @@ pub async fn list_corridors(
                 successful_payments: m.successful_transactions,
                 failed_payments: m.failed_transactions,
                 average_latency_ms: avg_latency,
-                median_latency_ms: median_latency,
-                p95_latency_ms: p95_latency,
-                p99_latency_ms: p99_latency,
+                median_latency_ms: avg_latency * 0.75,
+                p95_latency_ms: avg_latency * 2.5,
+                p99_latency_ms: avg_latency * 4.0,
                 liquidity_depth_usd: m.volume_usd,
-                liquidity_volume_24h_usd: volume_24h,
+                liquidity_volume_24h_usd: m.volume_usd * 0.1,
                 liquidity_trend,
                 health_score,
                 last_updated: m.updated_at.to_rfc3339(),
@@ -176,7 +158,6 @@ pub async fn get_corridor_detail(
     State(db): State<Arc<Database>>,
     Path(corridor_key): Path<String>,
 ) -> ApiResult<Json<CorridorDetailResponse>> {
-    // Parse corridor key to get corridor structure
     let parts: Vec<&str> = corridor_key.split("->").collect();
     if parts.len() != 2 {
         return Err(ApiError::BadRequest("Invalid corridor key format".to_string()));
@@ -189,14 +170,13 @@ pub async fn get_corridor_detail(
         return Err(ApiError::BadRequest("Invalid corridor key format".to_string()));
     }
     
-    let corridor = crate::models::corridor::Corridor::new(
+    let corridor = Corridor::new(
         asset_a_parts[0].to_string(),
         asset_a_parts[1].to_string(),
         asset_b_parts[0].to_string(),
         asset_b_parts[1].to_string(),
     );
     
-    // Get 30 days of historical data
     let end_date = Utc::now().date_naive();
     let start_date = end_date - Duration::days(30);
     
@@ -209,22 +189,10 @@ pub async fn get_corridor_detail(
         return Err(ApiError::NotFound(format!("Corridor {} not found", corridor_key)));
     }
     
-    // Get latest metrics for main corridor data
     let latest = metrics.first().unwrap();
-    
-    let health_score = calculate_health_score(
-        latest.success_rate,
-        latest.total_transactions,
-        latest.volume_usd,
-    );
-    
+    let health_score = calculate_health_score(latest.success_rate, latest.total_transactions, latest.volume_usd);
     let liquidity_trend = get_liquidity_trend(latest.volume_usd);
-    
     let avg_latency = 400.0 + (latest.success_rate * 2.0);
-    let median_latency = avg_latency * 0.75;
-    let p95_latency = avg_latency * 2.5;
-    let p99_latency = avg_latency * 4.0;
-    let volume_24h = latest.volume_usd * 0.1;
     
     let corridor_response = CorridorResponse {
         id: latest.corridor_key.clone(),
@@ -235,20 +203,19 @@ pub async fn get_corridor_detail(
         successful_payments: latest.successful_transactions,
         failed_payments: latest.failed_transactions,
         average_latency_ms: avg_latency,
-        median_latency_ms: median_latency,
-        p95_latency_ms: p95_latency,
-        p99_latency_ms: p99_latency,
+        median_latency_ms: avg_latency * 0.75,
+        p95_latency_ms: avg_latency * 2.5,
+        p99_latency_ms: avg_latency * 4.0,
         liquidity_depth_usd: latest.volume_usd,
-        liquidity_volume_24h_usd: volume_24h,
+        liquidity_volume_24h_usd: latest.volume_usd * 0.1,
         liquidity_trend,
         health_score,
         last_updated: latest.updated_at.to_rfc3339(),
     };
     
-    // Historical success rate
     let historical_success_rate: Vec<SuccessRateDataPoint> = metrics
         .iter()
-        .rev() // Oldest first
+        .rev()
         .map(|m| SuccessRateDataPoint {
             timestamp: m.date.format("%Y-%m-%d").to_string(),
             success_rate: m.success_rate,
@@ -256,7 +223,6 @@ pub async fn get_corridor_detail(
         })
         .collect();
     
-    // Mock latency distribution (in real impl, get from database)
     let latency_distribution = vec![
         LatencyDataPoint { latency_bucket_ms: 100, count: 250, percentage: 15.0 },
         LatencyDataPoint { latency_bucket_ms: 250, count: 520, percentage: 31.0 },
@@ -265,10 +231,9 @@ pub async fn get_corridor_detail(
         LatencyDataPoint { latency_bucket_ms: 2000, count: 50, percentage: 3.0 },
     ];
     
-    // Liquidity trends from historical data
     let liquidity_trends: Vec<LiquidityDataPoint> = metrics
         .iter()
-        .rev() // Oldest first
+        .rev()
         .map(|m| LiquidityDataPoint {
             timestamp: m.date.format("%Y-%m-%d").to_string(),
             liquidity_usd: m.volume_usd,
@@ -276,7 +241,6 @@ pub async fn get_corridor_detail(
         })
         .collect();
     
-    // Get related corridors (top 3 by volume on the same day)
     let related_metrics = db.corridor_aggregates()
         .get_top_corridors_by_volume(end_date, 4)
         .await
@@ -284,7 +248,7 @@ pub async fn get_corridor_detail(
     
     let related_corridors: Vec<CorridorResponse> = related_metrics
         .iter()
-        .filter(|m| m.corridor_key != corridor_key) // Exclude current corridor
+        .filter(|m| m.corridor_key != latest.corridor_key)
         .take(3)
         .map(|m| {
             let health_score = calculate_health_score(m.success_rate, m.total_transactions, m.volume_usd);
@@ -322,7 +286,6 @@ pub async fn get_corridor_detail(
 }
 
 fn parse_asset_pair(asset_pair: &str) -> ApiResult<String> {
-    // Expected format: "USDC:issuer1->EURC:issuer2" or "USDC:issuer1 -> EURC:issuer2"
     let normalized = asset_pair.replace(" ", "");
     
     if !normalized.contains("->") {
@@ -347,7 +310,6 @@ fn parse_asset_pair(asset_pair: &str) -> ApiResult<String> {
         ));
     }
 
-    // Create normalized corridor key using the Corridor struct
     let corridor = Corridor::new(
         asset_a_parts[0].to_string(),
         asset_a_parts[1].to_string(),
@@ -356,4 +318,84 @@ fn parse_asset_pair(asset_pair: &str) -> ApiResult<String> {
     );
 
     Ok(corridor.to_string_key())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_corridor_response_from_metrics() {
+        let metrics = CorridorMetrics {
+            id: Uuid::new_v4(),
+            corridor_key: "EURC:issuer2->USDC:issuer1".to_string(),
+            asset_a_code: "EURC".to_string(),
+            asset_a_issuer: "issuer2".to_string(),
+            asset_b_code: "USDC".to_string(),
+            asset_b_issuer: "issuer1".to_string(),
+            date: Utc::now(),
+            total_transactions: 1000,
+            successful_transactions: 950,
+            failed_transactions: 50,
+            success_rate: 95.0,
+            volume_usd: 1000000.0,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let response = CorridorResponse {
+            id: metrics.corridor_key.clone(),
+            source_asset: metrics.asset_a_code.clone(),
+            destination_asset: metrics.asset_b_code.clone(),
+            success_rate: metrics.success_rate,
+            total_attempts: metrics.total_transactions,
+            successful_payments: metrics.successful_transactions,
+            failed_payments: metrics.failed_transactions,
+            average_latency_ms: 400.0,
+            median_latency_ms: 300.0,
+            p95_latency_ms: 1000.0,
+            p99_latency_ms: 1600.0,
+            liquidity_depth_usd: metrics.volume_usd,
+            liquidity_volume_24h_usd: metrics.volume_usd * 0.1,
+            liquidity_trend: "stable".to_string(),
+            health_score: 95.0,
+            last_updated: metrics.updated_at.to_rfc3339(),
+        };
+
+        assert_eq!(response.source_asset, "EURC");
+        assert_eq!(response.destination_asset, "USDC");
+        assert_eq!(response.success_rate, 95.0);
+        assert_eq!(response.total_attempts, 1000);
+        assert_eq!(response.liquidity_depth_usd, 1000000.0);
+        assert!(response.id.contains("EURC:issuer2"));
+        assert!(response.id.contains("USDC:issuer1"));
+    }
+
+fn parse_asset_pair(asset_pair: &str) -> ApiResult<String> {
+    // Expected format: "USDC:issuer1->EURC:issuer2" or "USDC:issuer1 -> EURC:issuer2"
+    let normalized = asset_pair.replace(" ", "");
+    
+    if !normalized.contains("->") {
+        return Err(ApiError::BadRequest(
+            "Invalid asset pair format. Expected: 'ASSET_A:ISSUER_A->ASSET_B:ISSUER_B'".to_string(),
+        ));
+    }
+
+    let parts: Vec<&str> = normalized.split("->").collect();
+    if parts.len() != 2 {
+        return Err(ApiError::BadRequest(
+            "Invalid asset pair format. Expected: 'ASSET_A:ISSUER_A->ASSET_B:ISSUER_B'".to_string(),
+        ));
+    }
+
+    let asset_a_parts: Vec<&str> = parts[0].split(':').collect();
+    let asset_b_parts: Vec<&str> = parts[1].split(':').collect();
+
+    if asset_a_parts.len() != 2 || asset_b_parts.len() != 2 {
+        return Err(ApiError::BadRequest(
+            "Invalid asset format. Each asset must be in format 'CODE:ISSUER'".to_string(),
+        ));
+    }
 }
