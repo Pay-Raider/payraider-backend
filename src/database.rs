@@ -5,9 +5,8 @@ use uuid::Uuid;
 
 use crate::analytics::compute_anchor_metrics;
 use crate::models::{
-    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, Corridor, CorridorMetrics,
-    CorridorMetricsHistory, CreateAnchorRequest, CreateCorridorRequest, IngestionState,
-    PaymentRecord, SortBy,
+    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, CreateAnchorRequest,
+    CreateCorridorRequest, IngestionState, PaymentRecord, SortBy,
 };
 use crate::models::corridor::{Corridor, CorridorMetrics, CorridorMetricsHistory};
 
