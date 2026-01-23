@@ -373,6 +373,8 @@ mod tests {
         assert!(response.id.contains("USDC:issuer1"));
     }
 
+}
+
 fn parse_asset_pair(asset_pair: &str) -> ApiResult<String> {
     // Expected format: "USDC:issuer1->EURC:issuer2" or "USDC:issuer1 -> EURC:issuer2"
     let normalized = asset_pair.replace(" ", "");
@@ -398,4 +400,6 @@ fn parse_asset_pair(asset_pair: &str) -> ApiResult<String> {
             "Invalid asset format. Each asset must be in format 'CODE:ISSUER'".to_string(),
         ));
     }
+
+    Ok(asset_pair.to_string())
 }

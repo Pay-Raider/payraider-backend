@@ -1,5 +1,4 @@
 use crate::snapshot::schema::AnalyticsSnapshot;
-use serde_json::json;
 use sha2::{Digest, Sha256};
 
 /// Generator for deterministic analytics snapshots
