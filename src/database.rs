@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use crate::analytics::compute_anchor_metrics;
 use crate::models::{
-    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, Corridor, CreateAnchorRequest,
-    Metric, Snapshot,
+    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, CreateAnchorRequest,
+    Corridor, Metric, Snapshot,
 };
 
 pub struct Database {
@@ -20,6 +20,10 @@ impl Database {
 
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    pub fn corridor_aggregates(&self) -> crate::db::aggregates::CorridorAggregates {
+        crate::db::aggregates::CorridorAggregates::new(self.pool.clone())
     }
 
     // Anchor operations
@@ -202,6 +206,47 @@ impl Database {
         .await?;
 
         Ok(count.0)
+    }
+
+    // Update anchor metrics from RPC ingestion
+    pub async fn update_anchor_from_rpc(
+        &self,
+        stellar_account: &str,
+        total_transactions: i64,
+        successful_transactions: i64,
+        failed_transactions: i64,
+        total_volume_usd: f64,
+        avg_settlement_time_ms: i32,
+        reliability_score: f64,
+        status: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE anchors
+            SET total_transactions = ?,
+                successful_transactions = ?,
+                failed_transactions = ?,
+                total_volume_usd = ?,
+                avg_settlement_time_ms = ?,
+                reliability_score = ?,
+                status = ?,
+                updated_at = ?
+            WHERE stellar_account = ?
+            "#,
+        )
+        .bind(total_transactions)
+        .bind(successful_transactions)
+        .bind(failed_transactions)
+        .bind(total_volume_usd)
+        .bind(avg_settlement_time_ms)
+        .bind(reliability_score)
+        .bind(status)
+        .bind(Utc::now())
+        .bind(stellar_account)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 
     // Metrics history operations

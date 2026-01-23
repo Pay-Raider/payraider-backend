@@ -1,7 +1,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-// In models.rs
+pub mod corridor;
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SortBy {
+    #[default]
+    SuccessRate,
+    Volume,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Anchor {
     pub id: String,
@@ -139,4 +147,44 @@ pub struct CreateAnchorRequest {
     pub name: String,
     pub stellar_account: String,
     pub home_domain: Option<String>,
+}
+
+// =========================
+// Corridor domain (new)
+// =========================
+
+
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCorridorRequest {
+    pub name: Option<String>,
+    pub source_asset_code: String,
+    pub source_asset_issuer: String,
+    pub dest_asset_code: String,
+    pub dest_asset_issuer: String,
+}
+
+// =========================
+// Payment domain
+// =========================
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PaymentRecord {
+    pub id: String,
+    pub transaction_hash: String,
+    pub source_account: String,
+    pub destination_account: String,
+    pub asset_type: String,
+    pub asset_code: Option<String>,
+    pub asset_issuer: Option<String>,
+    pub amount: f64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct IngestionState {
+    pub task_name: String,
+    pub last_cursor: String,
+    pub updated_at: DateTime<Utc>,
 }

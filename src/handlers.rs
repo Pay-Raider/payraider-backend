@@ -9,7 +9,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::database::Database;
-use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
+use crate::models::{AnchorDetailResponse, CreateAnchorRequest, CreateCorridorRequest};
+use crate::models::corridor::Corridor;
+use crate::services::analytics::{compute_corridor_metrics, CorridorTransaction};
 
 pub type ApiResult<T> = Result<T, ApiError>;
 
@@ -59,6 +61,20 @@ fn default_limit() -> i64 {
 #[derive(Debug, Serialize)]
 pub struct ListAnchorsResponse {
     pub anchors: Vec<crate::models::Anchor>,
+    pub total: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListCorridorsQuery {
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ListCorridorsResponse {
+    pub corridors: Vec<Corridor>,
     pub total: usize,
 }
 
@@ -213,4 +229,73 @@ pub async fn health_check() -> impl IntoResponse {
         "service": "stellar-insights-backend",
         "version": env!("CARGO_PKG_VERSION")
     }))
+}
+
+/// GET /api/corridors - List corridors with metrics
+pub async fn list_corridors(
+    State(db): State<Arc<Database>>,
+    Query(params): Query<ListCorridorsQuery>,
+) -> ApiResult<Json<ListCorridorsResponse>> {
+    let corridors = db.list_corridors(params.limit, params.offset).await?;
+    let total = corridors.len();
+    Ok(Json(ListCorridorsResponse { corridors, total }))
+}
+
+/// POST /api/corridors - Create a corridor (idempotent on asset pair)
+pub async fn create_corridor(
+    State(db): State<Arc<Database>>,
+    Json(req): Json<CreateCorridorRequest>,
+) -> ApiResult<Json<Corridor>> {
+    if req.source_asset_code.is_empty() || req.dest_asset_code.is_empty() {
+        return Err(ApiError::BadRequest(
+            "Asset codes cannot be empty".to_string(),
+        ));
+    }
+    if req.source_asset_issuer.is_empty() || req.dest_asset_issuer.is_empty() {
+        return Err(ApiError::BadRequest(
+            "Asset issuers cannot be empty".to_string(),
+        ));
+    }
+    let corridor = db.create_corridor(req).await?;
+    Ok(Json(corridor))
+}
+
+/// PUT /api/corridors/:id/metrics-from-transactions - Compute metrics from transactions and persist
+#[derive(Debug, Deserialize)]
+pub struct UpdateCorridorMetricsFromTxns {
+    pub transactions: Vec<CorridorTransactionDto>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CorridorTransactionDto {
+    pub successful: bool,
+    pub settlement_latency_ms: Option<i32>,
+    pub amount_usd: f64,
+}
+
+pub async fn update_corridor_metrics_from_transactions(
+    State(db): State<Arc<Database>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateCorridorMetricsFromTxns>,
+) -> ApiResult<Json<Corridor>> {
+    if db.get_corridor_by_id(id).await?.is_none() {
+        return Err(ApiError::NotFound(format!(
+            "Corridor with id {} not found",
+            id
+        )));
+    }
+
+    let txs: Vec<CorridorTransaction> = req
+        .transactions
+        .into_iter()
+        .map(|t| CorridorTransaction {
+            successful: t.successful,
+            settlement_latency_ms: t.settlement_latency_ms,
+            amount_usd: t.amount_usd,
+        })
+        .collect();
+
+    let metrics = compute_corridor_metrics(&txs);
+    let corridor = db.update_corridor_metrics(id, metrics).await?;
+    Ok(Json(corridor))
 }

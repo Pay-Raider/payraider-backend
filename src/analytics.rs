@@ -1,5 +1,7 @@
 use crate::models::{AnchorMetrics, AnchorStatus};
 
+pub mod corridor;
+
 /// Compute anchor reliability metrics based on transaction data
 pub fn compute_anchor_metrics(
     total_transactions: i64,
