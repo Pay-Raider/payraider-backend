@@ -341,6 +341,8 @@ mod tests {
             failed_transactions: 50,
             success_rate: 95.0,
             volume_usd: 1000000.0,
+            avg_settlement_latency_ms: Some(400),
+            liquidity_depth_usd: 500000.0,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -373,29 +375,4 @@ mod tests {
         assert!(response.id.contains("USDC:issuer1"));
     }
 
-fn parse_asset_pair(asset_pair: &str) -> ApiResult<String> {
-    // Expected format: "USDC:issuer1->EURC:issuer2" or "USDC:issuer1 -> EURC:issuer2"
-    let normalized = asset_pair.replace(" ", "");
-    
-    if !normalized.contains("->") {
-        return Err(ApiError::BadRequest(
-            "Invalid asset pair format. Expected: 'ASSET_A:ISSUER_A->ASSET_B:ISSUER_B'".to_string(),
-        ));
-    }
-
-    let parts: Vec<&str> = normalized.split("->").collect();
-    if parts.len() != 2 {
-        return Err(ApiError::BadRequest(
-            "Invalid asset pair format. Expected: 'ASSET_A:ISSUER_A->ASSET_B:ISSUER_B'".to_string(),
-        ));
-    }
-
-    let asset_a_parts: Vec<&str> = parts[0].split(':').collect();
-    let asset_b_parts: Vec<&str> = parts[1].split(':').collect();
-
-    if asset_a_parts.len() != 2 || asset_b_parts.len() != 2 {
-        return Err(ApiError::BadRequest(
-            "Invalid asset format. Each asset must be in format 'CODE:ISSUER'".to_string(),
-        ));
-    }
 }
