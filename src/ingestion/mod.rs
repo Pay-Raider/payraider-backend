@@ -1,3 +1,6 @@
+// I'm exporting the ledger ingestion module as required by issue #2
+pub mod ledger;
+
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -55,9 +58,9 @@ impl DataIngestionService {
         }
 
         let mut successful = 0;
-        let mut failed = 0;
+        let failed = 0;
         let mut total_volume = 0.0;
-        let mut settlement_times = Vec::new();
+        let settlement_times = Vec::new(); // Removed mut as it's never pushed to
 
         for payment in &payments {
             let amount: f64 = payment.amount.parse().unwrap_or(0.0);

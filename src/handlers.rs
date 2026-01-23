@@ -9,7 +9,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::database::Database;
-use crate::models::{AnchorDetailResponse, Corridor, CreateAnchorRequest, CreateCorridorRequest};
+use crate::models::{AnchorDetailResponse, CreateAnchorRequest, CreateCorridorRequest};
+use crate::models::corridor::Corridor;
 use crate::services::analytics::{compute_corridor_metrics, CorridorTransaction};
 
 pub type ApiResult<T> = Result<T, ApiError>;

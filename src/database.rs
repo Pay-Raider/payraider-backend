@@ -9,6 +9,7 @@ use crate::models::{
     CorridorMetricsHistory, CreateAnchorRequest, CreateCorridorRequest, IngestionState,
     PaymentRecord, SortBy,
 };
+use crate::models::corridor::{Corridor, CorridorMetrics, CorridorMetricsHistory};
 
 pub struct Database {
     pool: PgPool,

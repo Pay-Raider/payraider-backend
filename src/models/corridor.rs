@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, sqlx::FromRow)]
 pub struct Corridor {
     pub asset_a_code: String,
     pub asset_a_issuer: String,
@@ -40,7 +40,7 @@ impl Corridor {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CorridorMetrics {
     pub id: Uuid,
     pub corridor_key: String,
@@ -54,8 +54,49 @@ pub struct CorridorMetrics {
     pub failed_transactions: i64,
     pub success_rate: f64,
     pub volume_usd: f64,
+    pub avg_settlement_latency_ms: Option<i32>,
+    #[serde(default)]
+    pub liquidity_depth_usd: f64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl sqlx::FromRow<'_, sqlx::postgres::PgRow> for CorridorMetrics {
+    fn from_row(row: &sqlx::postgres::PgRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            corridor_key: row.try_get("corridor_key")?,
+            asset_a_code: row.try_get("asset_a_code")?,
+            asset_a_issuer: row.try_get("asset_a_issuer")?,
+            asset_b_code: row.try_get("asset_b_code")?,
+            asset_b_issuer: row.try_get("asset_b_issuer")?,
+            date: row.try_get("date")?,
+            total_transactions: row.try_get("total_transactions")?,
+            successful_transactions: row.try_get("successful_transactions")?,
+            failed_transactions: row.try_get("failed_transactions")?,
+            success_rate: row.try_get("success_rate")?,
+            volume_usd: row.try_get("volume_usd")?,
+            avg_settlement_latency_ms: row.try_get("avg_settlement_latency_ms").unwrap_or(None),
+            liquidity_depth_usd: row.try_get("liquidity_depth_usd").unwrap_or(0.0),
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CorridorMetricsHistory {
+    pub id: Uuid,
+    pub corridor_id: Uuid,
+    pub timestamp: DateTime<Utc>,
+    pub success_rate: f64,
+    pub avg_settlement_latency_ms: i32,
+    pub liquidity_depth_usd: f64,
+    pub total_transactions: i64,
+    pub successful_transactions: i64,
+    pub failed_transactions: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
