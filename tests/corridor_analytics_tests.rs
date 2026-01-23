@@ -3,9 +3,21 @@ use backend::services::analytics::{compute_corridor_metrics, CorridorTransaction
 #[test]
 fn test_corridor_metrics_basic() {
     let txns = vec![
-        CorridorTransaction { successful: true, settlement_latency_ms: Some(1000), amount_usd: 100.0 },
-        CorridorTransaction { successful: true, settlement_latency_ms: Some(3000), amount_usd: 200.0 },
-        CorridorTransaction { successful: false, settlement_latency_ms: None, amount_usd: 50.0 },
+        CorridorTransaction {
+            successful: true,
+            settlement_latency_ms: Some(1000),
+            amount_usd: 100.0,
+        },
+        CorridorTransaction {
+            successful: true,
+            settlement_latency_ms: Some(3000),
+            amount_usd: 200.0,
+        },
+        CorridorTransaction {
+            successful: false,
+            settlement_latency_ms: None,
+            amount_usd: 50.0,
+        },
     ];
 
     let m = compute_corridor_metrics(&txns);
@@ -29,8 +41,16 @@ fn test_corridor_metrics_empty() {
 #[test]
 fn test_corridor_metrics_all_success_no_latency() {
     let txns = vec![
-        CorridorTransaction { successful: true, settlement_latency_ms: None, amount_usd: 10.0 },
-        CorridorTransaction { successful: true, settlement_latency_ms: None, amount_usd: 20.0 },
+        CorridorTransaction {
+            successful: true,
+            settlement_latency_ms: None,
+            amount_usd: 10.0,
+        },
+        CorridorTransaction {
+            successful: true,
+            settlement_latency_ms: None,
+            amount_usd: 20.0,
+        },
     ];
     let m = compute_corridor_metrics(&txns);
     assert_eq!(m.success_rate, 100.0);

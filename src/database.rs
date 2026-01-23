@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use crate::analytics::compute_anchor_metrics;
 use crate::models::{
-    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, CreateAnchorRequest,
-    Corridor, Metric, Snapshot,
+    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, CorridorRecord, CreateAnchorRequest,
+    MetricRecord, SnapshotRecord,
 };
 
 pub struct Database {
@@ -331,13 +331,17 @@ impl Database {
     // Corridor operations
     pub async fn create_corridor(
         &self,
-        source_asset_code: &str,
-        source_asset_issuer: &str,
-        destination_asset_code: &str,
-        destination_asset_issuer: &str,
-    ) -> Result<Corridor> {
-        let id = Uuid::new_v4().to_string();
-        let corridor = sqlx::query_as::<_, Corridor>(
+        req: crate::models::CreateCorridorRequest,
+    ) -> Result<crate::models::corridor::Corridor> {
+        let corridor = crate::models::corridor::Corridor::new(
+            req.source_asset_code,
+            req.source_asset_issuer,
+            req.dest_asset_code,
+            req.dest_asset_issuer,
+        );
+
+        // Ensure the corridor exists in the database
+        sqlx::query(
             r#"
             INSERT INTO corridors (
                 id, source_asset_code, source_asset_issuer,
@@ -346,30 +350,95 @@ impl Database {
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT (source_asset_code, source_asset_issuer, destination_asset_code, destination_asset_issuer)
             DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-            RETURNING *
             "#,
         )
-        .bind(id)
-        .bind(source_asset_code)
-        .bind(source_asset_issuer)
-        .bind(destination_asset_code)
-        .bind(destination_asset_issuer)
-        .fetch_one(&self.pool)
+        .bind(Uuid::new_v4().to_string())
+        .bind(&corridor.asset_a_code)
+        .bind(&corridor.asset_a_issuer)
+        .bind(&corridor.asset_b_code)
+        .bind(&corridor.asset_b_issuer)
+        .execute(&self.pool)
         .await?;
 
         Ok(corridor)
     }
 
-    pub async fn list_corridors(&self) -> Result<Vec<Corridor>> {
-        let corridors = sqlx::query_as::<_, Corridor>(
+    pub async fn list_corridors(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<crate::models::corridor::Corridor>> {
+        let records = sqlx::query_as::<_, CorridorRecord>(
             r#"
-            SELECT * FROM corridors ORDER BY reliability_score DESC
+            SELECT * FROM corridors ORDER BY reliability_score DESC LIMIT ? OFFSET ?
             "#,
         )
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(corridors)
+        Ok(records
+            .into_iter()
+            .map(|r| {
+                crate::models::corridor::Corridor::new(
+                    r.source_asset_code,
+                    r.source_asset_issuer,
+                    r.destination_asset_code,
+                    r.destination_asset_issuer,
+                )
+            })
+            .collect())
+    }
+
+    pub async fn get_corridor_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<crate::models::corridor::Corridor>> {
+        let record = sqlx::query_as::<_, CorridorRecord>(
+            r#"
+            SELECT * FROM corridors WHERE id = ?
+            "#,
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(record.map(|r| {
+            crate::models::corridor::Corridor::new(
+                r.source_asset_code,
+                r.source_asset_issuer,
+                r.destination_asset_code,
+                r.destination_asset_issuer,
+            )
+        }))
+    }
+
+    pub async fn update_corridor_metrics(
+        &self,
+        id: Uuid,
+        metrics: crate::models::corridor::CorridorMetrics,
+    ) -> Result<crate::models::corridor::Corridor> {
+        let record = sqlx::query_as::<_, CorridorRecord>(
+            r#"
+            UPDATE corridors
+            SET reliability_score = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            RETURNING *
+            "#,
+        )
+        .bind(metrics.success_rate)
+        .bind(id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(crate::models::corridor::Corridor::new(
+            record.source_asset_code,
+            record.source_asset_issuer,
+            record.destination_asset_code,
+            record.destination_asset_issuer,
+        ))
     }
 
     // Generic Metric operations
@@ -379,9 +448,9 @@ impl Database {
         value: f64,
         entity_id: Option<String>,
         entity_type: Option<String>,
-    ) -> Result<Metric> {
+    ) -> Result<MetricRecord> {
         let id = Uuid::new_v4().to_string();
-        let metric = sqlx::query_as::<_, Metric>(
+        let metric = sqlx::query_as::<_, MetricRecord>(
             r#"
             INSERT INTO metrics (id, name, value, entity_id, entity_type, timestamp)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -406,9 +475,9 @@ impl Database {
         entity_id: &str,
         entity_type: &str,
         data: serde_json::Value,
-    ) -> Result<Snapshot> {
+    ) -> Result<SnapshotRecord> {
         let id = Uuid::new_v4().to_string();
-        let snapshot = sqlx::query_as::<_, Snapshot>(
+        let snapshot = sqlx::query_as::<_, SnapshotRecord>(
             r#"
             INSERT INTO snapshots (id, entity_id, entity_type, data, timestamp)
             VALUES (?, ?, ?, ?, ?)
@@ -424,5 +493,65 @@ impl Database {
         .await?;
 
         Ok(snapshot)
+    }
+
+    // Ingestion methods
+    pub async fn get_ingestion_cursor(&self, task_name: &str) -> Result<Option<String>> {
+        let state = sqlx::query_as::<_, crate::models::IngestionState>(
+            r#"
+            SELECT * FROM ingestion_state WHERE task_name = ?
+            "#,
+        )
+        .bind(task_name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(state.map(|s| s.last_cursor))
+    }
+
+    pub async fn update_ingestion_cursor(&self, task_name: &str, last_cursor: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO ingestion_state (task_name, last_cursor, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT (task_name) DO UPDATE SET
+                last_cursor = EXCLUDED.last_cursor,
+                updated_at = EXCLUDED.updated_at
+            "#,
+        )
+        .bind(task_name)
+        .bind(last_cursor)
+        .bind(Utc::now())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn save_payments(&self, payments: Vec<crate::models::PaymentRecord>) -> Result<()> {
+        for payment in payments {
+            sqlx::query(
+                r#"
+                INSERT INTO payments (
+                    id, transaction_hash, source_account, destination_account,
+                    asset_type, asset_code, asset_issuer, amount, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (id) DO NOTHING
+                "#,
+            )
+            .bind(&payment.id)
+            .bind(&payment.transaction_hash)
+            .bind(&payment.source_account)
+            .bind(&payment.destination_account)
+            .bind(&payment.asset_type)
+            .bind(&payment.asset_code)
+            .bind(&payment.asset_issuer)
+            .bind(payment.amount)
+            .bind(payment.created_at)
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
     }
 }

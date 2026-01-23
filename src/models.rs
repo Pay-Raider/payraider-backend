@@ -109,7 +109,7 @@ pub struct AnchorDetailResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Corridor {
+pub struct CorridorRecord {
     pub id: String,
     pub source_asset_code: String,
     pub source_asset_issuer: String,
@@ -122,7 +122,7 @@ pub struct Corridor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Metric {
+pub struct MetricRecord {
     pub id: String,
     pub name: String,
     pub value: f64,
@@ -133,7 +133,7 @@ pub struct Metric {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Snapshot {
+pub struct SnapshotRecord {
     pub id: String,
     pub entity_id: String,
     pub entity_type: String,
@@ -152,9 +152,6 @@ pub struct CreateAnchorRequest {
 // =========================
 // Corridor domain (new)
 // =========================
-
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateCorridorRequest {

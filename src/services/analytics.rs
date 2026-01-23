@@ -11,7 +11,7 @@ pub struct CorridorTransaction {
 pub fn compute_corridor_metrics(txns: &[CorridorTransaction]) -> CorridorMetrics {
     if txns.is_empty() {
         return CorridorMetrics {
-            id: uuid::Uuid::nil(),
+            id: uuid::Uuid::nil().to_string(),
             corridor_key: String::new(),
             asset_a_code: String::new(),
             asset_a_issuer: String::new(),
@@ -59,7 +59,7 @@ pub fn compute_corridor_metrics(txns: &[CorridorTransaction]) -> CorridorMetrics
     };
 
     CorridorMetrics {
-        id: uuid::Uuid::nil(),
+        id: uuid::Uuid::nil().to_string(),
         corridor_key: String::new(),
         asset_a_code: String::new(),
         asset_a_issuer: String::new(),
@@ -85,16 +85,28 @@ mod tests {
     #[test]
     fn test_compute_corridor_metrics_basic() {
         let txns = vec![
-            CorridorTransaction { successful: true, settlement_latency_ms: Some(1000), amount_usd: 100.0 },
-            CorridorTransaction { successful: true, settlement_latency_ms: Some(3000), amount_usd: 200.0 },
-            CorridorTransaction { successful: false, settlement_latency_ms: None, amount_usd: 50.0 },
+            CorridorTransaction {
+                successful: true,
+                settlement_latency_ms: Some(1000),
+                amount_usd: 100.0,
+            },
+            CorridorTransaction {
+                successful: true,
+                settlement_latency_ms: Some(3000),
+                amount_usd: 200.0,
+            },
+            CorridorTransaction {
+                successful: false,
+                settlement_latency_ms: None,
+                amount_usd: 50.0,
+            },
         ];
 
         let metrics = compute_corridor_metrics(&txns);
         assert_eq!(metrics.total_transactions, 3);
         assert_eq!(metrics.successful_transactions, 2);
         assert_eq!(metrics.failed_transactions, 1);
-        assert_eq!(metrics.success_rate, (2.0/3.0)*100.0);
+        assert_eq!(metrics.success_rate, (2.0 / 3.0) * 100.0);
         assert_eq!(metrics.avg_settlement_latency_ms, Some(2000));
         assert_eq!(metrics.liquidity_depth_usd, 300.0);
     }
@@ -111,8 +123,16 @@ mod tests {
     #[test]
     fn test_compute_corridor_metrics_all_failed() {
         let txns = vec![
-            CorridorTransaction { successful: false, settlement_latency_ms: None, amount_usd: 10.0 },
-            CorridorTransaction { successful: false, settlement_latency_ms: None, amount_usd: 20.0 },
+            CorridorTransaction {
+                successful: false,
+                settlement_latency_ms: None,
+                amount_usd: 10.0,
+            },
+            CorridorTransaction {
+                successful: false,
+                settlement_latency_ms: None,
+                amount_usd: 20.0,
+            },
         ];
         let metrics = compute_corridor_metrics(&txns);
         assert_eq!(metrics.success_rate, 0.0);
