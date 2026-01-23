@@ -5,9 +5,9 @@ use uuid::Uuid;
 
 use crate::analytics::compute_anchor_metrics;
 use crate::models::{
-    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, Corridor, CorridorMetrics,
-    CorridorMetricsHistory, CreateAnchorRequest, CreateCorridorRequest, SortBy,
+    Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, AnchorStatus, CreateAnchorRequest, CreateCorridorRequest, SortBy,
 };
+use crate::models::corridor::{Corridor, CorridorMetrics, CorridorMetricsHistory};
 
 pub struct Database {
     pool: PgPool,
