@@ -330,11 +330,12 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use uuid::Uuid;
+    use crate::models::corridor::CorridorMetrics;
 
     #[test]
     fn test_corridor_response_from_metrics() {
         let metrics = CorridorMetrics {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
             corridor_key: "EURC:issuer2->USDC:issuer1".to_string(),
             asset_a_code: "EURC".to_string(),
             asset_a_issuer: "issuer2".to_string(),

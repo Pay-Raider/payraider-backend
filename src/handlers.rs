@@ -295,7 +295,7 @@ pub async fn update_corridor_metrics_from_transactions(
         })
         .collect();
 
-    let metrics = compute_corridor_metrics(&txs);
+    let metrics = compute_corridor_metrics(&txs, None, 1.0);
     let corridor = db.update_corridor_metrics(id, metrics).await?;
     Ok(Json(corridor))
 }

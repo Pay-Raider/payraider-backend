@@ -20,7 +20,7 @@ fn test_corridor_metrics_basic() {
         },
     ];
 
-    let m = compute_corridor_metrics(&txns);
+    let m = compute_corridor_metrics(&txns, None, 1.0);
     assert_eq!(m.total_transactions, 3);
     assert_eq!(m.successful_transactions, 2);
     assert_eq!(m.failed_transactions, 1);
@@ -31,7 +31,7 @@ fn test_corridor_metrics_basic() {
 
 #[test]
 fn test_corridor_metrics_empty() {
-    let m = compute_corridor_metrics(&[]);
+    let m = compute_corridor_metrics(&[], None, 1.0);
     assert_eq!(m.total_transactions, 0);
     assert_eq!(m.success_rate, 0.0);
     assert_eq!(m.avg_settlement_latency_ms, None);
@@ -52,7 +52,7 @@ fn test_corridor_metrics_all_success_no_latency() {
             amount_usd: 20.0,
         },
     ];
-    let m = compute_corridor_metrics(&txns);
+    let m = compute_corridor_metrics(&txns, None, 1.0);
     assert_eq!(m.success_rate, 100.0);
     assert_eq!(m.avg_settlement_latency_ms, None);
     assert_eq!(m.liquidity_depth_usd, 30.0);
