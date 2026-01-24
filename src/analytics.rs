@@ -25,6 +25,10 @@ pub fn compute_anchor_metrics(
     let success_rate = (successful_transactions as f64 / total_transactions as f64) * 100.0;
     let failure_rate = (failed_transactions as f64 / total_transactions as f64) * 100.0;
 
+    // Round to 2 decimal places for consistency
+    let success_rate = (success_rate * 100.0).round() / 100.0;
+    let failure_rate = (failure_rate * 100.0).round() / 100.0;
+
     // Compute reliability score (0-100)
     // Formula: (success_rate * 0.5) + (settlement_time_score * 0.25) + (volume_consistency * 0.25)
     // For MVP, we'll use a simplified formula focused on success rate and settlement time
@@ -74,13 +78,13 @@ mod tests {
 
     #[test]
     fn test_compute_anchor_metrics_perfect_anchor() {
-        let metrics = compute_anchor_metrics(1000, 990, 10, Some(2000));
+        let metrics = compute_anchor_metrics(1000, 995, 5, Some(2000));
 
         assert_eq!(metrics.total_transactions, 1000);
-        assert_eq!(metrics.successful_transactions, 990);
-        assert_eq!(metrics.failed_transactions, 10);
-        assert_eq!(metrics.success_rate, 99.0);
-        assert_eq!(metrics.failure_rate, 1.0);
+        assert_eq!(metrics.successful_transactions, 995);
+        assert_eq!(metrics.failed_transactions, 5);
+        assert_eq!(metrics.success_rate, 99.5);
+        assert_eq!(metrics.failure_rate, 0.5);
         assert!(metrics.reliability_score > 90.0);
         assert_eq!(metrics.status, AnchorStatus::Green);
     }

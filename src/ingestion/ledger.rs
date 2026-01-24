@@ -1,7 +1,7 @@
 // I'm creating the ledger ingestion service as specified in issue #2
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -10,7 +10,7 @@ use crate::rpc::{GetLedgersResult, RpcLedger, StellarRpcClient};
 /// Ledger ingestion service that fetches and persists ledgers sequentially
 pub struct LedgerIngestionService {
     rpc_client: Arc<StellarRpcClient>,
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 /// Represents a payment operation extracted from a ledger
@@ -27,7 +27,7 @@ pub struct ExtractedPayment {
 }
 
 impl LedgerIngestionService {
-    pub fn new(rpc_client: Arc<StellarRpcClient>, pool: PgPool) -> Self {
+    pub fn new(rpc_client: Arc<StellarRpcClient>, pool: SqlitePool) -> Self {
         Self { rpc_client, pool }
     }
 
@@ -90,7 +90,7 @@ impl LedgerIngestionService {
         sqlx::query(
             r#"
             INSERT INTO ledgers (sequence, hash, close_time, transaction_count, operation_count)
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT (sequence) DO NOTHING
             "#,
         )
@@ -107,7 +107,7 @@ impl LedgerIngestionService {
         sqlx::query(
             r#"
             INSERT INTO transactions (hash, ledger_sequence, source_account, fee, operation_count, successful)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT (hash) DO NOTHING
             "#,
         )
@@ -144,7 +144,7 @@ impl LedgerIngestionService {
         sqlx::query(
             r#"
             INSERT INTO payments (ledger_sequence, transaction_hash, operation_type, source_account, destination, asset_code, asset_issuer, amount)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(payment.ledger_sequence as i64)
@@ -163,17 +163,19 @@ impl LedgerIngestionService {
 
     /// I'm getting the last ingested ledger sequence for resume
     async fn get_last_ledger(&self) -> Result<Option<u64>> {
-        let row: Option<(i64,)> = sqlx::query_as("SELECT last_ledger_sequence FROM ingestion_cursor WHERE id = 1")
-            .fetch_optional(&self.pool)
-            .await?;
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT last_ledger_sequence FROM ingestion_cursor WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|r| r.0 as u64))
     }
 
     /// I'm getting the saved cursor for pagination
     async fn get_cursor(&self) -> Result<Option<String>> {
-        let row: Option<(Option<String>,)> = sqlx::query_as("SELECT cursor FROM ingestion_cursor WHERE id = 1")
-            .fetch_optional(&self.pool)
-            .await?;
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT cursor FROM ingestion_cursor WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.and_then(|r| r.0))
     }
 
@@ -183,11 +185,11 @@ impl LedgerIngestionService {
         sqlx::query(
             r#"
             INSERT INTO ingestion_cursor (id, last_ledger_sequence, cursor, updated_at)
-            VALUES (1, $1, $2, NOW())
+            VALUES (1, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT (id) DO UPDATE SET
                 last_ledger_sequence = EXCLUDED.last_ledger_sequence,
                 cursor = EXCLUDED.cursor,
-                updated_at = NOW()
+                updated_at = CURRENT_TIMESTAMP
             "#,
         )
         .bind(seq)
