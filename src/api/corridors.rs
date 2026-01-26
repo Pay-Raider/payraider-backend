@@ -4,22 +4,11 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-<<<<<<< HEAD
-<<<<<<< HEAD
 use chrono::{Utc, Duration, Datelike};
-=======
->>>>>>> main
-=======
-use chrono::{Utc, Duration, Datelike};
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::database::Database;
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
 use crate::handlers::{ApiError, ApiResult};
 
 // Response DTOs matching frontend TypeScript interfaces
@@ -72,10 +61,6 @@ pub struct CorridorDetailResponse {
     pub latency_distribution: Vec<LatencyDataPoint>,
     pub liquidity_trends: Vec<LiquidityDataPoint>,
     pub related_corridors: Option<Vec<CorridorResponse>>,
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
 use crate::models::corridor::{Corridor, CorridorAnalytics, CorridorMetrics};
 use crate::models::SortBy;
 
@@ -110,10 +95,6 @@ impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
         ApiError::InternalError(err.to_string())
     }
-<<<<<<< HEAD
->>>>>>> main
-=======
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,26 +103,14 @@ pub struct ListCorridorsQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
     #[serde(default)]
     pub sort_by: SortBy,
->>>>>>> main
-=======
-    #[serde(default)]
-    pub sort_by: SortBy,
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
 }
 
 fn default_limit() -> i64 {
     50
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
 /// Calculate health score based on success rate, volume, and transaction count
 fn calculate_health_score(success_rate: f64, total_transactions: i64, volume_usd: f64) -> f64 {
     let success_weight = 0.6;
@@ -255,10 +224,6 @@ pub async fn get_corridor_detail(
     }
     
     let corridor = crate::models::corridor::Corridor::new(
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
 #[derive(Debug, Serialize)]
 pub struct CorridorResponse {
     pub asset_pair: String,
@@ -374,19 +339,11 @@ fn parse_asset_pair(asset_pair: &str) -> ApiResult<String> {
 
     // Create normalized corridor key using the Corridor struct
     let corridor = Corridor::new(
-<<<<<<< HEAD
->>>>>>> main
-=======
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
         asset_a_parts[0].to_string(),
         asset_a_parts[1].to_string(),
         asset_b_parts[0].to_string(),
         asset_b_parts[1].to_string(),
     );
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
     
     // Get 30 days of historical data
     let end_date = Utc::now().date_naive();
@@ -512,10 +469,6 @@ fn parse_asset_pair(asset_pair: &str) -> ApiResult<String> {
         related_corridors: Some(related_corridors),
     }))
 }
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514
 
     Ok(corridor.to_string_key())
 }
@@ -632,7 +585,3 @@ mod tests {
         assert!(json.contains("total"));
     }
 }
-<<<<<<< HEAD
->>>>>>> main
-=======
->>>>>>> 4ca663c4c6500f13c143079c3594d68ae5265514

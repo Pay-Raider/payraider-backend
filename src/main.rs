@@ -12,7 +12,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use backend::database::Database;
 use backend::handlers::*;
 use backend::api::anchors::get_anchors;
-use backend::api::corridors::{list_corridors, get_corridor_detail};
 use backend::ingestion::DataIngestionService;
 use backend::api::corridors::{get_corridors, get_corridor_by_asset_pair};
 use backend::rpc::StellarRpcClient;
@@ -120,8 +119,6 @@ async fn main() -> Result<()> {
         )
         .layer(cors)
         .route("/api/anchors/:id/assets", get(get_anchor_assets).post(create_anchor_asset))
-        .route("/api/corridors", get(list_corridors))
-        .route("/api/corridors/:corridor_key", get(get_corridor_detail))
         .with_state(db.clone());
 
     // Build corridor router
