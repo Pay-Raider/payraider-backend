@@ -5,7 +5,7 @@ use sqlx::SqlitePool;
 async fn test_snapshot_storage_with_hash_and_epoch() {
     // Create in-memory database
     let pool = SqlitePool::connect(":memory:").await.unwrap();
-    
+
     // Run migrations
     sqlx::query(
         r#"
@@ -96,7 +96,7 @@ async fn test_snapshot_storage_with_hash_and_epoch() {
 async fn test_snapshot_without_hash_and_epoch() {
     // Create in-memory database
     let pool = SqlitePool::connect(":memory:").await.unwrap();
-    
+
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS snapshots (
@@ -119,7 +119,7 @@ async fn test_snapshot_without_hash_and_epoch() {
 
     // Create snapshot without hash and epoch (backward compatibility)
     let snapshot_data = serde_json::json!({"test": "data"});
-    
+
     let snapshot = db
         .create_snapshot("test", "type", snapshot_data, None, None)
         .await

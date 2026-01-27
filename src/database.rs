@@ -512,11 +512,7 @@ impl Database {
         Ok(snapshot)
     }
 
-    pub async fn list_snapshots(
-        &self,
-        limit: i64,
-        offset: i64,
-    ) -> Result<Vec<SnapshotRecord>> {
+    pub async fn list_snapshots(&self, limit: i64, offset: i64) -> Result<Vec<SnapshotRecord>> {
         let snapshots = sqlx::query_as::<_, SnapshotRecord>(
             r#"
             SELECT * FROM snapshots
