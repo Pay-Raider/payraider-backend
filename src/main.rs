@@ -12,12 +12,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use backend::api::anchors::get_anchors;
 use backend::api::corridors::{get_corridor_detail, list_corridors};
+use backend::api::metrics;
 use backend::database::Database;
 use backend::handlers::*;
 use backend::ingestion::DataIngestionService;
 use backend::rpc::StellarRpcClient;
 use backend::rpc_handlers;
-use backend::api::metrics;
 
 #[tokio::main]
 async fn main() -> Result<()> {
