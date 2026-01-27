@@ -38,14 +38,16 @@ pub fn compute_liquidity_depth(order_book: &OrderBookSnapshot, max_slippage_perc
     let min_sell_price = mid_price * (1.0 - max_slippage_percent / 100.0);
 
     // Buy-side liquidity (asks within max slippage)
-    let buy_liquidity: f64 = order_book.asks
+    let buy_liquidity: f64 = order_book
+        .asks
         .iter()
         .take_while(|a| a.price <= max_buy_price)
         .map(|a| a.amount_usd)
         .sum();
 
     // Sell-side liquidity (bids within max slippage)
-    let sell_liquidity: f64 = order_book.bids
+    let sell_liquidity: f64 = order_book
+        .bids
         .iter()
         .take_while(|b| b.price >= min_sell_price)
         .map(|b| b.amount_usd)
@@ -188,7 +190,7 @@ pub fn compute_metrics_from_payments(payments: &[PaymentRecord]) -> Vec<Corridor
             success_rate,
             volume_usd,
             avg_settlement_latency_ms: None, // Not available in PaymentRecord yet
-            liquidity_depth_usd: 0.0, // Needs order book
+            liquidity_depth_usd: 0.0,        // Needs order book
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         });
@@ -215,8 +217,8 @@ pub fn compute_metrics_by_window(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::models::corridor::PaymentRecord;
+    use chrono::Utc;
     use uuid::Uuid;
 
     fn create_test_payment_record(
@@ -254,7 +256,7 @@ mod tests {
             .iter()
             .find(|m| m.asset_a_code == "EURC" || m.asset_a_code == "USDC") // Normalized
             .expect("Should find USDC/EURC metrics");
-        
+
         assert_eq!(usdc_metrics.total_transactions, 2);
         assert_eq!(usdc_metrics.successful_transactions, 2);
         assert_eq!(usdc_metrics.success_rate, 100.0);
@@ -282,7 +284,6 @@ mod tests {
         assert_eq!(metrics[0].total_transactions, 2);
     }
 
-
     #[test]
     fn test_compute_corridor_metrics_basic() {
         let txns = vec![
@@ -305,12 +306,24 @@ mod tests {
 
         let order_book = OrderBookSnapshot {
             bids: vec![
-                OrderBookEntry { price: 99.0, amount_usd: 150.0 },
-                OrderBookEntry { price: 98.5, amount_usd: 100.0 },
+                OrderBookEntry {
+                    price: 99.0,
+                    amount_usd: 150.0,
+                },
+                OrderBookEntry {
+                    price: 98.5,
+                    amount_usd: 100.0,
+                },
             ],
             asks: vec![
-                OrderBookEntry { price: 101.0, amount_usd: 200.0 },
-                OrderBookEntry { price: 102.0, amount_usd: 50.0 },
+                OrderBookEntry {
+                    price: 101.0,
+                    amount_usd: 200.0,
+                },
+                OrderBookEntry {
+                    price: 102.0,
+                    amount_usd: 50.0,
+                },
             ],
         };
 
