@@ -18,8 +18,8 @@ use backend::handlers::*;
 use backend::ingestion::DataIngestionService;
 use backend::rpc::StellarRpcClient;
 use backend::rpc_handlers;
-use backend::api::metrics;
 use backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
+
 
 #[tokio::main]
 async fn main() -> Result<()> {
