@@ -9,6 +9,8 @@ pub mod ml_handlers;
 pub mod models;
 pub mod services;
 pub mod snapshot;
+pub mod rate_limit;
+pub mod snapshot_handlers;
 
 pub mod rpc;
 pub mod rpc_handlers;
