@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::cache::{keys, CacheManager};
 use crate::cache_middleware::CacheAware;
 use crate::database::Database;
-use crate::handlers::{ApiError, ApiResult};
+use crate::handlers::ApiResult;
 use crate::models::corridor::{Corridor, CorridorMetrics};
 use crate::models::SortBy;
 
@@ -139,7 +139,7 @@ pub async fn list_corridors(
     let corridors = <()>::get_or_fetch(
         &cache,
         &cache_key,
-        cache.config.corridor_metrics_ttl,
+        cache.config.get_ttl("corridor"),
         async {
             let today = Utc::now().date_naive();
 
@@ -272,7 +272,7 @@ pub async fn get_corridor_detail(
     let detail = <()>::get_or_fetch(
         &cache,
         &cache_key,
-        cache.config.corridor_metrics_ttl,
+        cache.config.get_ttl("corridor"),
         async {
             let parts: Vec<&str> = corridor_key.split("->").collect();
             if parts.len() != 2 {

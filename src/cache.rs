@@ -31,6 +31,17 @@ pub struct CacheConfig {
     pub dashboard_stats_ttl: usize,     // 1 minute
 }
 
+impl CacheConfig {
+    pub fn get_ttl(&self, cache_type: &str) -> usize {
+        match cache_type {
+            "corridor" => self.corridor_metrics_ttl,
+            "anchor" => self.anchor_data_ttl,
+            "dashboard" => self.dashboard_stats_ttl,
+            _ => 300,
+        }
+    }
+}
+
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
@@ -44,7 +55,7 @@ impl Default for CacheConfig {
 /// Main cache manager
 pub struct CacheManager {
     redis_connection: Arc<RwLock<Option<MultiplexedConnection>>>,
-    config: CacheConfig,
+    pub config: CacheConfig,
     stats: Arc<CacheStats>,
     hits: Arc<AtomicU64>,
     misses: Arc<AtomicU64>,

@@ -1,11 +1,11 @@
-use axum::{routing::get, Json, Router, State};
-use serde::Serialize;
+use axum::{routing::get, extract::State, Json, Router};
+use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 
 use crate::cache::{keys, CacheManager};
 use crate::cache_middleware::CacheAware;
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct MetricsOverview {
     pub total_volume: f64,
     pub total_transactions: u64,
@@ -23,7 +23,7 @@ pub async fn metrics_overview(
     let overview = <()>::get_or_fetch(
         &cache,
         &cache_key,
-        cache.config.dashboard_stats_ttl,
+        cache.config.get_ttl("dashboard"),
         async {
             // Placeholder: Replace with real data aggregation logic
             Ok(MetricsOverview {
