@@ -56,7 +56,7 @@ fn default_limit() -> i64 {
     50
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AnchorMetricsResponse {
     pub id: String,
     pub name: String,
@@ -70,7 +70,7 @@ pub struct AnchorMetricsResponse {
     pub status: String,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AnchorsResponse {
     pub anchors: Vec<AnchorMetricsResponse>,
     pub total: usize,
@@ -86,7 +86,7 @@ pub async fn get_anchors(
     let response = <()>::get_or_fetch(
         &cache,
         &cache_key,
-        cache.config.anchor_data_ttl,
+        cache.config.get_ttl("anchor"),
         async {
             let anchors = db.list_anchors(params.limit, params.offset).await?;
 
