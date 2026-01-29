@@ -13,6 +13,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use backend::api::anchors::get_anchors;
 use backend::api::corridors::{get_corridor_detail, list_corridors};
 use backend::api::metrics;
+use backend::auth::AuthService;
+use backend::auth_middleware::auth_middleware;
 use backend::database::Database;
 use backend::handlers::*;
 use backend::ingestion::DataIngestionService;
@@ -96,6 +98,26 @@ async fn main() -> Result<()> {
         }
     });
 
+    // Initialize Auth Service with its own Redis connection
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let auth_redis_connection = if let Ok(client) = redis::Client::open(redis_url.as_str()) {
+        match client.get_multiplexed_tokio_connection().await {
+            Ok(conn) => {
+                tracing::info!("Auth service connected to Redis");
+                Some(conn)
+            }
+            Err(e) => {
+                tracing::warn!("Auth service failed to connect to Redis ({}), refresh tokens will not persist", e);
+                None
+            }
+        }
+    } else {
+        tracing::warn!("Invalid Redis URL for auth service");
+        None
+    };
+    let auth_service = Arc::new(AuthService::new(Arc::new(tokio::sync::RwLock::new(auth_redis_connection))));
+    tracing::info!("Auth service initialized");
+
     // Run initial sync (skip on network errors)
     tracing::info!("Running initial metrics synchronization...");
     let _ = ingestion_service.sync_all_metrics().await;
@@ -152,29 +174,45 @@ async fn main() -> Result<()> {
     use tower::ServiceBuilder;
     use axum::middleware;
 
-    // Build anchor router
+    // Build auth router
+    let auth_routes = backend::api::auth::routes(auth_service.clone());
+
+    // Build anchor router with protected write endpoints
     let anchor_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/api/anchors", get(get_anchors).post(create_anchor))
+        .route("/api/anchors", get(get_anchors))
         .route("/api/anchors/:id", get(get_anchor))
         .route(
             "/api/anchors/account/:stellar_account",
             get(get_anchor_by_account),
         )
-        .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
-        .route(
-            "/api/anchors/:id/assets",
-            get(get_anchor_assets).post(create_anchor_asset),
-        )
-        .route("/api/corridors", get(list_corridors).post(create_corridor))
-        .route(
-            "/api/corridors/:id/metrics-from-transactions",
-            put(update_corridor_metrics_from_transactions),
-        )
+        .route("/api/anchors/:id/assets", get(get_anchor_assets))
+        .route("/api/corridors", get(list_corridors))
         .route("/api/corridors/:corridor_key", get(get_corridor_detail))
         .with_state(app_state.clone())
         .layer(
             ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                ))
+        )
+        .layer(cors.clone());
+
+    // Build protected anchor routes (require authentication)
+    let protected_anchor_routes = Router::new()
+        .route("/api/anchors", axum::routing::post(create_anchor))
+        .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
+        .route("/api/anchors/:id/assets", axum::routing::post(create_anchor_asset))
+        .route("/api/corridors", axum::routing::post(create_corridor))
+        .route(
+            "/api/corridors/:id/metrics-from-transactions",
+            put(update_corridor_metrics_from_transactions),
+        )
+        .with_state(app_state.clone())
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn(auth_middleware))
                 .layer(middleware::from_fn_with_state(
                     rate_limiter.clone(),
                     rate_limit_middleware,
@@ -214,7 +252,9 @@ async fn main() -> Result<()> {
 
     // Merge routers
     let app = Router::new()
+        .merge(auth_routes)
         .merge(anchor_routes)
+        .merge(protected_anchor_routes)
         .merge(rpc_routes)
         .merge(metrics::routes())
         .merge(ws_routes);
