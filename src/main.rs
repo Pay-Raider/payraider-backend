@@ -22,7 +22,7 @@ use backend::rpc::StellarRpcClient;
 use backend::rpc_handlers;
 use backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
 use backend::state::AppState;
-use backend::websocket::{ws_handler, WsState};
+use backend::websocket::WsState;
 
 
 #[tokio::main]
@@ -259,7 +259,8 @@ async fn main() -> Result<()> {
     // Merge routers
     let app = Router::new()
         .merge(anchor_routes)
-        .merge(rpc_routes)
+        .merge(rpc_routes);
+
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
