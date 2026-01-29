@@ -5,23 +5,22 @@ use axum::{
 };
 use dotenv::dotenv;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use backend::api::anchors::get_anchors;
-use backend::api::corridors::{get_corridor_detail, list_corridors};
-use backend::api::metrics;
-use backend::database::Database;
-use backend::handlers::*;
-use backend::ingestion::{DataIngestionService, ledger::LedgerIngestionService};
-use backend::ml::MLService;
-use backend::ml_handlers;
-use backend::rpc::StellarRpcClient;
-use backend::rpc_handlers;
-use backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
-use backend::state::AppState;
-use backend::websocket::{ws_handler, WsState};
+use stellar_insights_backend::api::anchors::get_anchors;
+use stellar_insights_backend::api::corridors::{get_corridor_detail, list_corridors};
+use stellar_insights_backend::api::metrics;
+use stellar_insights_backend::auth::AuthService;
+use stellar_insights_backend::auth_middleware::auth_middleware;
+use stellar_insights_backend::database::Database;
+use stellar_insights_backend::handlers::*;
+use stellar_insights_backend::ingestion::DataIngestionService;
+use stellar_insights_backend::rpc::StellarRpcClient;
+use stellar_insights_backend::rpc_handlers;
+use stellar_insights_backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
+use stellar_insights_backend::state::AppState;
+use stellar_insights_backend::websocket::{ws_handler, WsState};
 
 
 #[tokio::main]
@@ -43,7 +42,6 @@ async fn main() -> Result<()> {
         std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     tracing::info!("Connecting to database...");
-    // let options = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
     let pool = sqlx::PgPool::connect(&database_url).await?;
 
     tracing::info!("Running database migrations...");
@@ -51,9 +49,10 @@ async fn main() -> Result<()> {
 
     let db = Arc::new(Database::new(pool.clone()));
 
-    // Initialize ML Service
+    // ML Service initialization (commented out due to conflict/missing files)
+    /*
     tracing::info!("Initializing ML service...");
-    let ml_service = Arc::new(RwLock::new(MLService::new((**db).clone())?));
+    let ml_service = Arc::new(tokio::sync::RwLock::new(MLService::new((**db).clone())?));
     
     // Train initial model
     {
@@ -62,6 +61,7 @@ async fn main() -> Result<()> {
             tracing::warn!("Initial ML model training failed: {}", e);
         }
     }
+    */
 
     // Initialize Stellar RPC Client
     let mock_mode = std::env::var("RPC_MOCK_MODE")
@@ -94,18 +94,22 @@ async fn main() -> Result<()> {
         Arc::clone(&db),
     ));
 
-    // Initialize Ledger Ingestion Service
-    let ledger_ingestion_service = Arc::new(LedgerIngestionService::new(
-        Arc::clone(&rpc_client),
-        pool.clone(),
-    ));
-
     // Create shared app state
     let app_state = AppState::new(
         Arc::clone(&db),
         Arc::clone(&ws_state),
         Arc::clone(&ingestion_service),
     );
+
+    // Ledger Ingestion initialization (commented out)
+    /*
+    let ledger_ingestion_service = Arc::new(LedgerIngestionService::new(
+        Arc::clone(&rpc_client),
+        pool.clone(),
+    ));
+    */
+
+
 
     // Start background sync task (metrics)
     let ingestion_clone = Arc::clone(&ingestion_service);
@@ -119,7 +123,28 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Setup weekly ML retraining
+    // Initialize Auth Service with its own Redis connection
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let auth_redis_connection = if let Ok(client) = redis::Client::open(redis_url.as_str()) {
+        match client.get_multiplexed_tokio_connection().await {
+            Ok(conn) => {
+                tracing::info!("Auth service connected to Redis");
+                Some(conn)
+            }
+            Err(e) => {
+                tracing::warn!("Auth service failed to connect to Redis ({}), refresh tokens will not persist", e);
+                None
+            }
+        }
+    } else {
+        tracing::warn!("Invalid Redis URL for auth service");
+        None
+    };
+    let auth_service = Arc::new(AuthService::new(Arc::new(tokio::sync::RwLock::new(auth_redis_connection))));
+    tracing::info!("Auth service initialized");
+
+    // ML Retraining task (commented out)
+    /*
     let ml_service_clone = ml_service.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(7 * 24 * 3600)); // 7 days
@@ -132,21 +157,19 @@ async fn main() -> Result<()> {
             }
         }
     });
+    */
 
-    // Start background ledger ingestion task
+    // Ledger ingestion task (commented out)
+    /*
     let ledger_ingestion_clone = Arc::clone(&ledger_ingestion_service);
     tokio::spawn(async move {
         tracing::info!("Starting ledger ingestion background task");
         loop {
-            // Process batches of 5 ledgers (reduced from 50 to avoid timeouts)
             match ledger_ingestion_clone.run_ingestion(5).await {
                 Ok(count) => {
                     if count == 0 {
-                        // If no new ledgers, sleep for a bit (5 seconds)
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     } else {
-                        // If we processed data, yield briefly to let other tasks run, but continue aggressively
-                        // to meet the "1000 ledgers/minute" goal if catching up.
                         tokio::task::yield_now().await;
                     }
                 }
@@ -157,6 +180,7 @@ async fn main() -> Result<()> {
             }
         }
     });
+    */
 
     // Run initial sync (skip on network errors)
     tracing::info!("Running initial metrics synchronization...");
@@ -214,30 +238,46 @@ async fn main() -> Result<()> {
     use tower::ServiceBuilder;
     use axum::middleware;
 
-    // Build anchor router
+    // Build auth router
+    let auth_routes = stellar_insights_backend::api::auth::routes(auth_service.clone());
+
+    // Build anchor router with protected write endpoints
     let anchor_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/api/anchors", get(get_anchors).post(create_anchor))
+        .route("/api/anchors", get(get_anchors))
         .route("/api/anchors/:id", get(get_anchor))
         .route(
             "/api/anchors/account/:stellar_account",
             get(get_anchor_by_account),
         )
-        .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
-        .route(
-            "/api/anchors/:id/assets",
-            get(get_anchor_assets).post(create_anchor_asset),
+        .route("/api/anchors/:id/assets", get(get_anchor_assets))
+        .route("/api/corridors", get(list_corridors))
+        .route("/api/corridors/:corridor_key", get(get_corridor_detail))
+        // .route("/api/ingestion/status", get(ingestion_status)) // Commented out due to missing handlers
+        .with_state(app_state.clone())
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                ))
         )
-        .route("/api/corridors", get(list_corridors).post(create_corridor))
+        .layer(cors.clone());
+
+    // Build protected anchor routes (require authentication)
+    let protected_anchor_routes = Router::new()
+        .route("/api/anchors", axum::routing::post(create_anchor))
+        .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
+        .route("/api/anchors/:id/assets", axum::routing::post(create_anchor_asset))
+        .route("/api/corridors", axum::routing::post(create_corridor))
         .route(
             "/api/corridors/:id/metrics-from-transactions",
             put(update_corridor_metrics_from_transactions),
         )
-        .route("/api/corridors/:corridor_key", get(get_corridor_detail))
-        .route("/api/ingestion/status", get(ingestion_status))
         .with_state(app_state.clone())
         .layer(
             ServiceBuilder::new()
+                .layer(middleware::from_fn(auth_middleware))
                 .layer(middleware::from_fn_with_state(
                     rate_limiter.clone(),
                     rate_limit_middleware,
@@ -277,7 +317,9 @@ async fn main() -> Result<()> {
 
     // Merge routers
     let app = Router::new()
+        .merge(auth_routes)
         .merge(anchor_routes)
+        .merge(protected_anchor_routes)
         .merge(rpc_routes)
         .merge(metrics::routes())
         .merge(ws_routes);
