@@ -1,12 +1,13 @@
 use anyhow::Result;
 use axum::{
-    routing::{get, put},
+    routing::{get, put, post},
     Router,
 };
 use dotenv::dotenv;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -17,6 +18,8 @@ use backend::cache_invalidation::CacheInvalidationService;
 use backend::database::Database;
 use backend::handlers::*;
 use backend::ingestion::DataIngestionService;
+use backend::ml::MLService;
+use backend::ml_handlers;
 use backend::rpc::StellarRpcClient;
 use backend::rpc_handlers;
 use backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
@@ -50,22 +53,6 @@ async fn main() -> Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     let db = Arc::new(Database::new(pool));
-
-    // Initialize Cache Manager
-    let cache_config = CacheConfig::default();
-    let cache = match CacheManager::new(cache_config).await {
-        Ok(cache) => {
-            tracing::info!("Cache manager initialized successfully");
-            Arc::new(cache)
-        }
-        Err(e) => {
-            tracing::warn!("Failed to initialize cache manager: {}", e);
-            // Create a cache manager that will gracefully degrade
-            Arc::new(CacheManager::new(CacheConfig::default()).await?)
-        }
-    };
-
-    let cache_invalidation = Arc::new(CacheInvalidationService::new(Arc::clone(&cache)));
 
     // Initialize Stellar RPC Client
     let mock_mode = std::env::var("RPC_MOCK_MODE")
@@ -120,6 +107,20 @@ async fn main() -> Result<()> {
                 }
                 if let Err(e) = cache_invalidation_clone.invalidate_metrics().await {
                     tracing::warn!("Failed to invalidate metrics caches: {}", e);
+                }
+            }
+        }
+    });
+
+    // Setup weekly ML retraining
+    let ml_service_clone = ml_service.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(7 * 24 * 3600)); // 7 days
+        loop {
+            interval.tick().await;
+            if let Ok(mut service) = ml_service_clone.try_write() {
+                if let Err(e) = service.retrain_weekly().await {
+                    tracing::error!("Weekly ML retraining failed: {}", e);
                 }
             }
         }
