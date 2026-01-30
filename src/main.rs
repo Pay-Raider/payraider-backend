@@ -8,19 +8,20 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use stellar_insights_backend::api::anchors::get_anchors;
-use stellar_insights_backend::api::corridors::{get_corridor_detail, list_corridors};
-use stellar_insights_backend::api::metrics;
-use stellar_insights_backend::auth::AuthService;
-use stellar_insights_backend::auth_middleware::auth_middleware;
-use stellar_insights_backend::database::Database;
-use stellar_insights_backend::handlers::*;
-use stellar_insights_backend::ingestion::DataIngestionService;
-use stellar_insights_backend::rpc::StellarRpcClient;
-use stellar_insights_backend::rpc_handlers;
-use stellar_insights_backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
-use stellar_insights_backend::state::AppState;
-use stellar_insights_backend::websocket::{ws_handler, WsState};
+use backend::api::anchors::get_anchors;
+use backend::api::corridors::{get_corridor_detail, list_corridors};
+use backend::cache::{CacheConfig, CacheManager};
+use backend::cache_invalidation::CacheInvalidationService;
+use backend::database::Database;
+use backend::handlers::*;
+use backend::ingestion::{DataIngestionService, ledger::LedgerIngestionService};
+use backend::ml::MLService;
+use backend::ml_handlers;
+use backend::rpc::StellarRpcClient;
+use backend::rpc_handlers;
+use backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
+use backend::state::AppState;
+use backend::websocket::WsState;
 
 
 #[tokio::main]
@@ -48,20 +49,6 @@ async fn main() -> Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     let db = Arc::new(Database::new(pool.clone()));
-
-    // ML Service initialization (commented out due to conflict/missing files)
-    /*
-    tracing::info!("Initializing ML service...");
-    let ml_service = Arc::new(tokio::sync::RwLock::new(MLService::new((**db).clone())?));
-    
-    // Train initial model
-    {
-        let mut service = ml_service.write().await;
-        if let Err(e) = service.train_model().await {
-            tracing::warn!("Initial ML model training failed: {}", e);
-        }
-    }
-    */
 
     // Initialize Stellar RPC Client
     let mock_mode = std::env::var("RPC_MOCK_MODE")
@@ -94,31 +81,26 @@ async fn main() -> Result<()> {
         Arc::clone(&db),
     ));
 
-    // Create shared app state
-    let app_state = AppState::new(
-        Arc::clone(&db),
-        Arc::clone(&ws_state),
-        Arc::clone(&ingestion_service),
-    );
 
-    // Ledger Ingestion initialization (commented out)
-    /*
-    let ledger_ingestion_service = Arc::new(LedgerIngestionService::new(
-        Arc::clone(&rpc_client),
-        pool.clone(),
-    ));
-    */
-
-
-
-    // Start background sync task (metrics)
     let ingestion_clone = Arc::clone(&ingestion_service);
+    let cache_invalidation_clone = Arc::clone(&cache_invalidation);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(300)); // 5 minutes
         loop {
             interval.tick().await;
             if let Err(e) = ingestion_clone.sync_all_metrics().await {
                 tracing::error!("Metrics synchronization failed: {}", e);
+            } else {
+                // Invalidate caches after successful sync
+                if let Err(e) = cache_invalidation_clone.invalidate_anchors().await {
+                    tracing::warn!("Failed to invalidate anchor caches: {}", e);
+                }
+                if let Err(e) = cache_invalidation_clone.invalidate_corridors().await {
+                    tracing::warn!("Failed to invalidate corridor caches: {}", e);
+                }
+                if let Err(e) = cache_invalidation_clone.invalidate_metrics().await {
+                    tracing::warn!("Failed to invalidate metrics caches: {}", e);
+                }
             }
         }
     });
@@ -195,7 +177,6 @@ async fn main() -> Result<()> {
         },
         Err(e) => {
             tracing::warn!("Failed to initialize Redis rate limiter, creating with memory fallback: {}", e);
-            // Create a rate limiter that will use memory store only
             Arc::new(RateLimiter::new().await.unwrap_or_else(|_| {
                 panic!("Failed to create rate limiter: critical error")
             }))
@@ -204,7 +185,7 @@ async fn main() -> Result<()> {
 
     // Configure rate limits for endpoints
     rate_limiter.register_endpoint("/health".to_string(), RateLimitConfig {
-        requests_per_minute: 1000, // Health checks can be more frequent
+        requests_per_minute: 1000,
         whitelist_ips: vec!["127.0.0.1".to_string()],
     }).await;
 
@@ -309,20 +290,11 @@ async fn main() -> Result<()> {
         )
         .layer(cors.clone());
 
-    // Build WebSocket router
-    let ws_routes = Router::new()
-        .route("/ws", get(ws_handler))
-        .with_state(ws_state.clone())
-        .layer(cors.clone());
-
     // Merge routers
     let app = Router::new()
         .merge(auth_routes)
         .merge(anchor_routes)
-        .merge(protected_anchor_routes)
-        .merge(rpc_routes)
-        .merge(metrics::routes())
-        .merge(ws_routes);
+        .merge(rpc_routes);
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
