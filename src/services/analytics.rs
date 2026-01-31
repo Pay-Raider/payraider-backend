@@ -96,8 +96,10 @@ pub fn compute_corridor_metrics(
             successful_transactions += 1;
             volume_usd += t.amount_usd.max(0.0);
             if let Some(ms) = t.settlement_latency_ms {
-                latency_sum += ms as i64;
-                latency_values.push(ms as i64);
+                if ms >= 0 {
+                    latency_sum += ms as i64;
+                    latency_values.push(ms as i64);
+                }
             }
         } else {
             failed_transactions += 1;
@@ -170,8 +172,11 @@ pub fn compute_metrics_from_payments(payments: &[PaymentRecord]) -> Vec<Corridor
                 volume_usd += p.amount; // Assuming amount is already USD or normalized.
                 // Compute settlement latency from submission/confirmation times
                 if let Some(latency_ms) = p.settlement_latency_ms() {
-                    latency_sum += latency_ms;
-                    latency_values.push(latency_ms);
+                    // Filter out negative latencies which might be due to data synchronization issues
+                    if latency_ms >= 0 {
+                        latency_sum += latency_ms;
+                        latency_values.push(latency_ms);
+                    }
                 }
             } else {
                 failed_transactions += 1;
@@ -444,5 +449,23 @@ mod tests {
         let m = &metrics[0];
         assert_eq!(m.avg_settlement_latency_ms, Some(2500)); // (1000 + 2000 + 3000 + 4000) / 4
         assert_eq!(m.median_settlement_latency_ms, Some(2500)); // (2000 + 3000) / 2
+    }
+
+    #[test]
+    fn test_median_latency_with_negative_values() {
+        let now = Utc::now();
+        let payments = vec![
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, 1000),
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, -500), // Should be filtered
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, 3000),
+        ];
+
+        let metrics = compute_metrics_from_payments(&payments);
+        assert_eq!(metrics.len(), 1);
+
+        let m = &metrics[0];
+        // Only 1000 and 3000 should be considered
+        assert_eq!(m.avg_settlement_latency_ms, Some(2000)); // (1000 + 3000) / 2
+        assert_eq!(m.median_settlement_latency_ms, Some(2000)); // Median of [1000, 3000]
     }
 }
