@@ -2,12 +2,12 @@ use crate::snapshot::schema::{
     AnalyticsSnapshot, SnapshotAnchorMetrics, SnapshotCorridorMetrics, SCHEMA_VERSION,
 };
 use crate::database::Database;
-use crate::models::{Anchor, SnapshotRecord};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -75,7 +75,7 @@ impl SnapshotService {
             .context("Failed to serialize snapshot deterministically")?;
 
         // Step 3: Compute SHA-256 hash
-        let hash = Self::compute_sha256_hash(&canonical_json);
+        let hash = Self::compute_sha256_hash_bytes(&canonical_json);
         let hash_hex = hex::encode(&hash);
 
         info!("Generated snapshot hash: {}", hash_hex);
@@ -125,7 +125,7 @@ impl SnapshotService {
     }
 
     /// Aggregate all metrics from the database into a snapshot
-    async fn aggregate_all_metrics(&self, epoch: u64) -> Result<AnalyticsSnapshot> {
+    pub(crate) async fn aggregate_all_metrics(&self, epoch: u64) -> Result<AnalyticsSnapshot> {
         let timestamp = Utc::now();
         let mut snapshot = AnalyticsSnapshot::new(epoch, timestamp);
 
@@ -168,7 +168,7 @@ impl SnapshotService {
         "#;
 
         let rows = sqlx::query(query)
-            .fetch_all(&self.db.pool)
+            .fetch_all(self.db.pool())
             .await
             .context("Failed to fetch anchor data")?;
 
@@ -239,7 +239,7 @@ impl SnapshotService {
         "#;
 
         let rows = sqlx::query(query)
-            .fetch_all(&self.db.pool)
+            .fetch_all(self.db.pool())
             .await
             .context("Failed to fetch corridor metrics")?;
 
@@ -271,7 +271,7 @@ impl SnapshotService {
     }
 
     /// Store snapshot and hash in database
-    async fn store_snapshot_in_database(
+    pub(crate) async fn store_snapshot_in_database(
         &self,
         snapshot: &AnalyticsSnapshot,
         hash: &str,
@@ -294,7 +294,7 @@ impl SnapshotService {
             .bind(snapshot.epoch as i64)
             .bind(snapshot.timestamp)
             .bind(Utc::now())
-            .execute(&self.db.pool)
+            .execute(self.db.pool())
             .await
             .context("Failed to insert snapshot record")?;
 
@@ -553,6 +553,16 @@ impl SnapshotService {
         } else {
             Value::Null
         }
+    }
+
+    /// Compute SHA-256 hash of a string and return the bytes
+    fn compute_sha256_hash_bytes(data: &str) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(data.as_bytes());
+        let result = hasher.finalize();
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&result[..]);
+        hash
     }
 
     /// Generate SHA-256 hash of the snapshot

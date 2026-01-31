@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::{
-    routing::{get, put, post},
+    routing::{get, put},
     Router,
 };
 use dotenv::dotenv;
@@ -8,20 +8,22 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use backend::api::anchors::get_anchors;
-use backend::api::corridors::{get_corridor_detail, list_corridors};
-use backend::cache::{CacheConfig, CacheManager};
-use backend::cache_invalidation::CacheInvalidationService;
-use backend::database::Database;
-use backend::handlers::*;
-use backend::ingestion::{DataIngestionService, ledger::LedgerIngestionService};
-use backend::ml::MLService;
-use backend::ml_handlers;
-use backend::rpc::StellarRpcClient;
-use backend::rpc_handlers;
-use backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
-use backend::state::AppState;
-use backend::websocket::WsState;
+use stellar_insights_backend::api::anchors_cached::get_anchors;
+use stellar_insights_backend::api::corridors_cached::{get_corridor_detail, list_corridors};
+use stellar_insights_backend::api::cache_stats;
+use stellar_insights_backend::api::metrics_cached;
+use stellar_insights_backend::auth::AuthService;
+use stellar_insights_backend::auth_middleware::auth_middleware;
+use stellar_insights_backend::cache::{CacheConfig, CacheManager};
+use stellar_insights_backend::cache_invalidation::CacheInvalidationService;
+use stellar_insights_backend::database::Database;
+use stellar_insights_backend::handlers::*;
+use stellar_insights_backend::ingestion::DataIngestionService;
+use stellar_insights_backend::rpc::StellarRpcClient;
+use stellar_insights_backend::rpc_handlers;
+use stellar_insights_backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
+use stellar_insights_backend::state::AppState;
+use stellar_insights_backend::websocket::WsState;
 
 
 #[tokio::main]
@@ -81,6 +83,24 @@ async fn main() -> Result<()> {
         Arc::clone(&db),
     ));
 
+
+    // Initialize Redis cache
+    let cache_config = CacheConfig::default();
+    let cache = Arc::new(CacheManager::new(cache_config).await?);
+    tracing::info!("Cache manager initialized");
+
+    // Initialize cache invalidation service
+    let cache_invalidation = Arc::new(CacheInvalidationService::new(Arc::clone(&cache)));
+
+    // Create app state for handlers that need it
+    let app_state = AppState::new(
+        Arc::clone(&db),
+        Arc::clone(&ws_state),
+        Arc::clone(&ingestion_service),
+    );
+
+    // Create cached state tuple for cached API handlers
+    let cached_state = (Arc::clone(&db), Arc::clone(&cache));
 
     let ingestion_clone = Arc::clone(&ingestion_service);
     let cache_invalidation_clone = Arc::clone(&cache_invalidation);
@@ -222,19 +242,30 @@ async fn main() -> Result<()> {
     // Build auth router
     let auth_routes = stellar_insights_backend::api::auth::routes(auth_service.clone());
 
-    // Build anchor router with protected write endpoints
+    // Build cached routes (anchors list, corridors list/detail) with cache state
+    let cached_routes = Router::new()
+        .route("/api/anchors", get(get_anchors))
+        .route("/api/corridors", get(list_corridors))
+        .route("/api/corridors/:corridor_key", get(get_corridor_detail))
+        .with_state(cached_state.clone())
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                ))
+        )
+        .layer(cors.clone());
+
+    // Build non-cached anchor routes with app state
     let anchor_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/api/anchors", get(get_anchors))
         .route("/api/anchors/:id", get(get_anchor))
         .route(
             "/api/anchors/account/:stellar_account",
             get(get_anchor_by_account),
         )
         .route("/api/anchors/:id/assets", get(get_anchor_assets))
-        .route("/api/corridors", get(list_corridors))
-        .route("/api/corridors/:corridor_key", get(get_corridor_detail))
-        // .route("/api/ingestion/status", get(ingestion_status)) // Commented out due to missing handlers
         .with_state(app_state.clone())
         .layer(
             ServiceBuilder::new()
@@ -266,6 +297,10 @@ async fn main() -> Result<()> {
         )
         .layer(cors.clone());
 
+    // Build cache stats and metrics routes
+    let cache_routes = cache_stats::routes(Arc::clone(&cache));
+    let metrics_routes = metrics_cached::routes(Arc::clone(&cache));
+
     // Build RPC router
     let rpc_routes = Router::new()
         .route("/api/rpc/health", get(rpc_handlers::rpc_health_check))
@@ -293,8 +328,12 @@ async fn main() -> Result<()> {
     // Merge routers
     let app = Router::new()
         .merge(auth_routes)
+        .merge(cached_routes)
         .merge(anchor_routes)
-        .merge(rpc_routes);
+        .merge(protected_anchor_routes)
+        .merge(rpc_routes)
+        .merge(cache_routes)
+        .merge(metrics_routes);
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
