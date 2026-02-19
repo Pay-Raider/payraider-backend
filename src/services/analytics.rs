@@ -1,4 +1,4 @@
-use crate::models::corridor::{CorridorMetrics, PaymentRecord};
+use crate::models::corridor::{compute_median, CorridorMetrics, PaymentRecord};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -38,14 +38,16 @@ pub fn compute_liquidity_depth(order_book: &OrderBookSnapshot, max_slippage_perc
     let min_sell_price = mid_price * (1.0 - max_slippage_percent / 100.0);
 
     // Buy-side liquidity (asks within max slippage)
-    let buy_liquidity: f64 = order_book.asks
+    let buy_liquidity: f64 = order_book
+        .asks
         .iter()
         .take_while(|a| a.price <= max_buy_price)
         .map(|a| a.amount_usd)
         .sum();
 
     // Sell-side liquidity (bids within max slippage)
-    let sell_liquidity: f64 = order_book.bids
+    let sell_liquidity: f64 = order_book
+        .bids
         .iter()
         .take_while(|b| b.price >= min_sell_price)
         .map(|b| b.amount_usd)
@@ -54,7 +56,7 @@ pub fn compute_liquidity_depth(order_book: &OrderBookSnapshot, max_slippage_perc
     buy_liquidity + sell_liquidity
 }
 
-/// Compute corridor metrics from transactions + optional order book
+/// Computes corridor metrics from transactions, calculating average and median settlement latency with optional liquidity depth.
 pub fn compute_corridor_metrics(
     txns: &[CorridorTransaction],
     order_book: Option<&OrderBookSnapshot>, // Optional snapshot for liquidity depth
@@ -71,6 +73,7 @@ pub fn compute_corridor_metrics(
             date: chrono::Utc::now(),
             success_rate: 0.0,
             avg_settlement_latency_ms: None,
+            median_settlement_latency_ms: None,
             liquidity_depth_usd: 0.0,
             volume_usd: 0.0,
             total_transactions: 0,
@@ -84,8 +87,8 @@ pub fn compute_corridor_metrics(
     let total_transactions = txns.len() as i64;
     let mut successful_transactions = 0;
     let mut failed_transactions = 0;
-    let mut latency_sum = 0;
-    let mut latency_count = 0;
+    let mut latency_sum = 0i64;
+    let mut latency_values: Vec<i64> = Vec::new();
     let mut volume_usd = 0.0;
 
     for t in txns {
@@ -93,8 +96,10 @@ pub fn compute_corridor_metrics(
             successful_transactions += 1;
             volume_usd += t.amount_usd.max(0.0);
             if let Some(ms) = t.settlement_latency_ms {
-                latency_sum += ms as i64;
-                latency_count += 1;
+                if ms >= 0 {
+                    latency_sum += ms as i64;
+                    latency_values.push(ms as i64);
+                }
             }
         } else {
             failed_transactions += 1;
@@ -102,11 +107,12 @@ pub fn compute_corridor_metrics(
     }
 
     let success_rate = (successful_transactions as f64 / total_transactions as f64) * 100.0;
-    let avg_settlement_latency_ms = if latency_count > 0 {
-        Some((latency_sum / latency_count) as i32)
+    let avg_settlement_latency_ms = if !latency_values.is_empty() {
+        Some((latency_sum / latency_values.len() as i64) as i32)
     } else {
         None
     };
+    let median_settlement_latency_ms = compute_median(&mut latency_values).map(|v| v as i32);
 
     // Compute liquidity depth using order book snapshot if provided
     let liquidity_depth_usd = order_book
@@ -127,13 +133,14 @@ pub fn compute_corridor_metrics(
         success_rate,
         volume_usd,
         avg_settlement_latency_ms,
+        median_settlement_latency_ms,
         liquidity_depth_usd,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     }
 }
 
-/// Compute metrics for all corridors found in the provided payment records
+/// Computes corridor metrics from payment records, aggregating settlement latency (both average and median) per corridor.
 pub fn compute_metrics_from_payments(payments: &[PaymentRecord]) -> Vec<CorridorMetrics> {
     let mut corridor_map: HashMap<String, Vec<&PaymentRecord>> = HashMap::new();
 
@@ -156,13 +163,21 @@ pub fn compute_metrics_from_payments(payments: &[PaymentRecord]) -> Vec<Corridor
         let mut successful_transactions = 0;
         let mut failed_transactions = 0;
         let mut volume_usd = 0.0;
-        // Note: PaymentRecord currently doesn't have latency, so we can't compute it yet.
-        // If it did, we would sum it here.
+        let mut latency_sum = 0i64;
+        let mut latency_values: Vec<i64> = Vec::new();
 
-        for p in corridor_payments {
+        for p in &corridor_payments {
             if p.successful {
                 successful_transactions += 1;
-                volume_usd += p.amount; // Assuming amount is already USD or normalized. If not, this is a limitation.
+                volume_usd += p.amount; // Assuming amount is already USD or normalized.
+                // Compute settlement latency from submission/confirmation times
+                if let Some(latency_ms) = p.settlement_latency_ms() {
+                    // Filter out negative latencies which might be due to data synchronization issues
+                    if latency_ms >= 0 {
+                        latency_sum += latency_ms;
+                        latency_values.push(latency_ms);
+                    }
+                }
             } else {
                 failed_transactions += 1;
             }
@@ -173,6 +188,13 @@ pub fn compute_metrics_from_payments(payments: &[PaymentRecord]) -> Vec<Corridor
         } else {
             0.0
         };
+
+        let avg_settlement_latency_ms = if !latency_values.is_empty() {
+            Some((latency_sum / latency_values.len() as i64) as i32)
+        } else {
+            None
+        };
+        let median_settlement_latency_ms = compute_median(&mut latency_values).map(|v| v as i32);
 
         results.push(CorridorMetrics {
             id: uuid::Uuid::new_v4().to_string(), // Generate new ID for this snapshot
@@ -187,7 +209,8 @@ pub fn compute_metrics_from_payments(payments: &[PaymentRecord]) -> Vec<Corridor
             failed_transactions,
             success_rate,
             volume_usd,
-            avg_settlement_latency_ms: None, // Not available in PaymentRecord yet
+            avg_settlement_latency_ms,
+            median_settlement_latency_ms,
             liquidity_depth_usd: 0.0, // Needs order book
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -215,8 +238,8 @@ pub fn compute_metrics_by_window(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::models::corridor::PaymentRecord;
+    use chrono::Utc;
     use uuid::Uuid;
 
     fn create_test_payment_record(
@@ -235,6 +258,31 @@ mod tests {
             amount,
             successful,
             timestamp,
+            submission_time: None,
+            confirmation_time: None,
+        }
+    }
+
+    fn create_test_payment_with_latency(
+        source_code: &str,
+        dest_code: &str,
+        amount: f64,
+        successful: bool,
+        timestamp: chrono::DateTime<chrono::Utc>,
+        latency_ms: i64,
+    ) -> PaymentRecord {
+        let submission = timestamp - chrono::Duration::milliseconds(latency_ms);
+        PaymentRecord {
+            id: Uuid::new_v4(),
+            source_asset_code: source_code.to_string(),
+            source_asset_issuer: "issuer1".to_string(),
+            destination_asset_code: dest_code.to_string(),
+            destination_asset_issuer: "issuer2".to_string(),
+            amount,
+            successful,
+            timestamp,
+            submission_time: Some(submission),
+            confirmation_time: Some(timestamp),
         }
     }
 
@@ -254,7 +302,7 @@ mod tests {
             .iter()
             .find(|m| m.asset_a_code == "EURC" || m.asset_a_code == "USDC") // Normalized
             .expect("Should find USDC/EURC metrics");
-        
+
         assert_eq!(usdc_metrics.total_transactions, 2);
         assert_eq!(usdc_metrics.successful_transactions, 2);
         assert_eq!(usdc_metrics.success_rate, 100.0);
@@ -282,7 +330,6 @@ mod tests {
         assert_eq!(metrics[0].total_transactions, 2);
     }
 
-
     #[test]
     fn test_compute_corridor_metrics_basic() {
         let txns = vec![
@@ -305,12 +352,24 @@ mod tests {
 
         let order_book = OrderBookSnapshot {
             bids: vec![
-                OrderBookEntry { price: 99.0, amount_usd: 150.0 },
-                OrderBookEntry { price: 98.5, amount_usd: 100.0 },
+                OrderBookEntry {
+                    price: 99.0,
+                    amount_usd: 150.0,
+                },
+                OrderBookEntry {
+                    price: 98.5,
+                    amount_usd: 100.0,
+                },
             ],
             asks: vec![
-                OrderBookEntry { price: 101.0, amount_usd: 200.0 },
-                OrderBookEntry { price: 102.0, amount_usd: 50.0 },
+                OrderBookEntry {
+                    price: 101.0,
+                    amount_usd: 200.0,
+                },
+                OrderBookEntry {
+                    price: 102.0,
+                    amount_usd: 50.0,
+                },
             ],
         };
 
@@ -320,6 +379,7 @@ mod tests {
         assert_eq!(metrics.failed_transactions, 1);
         assert_eq!(metrics.success_rate, (2.0 / 3.0) * 100.0);
         assert_eq!(metrics.avg_settlement_latency_ms, Some(2000));
+        assert_eq!(metrics.median_settlement_latency_ms, Some(2000)); // Median of [1000, 3000]
         assert!(metrics.liquidity_depth_usd > 0.0); // computed from order book
     }
 
@@ -329,6 +389,7 @@ mod tests {
         assert_eq!(metrics.total_transactions, 0);
         assert_eq!(metrics.success_rate, 0.0);
         assert_eq!(metrics.avg_settlement_latency_ms, None);
+        assert_eq!(metrics.median_settlement_latency_ms, None);
         assert_eq!(metrics.liquidity_depth_usd, 0.0);
     }
 
@@ -349,6 +410,62 @@ mod tests {
         let metrics = compute_corridor_metrics(&txns, None, 1.0);
         assert_eq!(metrics.success_rate, 0.0);
         assert_eq!(metrics.avg_settlement_latency_ms, None);
+        assert_eq!(metrics.median_settlement_latency_ms, None);
         assert_eq!(metrics.liquidity_depth_usd, 0.0);
+    }
+
+    #[test]
+    fn test_median_latency_from_payments() {
+        let now = Utc::now();
+        let payments = vec![
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, 1000),
+            create_test_payment_with_latency("USDC", "EURC", 200.0, true, now, 2000),
+            create_test_payment_with_latency("USDC", "EURC", 150.0, true, now, 3000),
+        ];
+
+        let metrics = compute_metrics_from_payments(&payments);
+        assert_eq!(metrics.len(), 1);
+
+        let m = &metrics[0];
+        assert_eq!(m.total_transactions, 3);
+        assert_eq!(m.successful_transactions, 3);
+        assert_eq!(m.avg_settlement_latency_ms, Some(2000)); // (1000 + 2000 + 3000) / 3
+        assert_eq!(m.median_settlement_latency_ms, Some(2000)); // Median of [1000, 2000, 3000]
+    }
+
+    #[test]
+    fn test_median_latency_even_count() {
+        let now = Utc::now();
+        let payments = vec![
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, 1000),
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, 2000),
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, 3000),
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, 4000),
+        ];
+
+        let metrics = compute_metrics_from_payments(&payments);
+        assert_eq!(metrics.len(), 1);
+
+        let m = &metrics[0];
+        assert_eq!(m.avg_settlement_latency_ms, Some(2500)); // (1000 + 2000 + 3000 + 4000) / 4
+        assert_eq!(m.median_settlement_latency_ms, Some(2500)); // (2000 + 3000) / 2
+    }
+
+    #[test]
+    fn test_median_latency_with_negative_values() {
+        let now = Utc::now();
+        let payments = vec![
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, 1000),
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, -500), // Should be filtered
+            create_test_payment_with_latency("USDC", "EURC", 100.0, true, now, 3000),
+        ];
+
+        let metrics = compute_metrics_from_payments(&payments);
+        assert_eq!(metrics.len(), 1);
+
+        let m = &metrics[0];
+        // Only 1000 and 3000 should be considered
+        assert_eq!(m.avg_settlement_latency_ms, Some(2000)); // (1000 + 3000) / 2
+        assert_eq!(m.median_settlement_latency_ms, Some(2000)); // Median of [1000, 3000]
     }
 }

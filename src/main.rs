@@ -4,23 +4,27 @@ use axum::{
     Router,
 };
 use dotenv::dotenv;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
-use std::str::FromStr;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use backend::api::anchors::get_anchors;
-use backend::api::corridors::{get_corridor_detail, list_corridors};
-use backend::database::Database;
-use backend::handlers::*;
-use backend::ingestion::DataIngestionService;
-use backend::rpc::StellarRpcClient;
-use backend::rpc_handlers;
-use backend::shutdown::{
-    flush_caches, log_shutdown_summary, shutdown_background_tasks, shutdown_database,
-    wait_for_signal, ShutdownConfig, ShutdownCoordinator,
-};
+use stellar_insights_backend::api::anchors_cached::get_anchors;
+use stellar_insights_backend::api::corridors_cached::{get_corridor_detail, list_corridors};
+use stellar_insights_backend::api::cache_stats;
+use stellar_insights_backend::api::metrics_cached;
+use stellar_insights_backend::auth::AuthService;
+use stellar_insights_backend::auth_middleware::auth_middleware;
+use stellar_insights_backend::cache::{CacheConfig, CacheManager};
+use stellar_insights_backend::cache_invalidation::CacheInvalidationService;
+use stellar_insights_backend::database::Database;
+use stellar_insights_backend::handlers::*;
+use stellar_insights_backend::ingestion::DataIngestionService;
+use stellar_insights_backend::rpc::StellarRpcClient;
+use stellar_insights_backend::rpc_handlers;
+use stellar_insights_backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
+use stellar_insights_backend::state::AppState;
+use stellar_insights_backend::websocket::WsState;
+
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -53,11 +57,10 @@ async fn main() -> Result<()> {
 
     // Database connection
     let database_url =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:stellar_insights.db".to_string());
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:./stellar_insights.db".to_string());
 
-    tracing::info!("Connecting to database...");
-    let options = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
-    let pool = SqlitePool::connect_with(options).await?;
+    tracing::info!("Connecting to database: {}", database_url);
+    let pool = sqlx::SqlitePool::connect(&database_url).await?;
 
     tracing::info!("Running database migrations...");
     sqlx::migrate!("./migrations").run(&pool).await?;
@@ -85,38 +88,162 @@ async fn main() -> Result<()> {
 
     let rpc_client = Arc::new(StellarRpcClient::new(rpc_url, horizon_url, mock_mode));
 
+    // Initialize WebSocket state
+    let ws_state = Arc::new(WsState::new());
+    tracing::info!("WebSocket state initialized");
+
     // Initialize Data Ingestion Service
     let ingestion_service = Arc::new(DataIngestionService::new(
         Arc::clone(&rpc_client),
         Arc::clone(&db),
     ));
 
-    // Start background sync task with shutdown handling
+
+    // Initialize Redis cache
+    let cache_config = CacheConfig::default();
+    let cache = Arc::new(CacheManager::new(cache_config).await?);
+    tracing::info!("Cache manager initialized");
+
+    // Initialize cache invalidation service
+    let cache_invalidation = Arc::new(CacheInvalidationService::new(Arc::clone(&cache)));
+
+    // Create app state for handlers that need it
+    let app_state = AppState::new(
+        Arc::clone(&db),
+        Arc::clone(&ws_state),
+        Arc::clone(&ingestion_service),
+    );
+
+    // Create cached state tuple for cached API handlers
+    let cached_state = (Arc::clone(&db), Arc::clone(&cache), Arc::clone(&rpc_client));
+
     let ingestion_clone = Arc::clone(&ingestion_service);
-    let mut shutdown_rx = shutdown_coordinator.subscribe();
-    let sync_task = tokio::spawn(async move {
+    let cache_invalidation_clone = Arc::clone(&cache_invalidation);
+    tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(300)); // 5 minutes
         loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    if let Err(e) = ingestion_clone.sync_all_metrics().await {
-                        tracing::error!("Metrics synchronization failed: {}", e);
+            interval.tick().await;
+            if let Err(e) = ingestion_clone.sync_all_metrics().await {
+                tracing::error!("Metrics synchronization failed: {}", e);
+            } else {
+                // Invalidate caches after successful sync
+                if let Err(e) = cache_invalidation_clone.invalidate_anchors().await {
+                    tracing::warn!("Failed to invalidate anchor caches: {}", e);
+                }
+                if let Err(e) = cache_invalidation_clone.invalidate_corridors().await {
+                    tracing::warn!("Failed to invalidate corridor caches: {}", e);
+                }
+                if let Err(e) = cache_invalidation_clone.invalidate_metrics().await {
+                    tracing::warn!("Failed to invalidate metrics caches: {}", e);
+                }
+            }
+        }
+    });
+
+    // Initialize Auth Service with its own Redis connection
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let auth_redis_connection = if let Ok(client) = redis::Client::open(redis_url.as_str()) {
+        match client.get_multiplexed_tokio_connection().await {
+            Ok(conn) => {
+                tracing::info!("Auth service connected to Redis");
+                Some(conn)
+            }
+            Err(e) => {
+                tracing::warn!("Auth service failed to connect to Redis ({}), refresh tokens will not persist", e);
+                None
+            }
+        }
+    } else {
+        tracing::warn!("Invalid Redis URL for auth service");
+        None
+    };
+    let auth_service = Arc::new(AuthService::new(Arc::new(tokio::sync::RwLock::new(auth_redis_connection))));
+    tracing::info!("Auth service initialized");
+
+    // ML Retraining task (commented out)
+    /*
+    let ml_service_clone = ml_service.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(7 * 24 * 3600)); // 7 days
+        loop {
+            interval.tick().await;
+            if let Ok(mut service) = ml_service_clone.try_write() {
+                if let Err(e) = service.retrain_weekly().await {
+                    tracing::error!("Weekly ML retraining failed: {}", e);
+                }
+            }
+        }
+    });
+    */
+
+    // Ledger ingestion task (commented out)
+    /*
+    let ledger_ingestion_clone = Arc::clone(&ledger_ingestion_service);
+    tokio::spawn(async move {
+        tracing::info!("Starting ledger ingestion background task");
+        loop {
+            match ledger_ingestion_clone.run_ingestion(5).await {
+                Ok(count) => {
+                    if count == 0 {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    } else {
+                        tokio::task::yield_now().await;
                     }
                 }
-                _ = shutdown_rx.recv() => {
-                    tracing::info!("Background sync task received shutdown signal");
-                    break;
+                Err(e) => {
+                    tracing::error!("Ledger ingestion failed: {}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 }
             }
         }
         tracing::info!("Background sync task stopped");
     });
+    */
 
-    // Run initial sync
+    // Run initial sync (skip on network errors)
     tracing::info!("Running initial metrics synchronization...");
-    if let Err(e) = ingestion_service.sync_all_metrics().await {
-        tracing::warn!("Initial sync failed: {}", e);
-    }
+    let _ = ingestion_service.sync_all_metrics().await;
+
+    // Initialize rate limiter
+    let rate_limiter_result = RateLimiter::new().await;
+    let rate_limiter = match rate_limiter_result {
+        Ok(limiter) => {
+            tracing::info!("Rate limiter initialized successfully");
+            Arc::new(limiter)
+        },
+        Err(e) => {
+            tracing::warn!("Failed to initialize Redis rate limiter, creating with memory fallback: {}", e);
+            Arc::new(RateLimiter::new().await.unwrap_or_else(|_| {
+                panic!("Failed to create rate limiter: critical error")
+            }))
+        }
+    };
+
+    // Configure rate limits for endpoints
+    rate_limiter.register_endpoint("/health".to_string(), RateLimitConfig {
+        requests_per_minute: 1000,
+        whitelist_ips: vec!["127.0.0.1".to_string()],
+    }).await;
+
+    rate_limiter.register_endpoint("/api/anchors".to_string(), RateLimitConfig {
+        requests_per_minute: 100,
+        whitelist_ips: vec![],
+    }).await;
+
+    rate_limiter.register_endpoint("/api/corridors".to_string(), RateLimitConfig {
+        requests_per_minute: 100,
+        whitelist_ips: vec![],
+    }).await;
+
+    rate_limiter.register_endpoint("/api/rpc/payments".to_string(), RateLimitConfig {
+        requests_per_minute: 100,
+        whitelist_ips: vec![],
+    }).await;
+
+    rate_limiter.register_endpoint("/api/rpc/trades".to_string(), RateLimitConfig {
+        requests_per_minute: 100,
+        whitelist_ips: vec![],
+    }).await;
 
     // CORS configuration
     let cors = CorsLayer::new()
@@ -124,27 +251,71 @@ async fn main() -> Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Build anchor router
+    // Import middleware
+    use tower::ServiceBuilder;
+    use axum::middleware;
+
+    // Build auth router
+    let auth_routes = stellar_insights_backend::api::auth::routes(auth_service.clone());
+
+    // Build cached routes (anchors list, corridors list/detail) with cache state
+    let cached_routes = Router::new()
+        .route("/api/anchors", get(get_anchors))
+        .route("/api/corridors", get(list_corridors))
+        .route("/api/corridors/:corridor_key", get(get_corridor_detail))
+        .with_state(cached_state.clone())
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                ))
+        )
+        .layer(cors.clone());
+
+    // Build non-cached anchor routes with app state
     let anchor_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/api/anchors", get(get_anchors).post(create_anchor))
         .route("/api/anchors/:id", get(get_anchor))
         .route(
             "/api/anchors/account/:stellar_account",
             get(get_anchor_by_account),
         )
-        .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
-        .route(
-            "/api/anchors/:id/assets",
-            get(get_anchor_assets).post(create_anchor_asset),
+        .route("/api/anchors/:id/assets", get(get_anchor_assets))
+        .with_state(app_state.clone())
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                ))
         )
-        .route("/api/corridors", get(list_corridors).post(create_corridor))
+        .layer(cors.clone());
+
+    // Build protected anchor routes (require authentication)
+    let protected_anchor_routes = Router::new()
+        .route("/api/anchors", axum::routing::post(create_anchor))
+        .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
+        .route("/api/anchors/:id/assets", axum::routing::post(create_anchor_asset))
+        .route("/api/corridors", axum::routing::post(create_corridor))
         .route(
             "/api/corridors/:id/metrics-from-transactions",
             put(update_corridor_metrics_from_transactions),
         )
-        .route("/api/corridors/:corridor_key", get(get_corridor_detail))
-        .with_state(db);
+        .with_state(app_state.clone())
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn(auth_middleware))
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                ))
+        )
+        .layer(cors.clone());
+
+    // Build cache stats and metrics routes
+    let cache_routes = cache_stats::routes(Arc::clone(&cache));
+    let metrics_routes = metrics_cached::routes(Arc::clone(&cache));
 
     // Build RPC router
     let rpc_routes = Router::new()
@@ -160,13 +331,25 @@ async fn main() -> Result<()> {
         )
         .route("/api/rpc/trades", get(rpc_handlers::get_trades))
         .route("/api/rpc/orderbook", get(rpc_handlers::get_order_book))
-        .with_state(rpc_client);
+        .with_state(rpc_client)
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                ))
+        )
+        .layer(cors.clone());
 
     // Merge routers
     let app = Router::new()
+        .merge(auth_routes)
+        .merge(cached_routes)
         .merge(anchor_routes)
+        .merge(protected_anchor_routes)
         .merge(rpc_routes)
-        .layer(cors);
+        .merge(cache_routes)
+        .merge(metrics_routes);
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -175,64 +358,10 @@ async fn main() -> Result<()> {
 
     tracing::info!("Server starting on {}", addr);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-
-    // Spawn server with graceful shutdown
-    let shutdown_coordinator_clone = Arc::clone(&shutdown_coordinator);
-    let server_handle = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                let mut rx = shutdown_coordinator_clone.subscribe();
-                let _ = rx.recv().await;
-                tracing::info!("Server received shutdown signal, stopping accepting new connections");
-            })
-            .await
-            .expect("Server error");
-    });
-
-    tracing::info!("Server is running. Press Ctrl+C to shutdown gracefully.");
-
-    // Wait for shutdown signal
-    wait_for_signal().await;
-
-    // Trigger coordinated shutdown
-    tracing::info!("Initiating graceful shutdown sequence...");
-    shutdown_coordinator.trigger_shutdown();
-
-    // Step 1: Wait for server to stop accepting new connections and finish in-flight requests
-    tracing::info!("Step 1/4: Waiting for server to finish in-flight requests...");
-    let server_shutdown = tokio::time::timeout(
-        shutdown_coordinator.graceful_timeout(),
-        server_handle,
-    );
-    
-    match server_shutdown.await {
-        Ok(Ok(_)) => tracing::info!("Server shutdown completed successfully"),
-        Ok(Err(e)) => tracing::error!("Server task failed: {}", e),
-        Err(_) => tracing::warn!(
-            "Server did not shutdown within {:?}, proceeding anyway",
-            shutdown_coordinator.graceful_timeout()
-        ),
-    }
-
-    // Step 2: Shutdown background tasks
-    tracing::info!("Step 2/4: Shutting down background tasks...");
-    shutdown_background_tasks(
-        vec![sync_task],
-        shutdown_coordinator.background_task_timeout(),
-    )
-    .await;
-
-    // Step 3: Flush caches
-    tracing::info!("Step 3/4: Flushing caches...");
-    flush_caches().await;
-
-    // Step 4: Close database connections
-    tracing::info!("Step 4/4: Closing database connections...");
-    shutdown_database(pool, shutdown_coordinator.db_close_timeout()).await;
-
-    // Log shutdown summary
-    log_shutdown_summary(shutdown_start);
-    tracing::info!("Graceful shutdown complete. Goodbye!");
+    axum::serve(
+        listener, 
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>()
+    ).await?;
 
     Ok(())
 }

@@ -9,6 +9,31 @@ use crate::models::{
     MetricRecord, SnapshotRecord,
 };
 
+/// Parameters for updating anchor from RPC data
+pub struct AnchorRpcUpdate {
+    pub stellar_account: String,
+    pub total_transactions: i64,
+    pub successful_transactions: i64,
+    pub failed_transactions: i64,
+    pub total_volume_usd: f64,
+    pub avg_settlement_time_ms: i32,
+    pub reliability_score: f64,
+    pub status: String,
+}
+
+/// Parameters for recording anchor metrics history
+pub struct AnchorMetricsParams {
+    pub anchor_id: Uuid,
+    pub success_rate: f64,
+    pub failure_rate: f64,
+    pub reliability_score: f64,
+    pub total_transactions: i64,
+    pub successful_transactions: i64,
+    pub failed_transactions: i64,
+    pub avg_settlement_time_ms: Option<i32>,
+    pub volume_usd: Option<f64>,
+}
+
 pub struct Database {
     pool: SqlitePool,
 }
@@ -32,7 +57,7 @@ impl Database {
         let anchor = sqlx::query_as::<_, Anchor>(
             r#"
             INSERT INTO anchors (id, name, stellar_account, home_domain)
-            VALUES (?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4)
             RETURNING *
             "#,
         )
@@ -49,7 +74,7 @@ impl Database {
     pub async fn get_anchor_by_id(&self, id: Uuid) -> Result<Option<Anchor>> {
         let anchor = sqlx::query_as::<_, Anchor>(
             r#"
-            SELECT * FROM anchors WHERE id = ?
+            SELECT * FROM anchors WHERE id = $1
             "#,
         )
         .bind(id.to_string())
@@ -65,7 +90,7 @@ impl Database {
     ) -> Result<Option<Anchor>> {
         let anchor = sqlx::query_as::<_, Anchor>(
             r#"
-            SELECT * FROM anchors WHERE stellar_account = ?
+            SELECT * FROM anchors WHERE stellar_account = $1
             "#,
         )
         .bind(stellar_account)
@@ -80,7 +105,7 @@ impl Database {
             r#"
             SELECT * FROM anchors
             ORDER BY reliability_score DESC, updated_at DESC
-            LIMIT ? OFFSET ?
+            LIMIT $1 OFFSET $2
             "#,
         )
         .bind(limit)
@@ -112,15 +137,15 @@ impl Database {
         let anchor = sqlx::query_as::<_, Anchor>(
             r#"
             UPDATE anchors
-            SET total_transactions = ?,
-                successful_transactions = ?,
-                failed_transactions = ?,
-                avg_settlement_time_ms = ?,
-                reliability_score = ?,
-                status = ?,
-                total_volume_usd = COALESCE(?, total_volume_usd),
-                updated_at = ?
-            WHERE id = ?
+            SET total_transactions = $1,
+                successful_transactions = $2,
+                failed_transactions = $3,
+                avg_settlement_time_ms = $4,
+                reliability_score = $5,
+                status = $6,
+                total_volume_usd = COALESCE($7, total_volume_usd),
+                updated_at = $8
+            WHERE id = $9
             RETURNING *
             "#,
         )
@@ -137,17 +162,17 @@ impl Database {
         .await?;
 
         // Record metrics history
-        self.record_anchor_metrics_history(
+        self.record_anchor_metrics_history(AnchorMetricsParams {
             anchor_id,
-            metrics.success_rate,
-            metrics.failure_rate,
-            metrics.reliability_score,
+            success_rate: metrics.success_rate,
+            failure_rate: metrics.failure_rate,
+            reliability_score: metrics.reliability_score,
             total_transactions,
             successful_transactions,
             failed_transactions,
             avg_settlement_time_ms,
             volume_usd,
-        )
+        })
         .await?;
 
         Ok(anchor)
@@ -164,7 +189,7 @@ impl Database {
         let asset = sqlx::query_as::<_, Asset>(
             r#"
             INSERT INTO assets (id, anchor_id, asset_code, asset_issuer)
-            VALUES (?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT (asset_code, asset_issuer) DO UPDATE
             SET anchor_id = EXCLUDED.anchor_id,
                 updated_at = CURRENT_TIMESTAMP
@@ -184,7 +209,7 @@ impl Database {
     pub async fn get_assets_by_anchor(&self, anchor_id: Uuid) -> Result<Vec<Asset>> {
         let assets = sqlx::query_as::<_, Asset>(
             r#"
-            SELECT * FROM assets WHERE anchor_id = ?
+            SELECT * FROM assets WHERE anchor_id = $1
             ORDER BY asset_code ASC
             "#,
         )
@@ -198,7 +223,7 @@ impl Database {
     pub async fn count_assets_by_anchor(&self, anchor_id: Uuid) -> Result<i64> {
         let count: (i64,) = sqlx::query_as(
             r#"
-            SELECT COUNT(*) FROM assets WHERE anchor_id = ?
+            SELECT COUNT(*) FROM assets WHERE anchor_id = $1
             "#,
         )
         .bind(anchor_id.to_string())
@@ -209,40 +234,30 @@ impl Database {
     }
 
     // Update anchor metrics from RPC ingestion
-    pub async fn update_anchor_from_rpc(
-        &self,
-        stellar_account: &str,
-        total_transactions: i64,
-        successful_transactions: i64,
-        failed_transactions: i64,
-        total_volume_usd: f64,
-        avg_settlement_time_ms: i32,
-        reliability_score: f64,
-        status: &str,
-    ) -> Result<()> {
+    pub async fn update_anchor_from_rpc(&self, params: AnchorRpcUpdate) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE anchors
-            SET total_transactions = ?,
-                successful_transactions = ?,
-                failed_transactions = ?,
-                total_volume_usd = ?,
-                avg_settlement_time_ms = ?,
-                reliability_score = ?,
-                status = ?,
-                updated_at = ?
-            WHERE stellar_account = ?
+            SET total_transactions = $1,
+                successful_transactions = $2,
+                failed_transactions = $3,
+                total_volume_usd = $4,
+                avg_settlement_time_ms = $5,
+                reliability_score = $6,
+                status = $7,
+                updated_at = $8
+            WHERE stellar_account = $9
             "#,
         )
-        .bind(total_transactions)
-        .bind(successful_transactions)
-        .bind(failed_transactions)
-        .bind(total_volume_usd)
-        .bind(avg_settlement_time_ms)
-        .bind(reliability_score)
-        .bind(status)
+        .bind(params.total_transactions)
+        .bind(params.successful_transactions)
+        .bind(params.failed_transactions)
+        .bind(params.total_volume_usd)
+        .bind(params.avg_settlement_time_ms)
+        .bind(params.reliability_score)
+        .bind(&params.status)
         .bind(Utc::now())
-        .bind(stellar_account)
+        .bind(&params.stellar_account)
         .execute(&self.pool)
         .await?;
 
@@ -252,15 +267,7 @@ impl Database {
     // Metrics history operations
     pub async fn record_anchor_metrics_history(
         &self,
-        anchor_id: Uuid,
-        success_rate: f64,
-        failure_rate: f64,
-        reliability_score: f64,
-        total_transactions: i64,
-        successful_transactions: i64,
-        failed_transactions: i64,
-        avg_settlement_time_ms: Option<i32>,
-        volume_usd: Option<f64>,
+        params: AnchorMetricsParams,
     ) -> Result<AnchorMetricsHistory> {
         let id = Uuid::new_v4().to_string();
         let history = sqlx::query_as::<_, AnchorMetricsHistory>(
@@ -270,21 +277,21 @@ impl Database {
                 total_transactions, successful_transactions, failed_transactions,
                 avg_settlement_time_ms, volume_usd
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
             "#,
         )
         .bind(id)
-        .bind(anchor_id.to_string())
+        .bind(params.anchor_id.to_string())
         .bind(Utc::now())
-        .bind(success_rate)
-        .bind(failure_rate)
-        .bind(reliability_score)
-        .bind(total_transactions)
-        .bind(successful_transactions)
-        .bind(failed_transactions)
-        .bind(avg_settlement_time_ms.unwrap_or(0))
-        .bind(volume_usd.unwrap_or(0.0))
+        .bind(params.success_rate)
+        .bind(params.failure_rate)
+        .bind(params.reliability_score)
+        .bind(params.total_transactions)
+        .bind(params.successful_transactions)
+        .bind(params.failed_transactions)
+        .bind(params.avg_settlement_time_ms.unwrap_or(0))
+        .bind(params.volume_usd.unwrap_or(0.0))
         .fetch_one(&self.pool)
         .await?;
 
@@ -299,9 +306,9 @@ impl Database {
         let history = sqlx::query_as::<_, AnchorMetricsHistory>(
             r#"
             SELECT * FROM anchor_metrics_history
-            WHERE anchor_id = ?
+            WHERE anchor_id = $1
             ORDER BY timestamp DESC
-            LIMIT ?
+            LIMIT $2
             "#,
         )
         .bind(anchor_id.to_string())
@@ -347,7 +354,7 @@ impl Database {
                 id, source_asset_code, source_asset_issuer,
                 destination_asset_code, destination_asset_issuer
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (source_asset_code, source_asset_issuer, destination_asset_code, destination_asset_issuer)
             DO UPDATE SET updated_at = CURRENT_TIMESTAMP
             "#,
@@ -370,7 +377,7 @@ impl Database {
     ) -> Result<Vec<crate::models::corridor::Corridor>> {
         let records = sqlx::query_as::<_, CorridorRecord>(
             r#"
-            SELECT * FROM corridors ORDER BY reliability_score DESC LIMIT ? OFFSET ?
+            SELECT * FROM corridors ORDER BY reliability_score DESC LIMIT $1 OFFSET $2
             "#,
         )
         .bind(limit)
@@ -397,7 +404,7 @@ impl Database {
     ) -> Result<Option<crate::models::corridor::Corridor>> {
         let record = sqlx::query_as::<_, CorridorRecord>(
             r#"
-            SELECT * FROM corridors WHERE id = ?
+            SELECT * FROM corridors WHERE id = $1
             "#,
         )
         .bind(id.to_string())
@@ -422,9 +429,9 @@ impl Database {
         let record = sqlx::query_as::<_, CorridorRecord>(
             r#"
             UPDATE corridors
-            SET reliability_score = ?,
+            SET reliability_score = $1,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
+            WHERE id = $2
             RETURNING *
             "#,
         )
@@ -453,7 +460,7 @@ impl Database {
         let metric = sqlx::query_as::<_, MetricRecord>(
             r#"
             INSERT INTO metrics (id, name, value, entity_id, entity_type, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
             "#,
         )
@@ -475,12 +482,14 @@ impl Database {
         entity_id: &str,
         entity_type: &str,
         data: serde_json::Value,
+        hash: Option<String>,
+        epoch: Option<i64>,
     ) -> Result<SnapshotRecord> {
         let id = Uuid::new_v4().to_string();
         let snapshot = sqlx::query_as::<_, SnapshotRecord>(
             r#"
-            INSERT INTO snapshots (id, entity_id, entity_type, data, timestamp)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO snapshots (id, entity_id, entity_type, data, hash, epoch, timestamp)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
             "#,
         )
@@ -488,6 +497,8 @@ impl Database {
         .bind(entity_id)
         .bind(entity_type)
         .bind(data.to_string())
+        .bind(hash)
+        .bind(epoch)
         .bind(Utc::now())
         .fetch_one(&self.pool)
         .await?;
@@ -495,11 +506,41 @@ impl Database {
         Ok(snapshot)
     }
 
+    pub async fn get_snapshot_by_epoch(&self, epoch: i64) -> Result<Option<SnapshotRecord>> {
+        let snapshot = sqlx::query_as::<_, SnapshotRecord>(
+            r#"
+            SELECT * FROM snapshots WHERE epoch = $1 LIMIT 1
+            "#,
+        )
+        .bind(epoch)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(snapshot)
+    }
+
+    pub async fn list_snapshots(&self, limit: i64, offset: i64) -> Result<Vec<SnapshotRecord>> {
+        let snapshots = sqlx::query_as::<_, SnapshotRecord>(
+            r#"
+            SELECT * FROM snapshots
+            WHERE epoch IS NOT NULL
+            ORDER BY epoch DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(snapshots)
+    }
+
     // Ingestion methods
     pub async fn get_ingestion_cursor(&self, task_name: &str) -> Result<Option<String>> {
         let state = sqlx::query_as::<_, crate::models::IngestionState>(
             r#"
-            SELECT * FROM ingestion_state WHERE task_name = ?
+            SELECT * FROM ingestion_state WHERE task_name = $1
             "#,
         )
         .bind(task_name)
@@ -513,7 +554,7 @@ impl Database {
         sqlx::query(
             r#"
             INSERT INTO ingestion_state (task_name, last_cursor, updated_at)
-            VALUES (?, ?, ?)
+            VALUES ($1, $2, $3)
             ON CONFLICT (task_name) DO UPDATE SET
                 last_cursor = EXCLUDED.last_cursor,
                 updated_at = EXCLUDED.updated_at
@@ -536,7 +577,7 @@ impl Database {
                     id, transaction_hash, source_account, destination_account,
                     asset_type, asset_code, asset_issuer, amount, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ON CONFLICT (id) DO NOTHING
                 "#,
             )
@@ -553,5 +594,73 @@ impl Database {
             .await?;
         }
         Ok(())
+    }
+
+    // Aggregation methods
+    pub fn aggregation_db(&self) -> crate::db::aggregation::AggregationDb {
+        crate::db::aggregation::AggregationDb::new(self.pool.clone())
+    }
+
+    pub async fn fetch_payments_by_timerange(
+        &self,
+        start_time: chrono::DateTime<chrono::Utc>,
+        end_time: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> Result<Vec<crate::models::corridor::PaymentRecord>> {
+        self.aggregation_db()
+            .fetch_payments_by_timerange(start_time, end_time, limit)
+            .await
+    }
+
+    pub async fn upsert_hourly_corridor_metric(
+        &self,
+        metric: &crate::services::aggregation::HourlyCorridorMetrics,
+    ) -> Result<()> {
+        self.aggregation_db()
+            .upsert_hourly_corridor_metric(metric)
+            .await
+    }
+
+    pub async fn fetch_hourly_metrics_by_timerange(
+        &self,
+        start_time: chrono::DateTime<chrono::Utc>,
+        end_time: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<crate::services::aggregation::HourlyCorridorMetrics>> {
+        self.aggregation_db()
+            .fetch_hourly_metrics_by_timerange(start_time, end_time)
+            .await
+    }
+
+    pub async fn create_aggregation_job(&self, job_id: &str, job_type: &str) -> Result<()> {
+        self.aggregation_db()
+            .create_aggregation_job(job_id, job_type)
+            .await
+    }
+
+    pub async fn update_aggregation_job_status(
+        &self,
+        job_id: &str,
+        status: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        self.aggregation_db()
+            .update_aggregation_job_status(job_id, status, error_message)
+            .await
+    }
+
+    pub async fn update_last_processed_hour(&self, job_id: &str, last_hour: &str) -> Result<()> {
+        self.aggregation_db()
+            .update_last_processed_hour(job_id, last_hour)
+            .await
+    }
+
+    pub async fn get_job_retry_count(&self, job_id: &str) -> Result<i32> {
+        self.aggregation_db().get_job_retry_count(job_id).await
+    }
+
+    pub async fn increment_job_retry_count(&self, job_id: &str) -> Result<()> {
+        self.aggregation_db()
+            .increment_job_retry_count(job_id)
+            .await
     }
 }
