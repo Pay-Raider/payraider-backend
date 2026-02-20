@@ -6,6 +6,7 @@ pub mod indexing;
 pub mod liquidity_pool_analyzer;
 pub mod price_feed;
 pub mod snapshot;
+pub mod trustline_analyzer;
 
 #[cfg(test)]
 mod snapshot_test;

@@ -12,3 +12,4 @@ pub mod prediction;
 pub mod price_feed;
 pub mod sep24_proxy;
 pub mod sep31_proxy;
+pub mod trustlines;
