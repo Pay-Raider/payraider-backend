@@ -5,6 +5,7 @@ use axum::{
 };
 use dotenv::dotenv;
 use std::sync::Arc;
+use tower_http::compression::{CompressionLayer, predicate::SizeAbove};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
@@ -380,6 +381,23 @@ async fn main() -> Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // Compression configuration
+    // Only compress responses larger than 1KB to avoid overhead on small responses
+    let compression_min_size = std::env::var("COMPRESSION_MIN_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(1024);
+    
+    let compression = CompressionLayer::new()
+        .gzip(true)
+        .br(true)
+        .compress_when(SizeAbove::new(compression_min_size));
+    
+    tracing::info!(
+        "Compression enabled (gzip, brotli) for responses > {} bytes",
+        compression_min_size
+    );
+
     // Import middleware
     use axum::middleware;
     use tower::ServiceBuilder;
@@ -528,7 +546,8 @@ async fn main() -> Result<()> {
         .merge(price_routes)
         .merge(trustline_routes)
         .merge(cache_routes)
-        .merge(metrics_routes);
+        .merge(metrics_routes)
+        .layer(compression); // Apply compression to all routes
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -541,21 +560,7 @@ async fn main() -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_state(app_state.clone())
-    .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-        rate_limiter.clone(),
-        rate_limit_middleware,
-    )))
-    .layer(cors.clone());
+    .await?;
 
-// Build trustline routes
-let trustline_routes = Router::new()
-    .nest(
-        "/api/trustlines",
-        stellar_insights_backend::api::trustlines::routes(Arc::clone(&trustline_analyzer)),
-    )
-    .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-        rate_limiter.clone(),
-        rate_limit_middleware,
-    )))
-    .layer(cors.clone());
+    Ok(())
+}
