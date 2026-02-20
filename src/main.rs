@@ -414,6 +414,16 @@ async fn main() -> Result<()> {
         )
         .await;
 
+    rate_limiter
+        .register_endpoint(
+            "/api/achievements".to_string(),
+            RateLimitConfig {
+                requests_per_minute: 100,
+                whitelist_ips: vec![],
+            },
+        )
+        .await;
+
     // CORS configuration
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -591,6 +601,18 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build achievements / quests routes
+    let achievements_routes = Router::new()
+        .nest(
+            "/api",
+            stellar_insights_backend::api::achievements::routes(),
+        )
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+        .layer(cors.clone());
+
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
@@ -613,11 +635,12 @@ async fn main() -> Result<()> {
         .merge(lp_routes)
         .merge(price_routes)
         .merge(trustline_routes)
+        .merge(achievements_routes)
         .merge(network_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
-        .merge(ws_routes);
-        .layer(compression); // Apply compression to all routes
+        .merge(ws_routes)
+        .layer(compression);
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
