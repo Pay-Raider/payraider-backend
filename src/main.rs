@@ -33,6 +33,7 @@ use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAn
 use stellar_insights_backend::services::price_feed::{
     default_asset_mapping, PriceFeedClient, PriceFeedConfig,
 };
+use stellar_insights_backend::services::realtime_broadcaster::RealtimeBroadcaster;
 use stellar_insights_backend::services::trustline_analyzer::TrustlineAnalyzer;
 use stellar_insights_backend::shutdown::{ShutdownConfig, ShutdownCoordinator};
 use stellar_insights_backend::state::AppState;
@@ -145,6 +146,15 @@ async fn main() -> Result<()> {
 
     // Initialize cache invalidation service
     let cache_invalidation = Arc::new(CacheInvalidationService::new(Arc::clone(&cache)));
+
+    // Initialize RealtimeBroadcaster
+    let mut realtime_broadcaster = RealtimeBroadcaster::new(
+        Arc::clone(&ws_state),
+        Arc::clone(&db),
+        Arc::clone(&rpc_client),
+        Arc::clone(&cache),
+    );
+    tracing::info!("RealtimeBroadcaster initialized");
 
     // Create app state for handlers that need it
     let app_state = AppState::new(
@@ -277,6 +287,12 @@ async fn main() -> Result<()> {
                 tracing::error!("Trustline snapshot failed: {}", e);
             }
         }
+    });
+
+    // Start RealtimeBroadcaster background task
+    tokio::spawn(async move {
+        tracing::info!("Starting RealtimeBroadcaster background task");
+        realtime_broadcaster.start().await;
     });
 
     // Run initial sync (skip on network errors)
@@ -516,6 +532,13 @@ async fn main() -> Result<()> {
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
+    
+    // Build WebSocket routes
+    let ws_routes = Router::new()
+        .route("/ws", get(stellar_insights_backend::websocket::ws_handler))
+        .with_state(Arc::clone(&ws_state))
+        .layer(cors.clone());
+    
     let app = Router::new()
         .merge(swagger_routes)
         .merge(auth_routes)
@@ -528,7 +551,8 @@ async fn main() -> Result<()> {
         .merge(price_routes)
         .merge(trustline_routes)
         .merge(cache_routes)
-        .merge(metrics_routes);
+        .merge(metrics_routes)
+        .merge(ws_routes);
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());

@@ -259,6 +259,8 @@ impl LiquidityPoolAnalyzer {
 
         Ok(LiquidityPoolStats {
             total_pools: row.0,
+            total_liquidity_usd: row.1,
+            avg_pool_size_usd: row.1 / row.0.max(1) as f64,
             total_value_locked_usd: row.1,
             total_volume_24h_usd: row.2,
             total_fees_24h_usd: row.3,
