@@ -17,7 +17,8 @@ use uuid::Uuid;
 /// WebSocket connection state
 pub struct WsState {
     /// Map of connection ID to broadcast sender
-    pub connections: DashMap<Uuid, tokio::sync::mpsc::Sender<WsMessage>>,///Broadcast channel for sending messages to all connections
+    pub connections: DashMap<Uuid, tokio::sync::mpsc::Sender<WsMessage>>,
+    ///Broadcast channel for sending messages to all connections
     pub tx: broadcast::Sender<WsMessage>,
 }
 
@@ -95,9 +96,9 @@ pub async fn ws_handler(
         if !validate_token(&token) {
             return (
                 axum::http::StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "Unauthorized"}))
-            ).into_response();
-
+                Json(serde_json::json!({"error": "Unauthorized"})),
+            )
+                .into_response();
         }
     }
 
@@ -108,7 +109,7 @@ pub async fn ws_handler(
 fn validate_token(token: &str) -> bool {
     // For now, implement basic token validation
     // In production, use JWT or other robust auth mechanism
-    
+
     // If WS_AUTH_TOKEN env var is set, validate against it
     // Otherwise, accept all tokens (for development)
     match std::env::var("WS_AUTH_TOKEN") {
@@ -195,7 +196,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsState>) {
         let connection_id = connection_id;
         tokio::spawn(async move {
             let mut ping_interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-            
+
             loop {
                 tokio::select! {
                     // Send ping every 30 seconds

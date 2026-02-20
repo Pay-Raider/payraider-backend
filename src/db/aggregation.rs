@@ -61,9 +61,14 @@ impl AggregationDb {
                 Some(crate::models::corridor::PaymentRecord {
                     id: uuid::Uuid::parse_str(&row.id).ok()?,
                     source_asset_code: row.asset_code.clone().unwrap_or_else(|| "XLM".to_string()),
-                    source_asset_issuer: row.asset_issuer.clone().unwrap_or_else(|| "native".to_string()),
+                    source_asset_issuer: row
+                        .asset_issuer
+                        .clone()
+                        .unwrap_or_else(|| "native".to_string()),
                     destination_asset_code: row.asset_code.unwrap_or_else(|| "XLM".to_string()),
-                    destination_asset_issuer: row.asset_issuer.unwrap_or_else(|| "native".to_string()),
+                    destination_asset_issuer: row
+                        .asset_issuer
+                        .unwrap_or_else(|| "native".to_string()),
                     amount: row.amount,
                     successful,
                     timestamp,
@@ -77,9 +82,12 @@ impl AggregationDb {
     }
 
     /// Upsert hourly corridor metric
-    pub async fn upsert_hourly_corridor_metric(&self, metric: &HourlyCorridorMetrics) -> Result<()> {
+    pub async fn upsert_hourly_corridor_metric(
+        &self,
+        metric: &HourlyCorridorMetrics,
+    ) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        
+
         sqlx::query(
             r#"
             INSERT INTO corridor_metrics_hourly (
@@ -210,7 +218,7 @@ impl AggregationDb {
     /// Create aggregation job record
     pub async fn create_aggregation_job(&self, job_id: &str, job_type: &str) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        
+
         sqlx::query(
             r#"
             INSERT INTO aggregation_jobs (id, job_type, status, created_at, updated_at)
@@ -236,7 +244,7 @@ impl AggregationDb {
         error_message: Option<&str>,
     ) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        
+
         let time_field = match status {
             "running" => "start_time",
             "completed" | "failed" => "end_time",
@@ -268,7 +276,7 @@ impl AggregationDb {
     /// Update last processed hour for a job
     pub async fn update_last_processed_hour(&self, job_id: &str, last_hour: &str) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        
+
         sqlx::query(
             r#"
             UPDATE aggregation_jobs
@@ -304,7 +312,7 @@ impl AggregationDb {
     /// Increment job retry count
     pub async fn increment_job_retry_count(&self, job_id: &str) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        
+
         sqlx::query(
             r#"
             UPDATE aggregation_jobs

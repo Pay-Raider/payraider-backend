@@ -1,7 +1,7 @@
+use crate::database::Database;
 use crate::snapshot::schema::{
     AnalyticsSnapshot, SnapshotAnchorMetrics, SnapshotCorridorMetrics, SCHEMA_VERSION,
 };
-use crate::database::Database;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -52,7 +52,7 @@ impl SnapshotService {
     }
 
     /// Generate a complete analytics snapshot with hash generation and submission
-    /// 
+    ///
     /// This is the main entry point that fulfills all acceptance criteria:
     /// 1. Aggregate all metrics
     /// 2. Serialize to deterministic JSON
@@ -60,15 +60,23 @@ impl SnapshotService {
     /// 4. Store hash in database
     /// 5. Submit to smart contract
     /// 6. Verify submission success
-    pub async fn generate_and_submit_snapshot(&self, epoch: u64) -> Result<SnapshotGenerationResult> {
+    pub async fn generate_and_submit_snapshot(
+        &self,
+        epoch: u64,
+    ) -> Result<SnapshotGenerationResult> {
         info!("Starting snapshot generation for epoch {}", epoch);
 
         // Step 1: Aggregate all metrics
-        let snapshot = self.aggregate_all_metrics(epoch).await
+        let snapshot = self
+            .aggregate_all_metrics(epoch)
+            .await
             .context("Failed to aggregate metrics")?;
 
-        info!("Aggregated {} anchor metrics and {} corridor metrics", 
-              snapshot.anchor_metrics.len(), snapshot.corridor_metrics.len());
+        info!(
+            "Aggregated {} anchor metrics and {} corridor metrics",
+            snapshot.anchor_metrics.len(),
+            snapshot.corridor_metrics.len()
+        );
 
         // Step 2: Serialize to deterministic JSON
         let canonical_json = Self::serialize_deterministically(snapshot.clone())
@@ -81,7 +89,9 @@ impl SnapshotService {
         info!("Generated snapshot hash: {}", hash_hex);
 
         // Step 4: Store hash in database
-        let snapshot_id = self.store_snapshot_in_database(&snapshot, &hash_hex, &canonical_json).await
+        let snapshot_id = self
+            .store_snapshot_in_database(&snapshot, &hash_hex, &canonical_json)
+            .await
             .context("Failed to store snapshot in database")?;
 
         info!("Stored snapshot in database with ID: {}", snapshot_id);
@@ -105,7 +115,8 @@ impl SnapshotService {
 
         // Step 6: Verify submission success (if submitted)
         let verification_result = if let Some(ref submission) = submission_result {
-            self.verify_submission_success(&hash_hex, epoch, submission).await
+            self.verify_submission_success(&hash_hex, epoch, submission)
+                .await
                 .context("Failed to verify submission success")?
         } else {
             false
@@ -130,17 +141,21 @@ impl SnapshotService {
         let mut snapshot = AnalyticsSnapshot::new(epoch, timestamp);
 
         // Aggregate anchor metrics
-        let anchor_metrics = self.aggregate_anchor_metrics().await
+        let anchor_metrics = self
+            .aggregate_anchor_metrics()
+            .await
             .context("Failed to aggregate anchor metrics")?;
-        
+
         for metrics in anchor_metrics {
             snapshot.add_anchor_metrics(metrics);
         }
 
         // Aggregate corridor metrics
-        let corridor_metrics = self.aggregate_corridor_metrics().await
+        let corridor_metrics = self
+            .aggregate_corridor_metrics()
+            .await
             .context("Failed to aggregate corridor metrics")?;
-        
+
         for metrics in corridor_metrics {
             snapshot.add_corridor_metrics(metrics);
         }
@@ -173,18 +188,18 @@ impl SnapshotService {
             .context("Failed to fetch anchor data")?;
 
         let mut metrics = Vec::new();
-        
+
         for row in rows {
             let total_transactions: i64 = row.get("total_transactions");
             let successful_transactions: i64 = row.get("successful_transactions");
             let failed_transactions: i64 = row.get("failed_transactions");
-            
+
             let success_rate = if total_transactions > 0 {
                 successful_transactions as f64 / total_transactions as f64
             } else {
                 0.0
             };
-            
+
             let failure_rate = if total_transactions > 0 {
                 failed_transactions as f64 / total_transactions as f64
             } else {
@@ -244,7 +259,7 @@ impl SnapshotService {
             .context("Failed to fetch corridor metrics")?;
 
         let mut metrics = Vec::new();
-        
+
         for row in rows {
             let corridor_metrics = SnapshotCorridorMetrics {
                 id: Uuid::parse_str(&row.get::<String, _>("id"))
@@ -278,7 +293,7 @@ impl SnapshotService {
         canonical_json: &str,
     ) -> Result<String> {
         let snapshot_id = Uuid::new_v4().to_string();
-        
+
         let query = r#"
             INSERT INTO snapshots (
                 id, entity_id, entity_type, data, hash, epoch, timestamp, created_at
@@ -311,13 +326,19 @@ impl SnapshotService {
         if let Some(contract_service) = &self.contract_service {
             // Wait a moment for the transaction to be confirmed
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-            
+
             match contract_service.verify_snapshot_exists(hash, epoch).await {
                 Ok(exists) => {
                     if exists {
-                        info!("Verification successful: snapshot exists on-chain for epoch {}", epoch);
+                        info!(
+                            "Verification successful: snapshot exists on-chain for epoch {}",
+                            epoch
+                        );
                     } else {
-                        warn!("Verification failed: snapshot not found on-chain for epoch {}", epoch);
+                        warn!(
+                            "Verification failed: snapshot not found on-chain for epoch {}",
+                            epoch
+                        );
                     }
                     Ok(exists)
                 }
@@ -330,7 +351,6 @@ impl SnapshotService {
             Ok(false)
         }
     }
-
 }
 
 impl SnapshotService {
@@ -619,17 +639,17 @@ impl SnapshotService {
     }
 
     /// Create snapshot, hash it, and submit to on-chain contract
-    /// 
+    ///
     /// This method combines snapshot creation with automatic submission to the
     /// Soroban smart contract. It handles the complete workflow:
     /// 1. Generate snapshot hash
     /// 2. Submit to contract with retry logic
     /// 3. Return both hash and submission result
-    /// 
+    ///
     /// # Arguments
     /// * `snapshot` - The analytics snapshot to hash and submit
     /// * `contract_service` - Contract service for blockchain submission
-    /// 
+    ///
     /// # Returns
     /// Tuple of (hash_bytes, hash_hex, schema_version, submission_result)
     pub async fn version_hash_and_submit(
@@ -640,15 +660,12 @@ impl SnapshotService {
 
         // Get epoch before consuming snapshot
         let epoch = snapshot.epoch;
-        
+
         // Generate hash
         let (hash_bytes, hash_hex, version) = Self::version_and_hash(snapshot)
             .map_err(|e| anyhow::anyhow!("Failed to hash snapshot: {}", e))?;
 
-        info!(
-            "Generated snapshot hash for epoch {}: {}",
-            epoch, hash_hex
-        );
+        info!("Generated snapshot hash for epoch {}: {}", epoch, hash_hex);
 
         // Submit to contract
         let submission = contract_service

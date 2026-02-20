@@ -30,13 +30,16 @@ async fn get_fee_bump_stats(
     State(service): State<Arc<FeeBumpTrackerService>>,
 ) -> Json<FeeBumpStats> {
     // In a real app, handle error properly (e.g. 500)
-    let stats = service.get_fee_bump_stats().await.unwrap_or_else(|_| FeeBumpStats {
-        total_fee_bumps: 0,
-        avg_fee_charged: 0.0,
-        max_fee_charged: 0,
-        min_fee_charged: 0,
-        unique_fee_sources: 0,
-    });
+    let stats = service
+        .get_fee_bump_stats()
+        .await
+        .unwrap_or_else(|_| FeeBumpStats {
+            total_fee_bumps: 0,
+            avg_fee_charged: 0.0,
+            max_fee_charged: 0,
+            min_fee_charged: 0,
+            unique_fee_sources: 0,
+        });
     Json(stats)
 }
 
@@ -46,6 +49,9 @@ async fn get_recent_fee_bumps(
 ) -> Json<Vec<FeeBumpTransaction>> {
     let limit = params.limit.clamp(1, 100);
     // In a real app, handle error properly
-    let transactions = service.get_recent_fee_bumps(limit).await.unwrap_or_default();
+    let transactions = service
+        .get_recent_fee_bumps(limit)
+        .await
+        .unwrap_or_default();
     Json(transactions)
 }

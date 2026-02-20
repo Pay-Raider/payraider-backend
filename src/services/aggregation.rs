@@ -22,9 +22,9 @@ pub struct AggregationConfig {
 impl Default for AggregationConfig {
     fn default() -> Self {
         Self {
-            interval_hours: 1,  // Run every hour
-            lookback_hours: 2,  // Process last 2 hours of data
-            batch_size: 10000,  // Process 10k payments at a time
+            interval_hours: 1, // Run every hour
+            lookback_hours: 2, // Process last 2 hours of data
+            batch_size: 10000, // Process 10k payments at a time
         }
     }
 }
@@ -46,20 +46,18 @@ impl AggregationService {
             self.config.interval_hours
         );
 
-        let mut ticker = interval(TokioDuration::from_secs(
-            self.config.interval_hours * 3600,
-        ));
+        let mut ticker = interval(TokioDuration::from_secs(self.config.interval_hours * 3600));
 
         loop {
             ticker.tick().await;
-            
+
             info!("Triggering hourly corridor aggregation");
-            
+
             // Check for pending retries first
             if let Err(e) = self.process_pending_retries().await {
                 error!("Failed to process pending retries: {}", e);
             }
-            
+
             // Run new aggregation
             if let Err(e) = self.run_hourly_aggregation().await {
                 error!("Hourly aggregation failed: {}", e);
@@ -80,16 +78,19 @@ impl AggregationService {
     pub async fn run_hourly_aggregation(&self) -> Result<()> {
         let job_id = Uuid::new_v4().to_string();
         let now = Utc::now();
-        
+
         // Create job record
         self.create_job_record(&job_id, "hourly").await?;
-        
+
         // Update job status to running
         self.update_job_status(&job_id, "running", None).await?;
 
         match self.execute_aggregation(&job_id, now).await {
             Ok(metrics_count) => {
-                info!("Aggregation completed successfully. Processed {} corridor metrics", metrics_count);
+                info!(
+                    "Aggregation completed successfully. Processed {} corridor metrics",
+                    metrics_count
+                );
                 self.update_job_status(&job_id, "completed", None).await?;
                 Ok(())
             }
@@ -106,7 +107,7 @@ impl AggregationService {
         // Calculate time window for aggregation
         let end_time = now;
         let start_time = end_time - Duration::hours(self.config.lookback_hours);
-        
+
         info!(
             "Aggregating corridor metrics from {} to {}",
             start_time.to_rfc3339(),
@@ -129,7 +130,7 @@ impl AggregationService {
 
         // Compute metrics for each corridor
         let corridor_metrics = compute_metrics_from_payments(&payments);
-        
+
         if corridor_metrics.is_empty() {
             info!("No corridor metrics computed");
             return Ok(0);
@@ -137,10 +138,10 @@ impl AggregationService {
 
         // Group metrics by hour bucket
         let hourly_metrics = self.group_by_hour_bucket(corridor_metrics, start_time);
-        
+
         // Store aggregated metrics
         let stored_count = self.store_hourly_metrics(hourly_metrics).await?;
-        
+
         // Update last processed hour
         let last_hour = self.truncate_to_hour(end_time);
         self.update_last_processed_hour(job_id, last_hour).await?;
@@ -169,18 +170,20 @@ impl AggregationService {
                     existing.successful_transactions += metric.successful_transactions;
                     existing.failed_transactions += metric.failed_transactions;
                     existing.volume_usd += metric.volume_usd;
-                    
+
                     // Update averages (weighted by transaction count)
                     if let Some(latency) = metric.avg_settlement_latency_ms {
                         let total_latency = existing.avg_settlement_latency_ms.unwrap_or(0) as i64
                             * existing.total_transactions
                             + latency as i64 * metric.total_transactions;
                         existing.avg_settlement_latency_ms = Some(
-                            (total_latency / (existing.total_transactions + metric.total_transactions)) as i32
+                            (total_latency
+                                / (existing.total_transactions + metric.total_transactions))
+                                as i32,
                         );
                     }
-                    
-                    existing.liquidity_depth_usd = 
+
+                    existing.liquidity_depth_usd =
                         (existing.liquidity_depth_usd + metric.liquidity_depth_usd) / 2.0;
                 })
                 .or_insert_with(|| HourlyCorridorMetrics {
@@ -207,7 +210,8 @@ impl AggregationService {
             .into_values()
             .map(|mut m| {
                 if m.total_transactions > 0 {
-                    m.success_rate = (m.successful_transactions as f64 / m.total_transactions as f64) * 100.0;
+                    m.success_rate =
+                        (m.successful_transactions as f64 / m.total_transactions as f64) * 100.0;
                 }
                 m
             })
@@ -217,7 +221,7 @@ impl AggregationService {
     /// Store hourly metrics in the database
     async fn store_hourly_metrics(&self, metrics: Vec<HourlyCorridorMetrics>) -> Result<usize> {
         let count = metrics.len();
-        
+
         for metric in metrics {
             self.db
                 .upsert_hourly_corridor_metric(&metric)

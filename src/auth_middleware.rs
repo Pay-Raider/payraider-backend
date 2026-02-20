@@ -16,10 +16,7 @@ pub struct AuthUser {
 }
 
 /// Auth middleware - validates JWT from Authorization header
-pub async fn auth_middleware(
-    mut req: Request,
-    next: Next,
-) -> Result<Response, AuthError> {
+pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, AuthError> {
     // Extract Authorization header
     let auth_header = req
         .headers()
@@ -54,7 +51,7 @@ fn validate_access_token(token: &str, secret: &str) -> Result<Claims, AuthError>
     use jsonwebtoken::{decode, DecodingKey, Validation};
 
     let validation = Validation::default();
-    
+
     decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
@@ -80,14 +77,8 @@ pub enum AuthError {
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            AuthError::MissingToken => (
-                StatusCode::UNAUTHORIZED,
-                "Missing authentication token",
-            ),
-            AuthError::InvalidToken => (
-                StatusCode::UNAUTHORIZED,
-                "Invalid or expired token",
-            ),
+            AuthError::MissingToken => (StatusCode::UNAUTHORIZED, "Missing authentication token"),
+            AuthError::InvalidToken => (StatusCode::UNAUTHORIZED, "Invalid or expired token"),
         };
 
         let body = json!({

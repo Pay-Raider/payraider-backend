@@ -1,4 +1,4 @@
-use axum::{routing::get, extract::State, Json, Router};
+use axum::{extract::State, routing::get, Json, Router};
 use serde::Serialize;
 use std::sync::Arc;
 

@@ -26,9 +26,9 @@ impl CacheStats {
 /// Cache configuration with TTL settings
 #[derive(Debug, Clone)]
 pub struct CacheConfig {
-    pub corridor_metrics_ttl: usize,    // 5 minutes
-    pub anchor_data_ttl: usize,         // 10 minutes
-    pub dashboard_stats_ttl: usize,     // 1 minute
+    pub corridor_metrics_ttl: usize, // 5 minutes
+    pub anchor_data_ttl: usize,      // 10 minutes
+    pub dashboard_stats_ttl: usize,  // 1 minute
 }
 
 impl CacheConfig {
@@ -45,9 +45,9 @@ impl CacheConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            corridor_metrics_ttl: 300,   // 5 minutes
-            anchor_data_ttl: 600,        // 10 minutes
-            dashboard_stats_ttl: 60,     // 1 minute
+            corridor_metrics_ttl: 300, // 5 minutes
+            anchor_data_ttl: 600,      // 10 minutes
+            dashboard_stats_ttl: 60,   // 1 minute
         }
     }
 }
@@ -63,8 +63,8 @@ pub struct CacheManager {
 
 impl CacheManager {
     pub async fn new(config: CacheConfig) -> anyhow::Result<Self> {
-        let redis_url = std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
 
         let connection = if let Ok(client) = redis::Client::open(redis_url.as_str()) {
             match client.get_multiplexed_tokio_connection().await {
@@ -315,10 +315,7 @@ mod tests {
     fn test_cache_key_builders() {
         assert_eq!(keys::anchor_list(50, 0), "anchor:list:50:0");
         assert_eq!(keys::anchor_detail("123"), "anchor:detail:123");
-        assert_eq!(
-            keys::anchor_by_account("GA123"),
-            "anchor:account:GA123"
-        );
+        assert_eq!(keys::anchor_by_account("GA123"), "anchor:account:GA123");
         assert_eq!(keys::dashboard_stats(), "dashboard:stats");
         assert_eq!(keys::anchor_pattern(), "anchor:*");
     }

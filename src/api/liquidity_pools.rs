@@ -55,14 +55,17 @@ async fn list_pools(
 async fn get_pool_stats(
     State(analyzer): State<Arc<LiquidityPoolAnalyzer>>,
 ) -> Json<LiquidityPoolStats> {
-    let stats = analyzer.get_pool_stats().await.unwrap_or_else(|_| LiquidityPoolStats {
-        total_pools: 0,
-        total_value_locked_usd: 0.0,
-        total_volume_24h_usd: 0.0,
-        total_fees_24h_usd: 0.0,
-        avg_apy: 0.0,
-        avg_impermanent_loss: 0.0,
-    });
+    let stats = analyzer
+        .get_pool_stats()
+        .await
+        .unwrap_or_else(|_| LiquidityPoolStats {
+            total_pools: 0,
+            total_value_locked_usd: 0.0,
+            total_volume_24h_usd: 0.0,
+            total_fees_24h_usd: 0.0,
+            avg_apy: 0.0,
+            avg_impermanent_loss: 0.0,
+        });
     Json(stats)
 }
 
@@ -100,6 +103,9 @@ async fn get_pool_snapshots(
     Query(params): Query<SnapshotParams>,
 ) -> Json<Vec<LiquidityPoolSnapshot>> {
     let limit = params.limit.clamp(1, 500);
-    let snapshots = analyzer.get_pool_snapshots(&pool_id, limit).await.unwrap_or_default();
+    let snapshots = analyzer
+        .get_pool_snapshots(&pool_id, limit)
+        .await
+        .unwrap_or_default();
     Json(snapshots)
 }

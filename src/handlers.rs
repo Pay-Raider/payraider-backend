@@ -83,7 +83,10 @@ pub async fn list_anchors(
     State(app_state): State<AppState>,
     Query(params): Query<ListAnchorsQuery>,
 ) -> ApiResult<Json<ListAnchorsResponse>> {
-    let anchors = app_state.db.list_anchors(params.limit, params.offset).await?;
+    let anchors = app_state
+        .db
+        .list_anchors(params.limit, params.offset)
+        .await?;
     let total = anchors.len();
 
     Ok(Json(ListAnchorsResponse { anchors, total }))
@@ -94,7 +97,8 @@ pub async fn get_anchor(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<AnchorDetailResponse>> {
-    let anchor_detail = app_state.db
+    let anchor_detail = app_state
+        .db
         .get_anchor_detail(id)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Anchor with id {} not found", id)))?;
@@ -107,7 +111,8 @@ pub async fn get_anchor_by_account(
     State(app_state): State<AppState>,
     Path(stellar_account): Path<String>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
-    let anchor = app_state.db
+    let anchor = app_state
+        .db
         .get_anchor_by_stellar_account(&stellar_account)
         .await?
         .ok_or_else(|| {
@@ -166,7 +171,8 @@ pub async fn update_anchor_metrics(
         )));
     }
 
-    let anchor = app_state.db
+    let anchor = app_state
+        .db
         .update_anchor_metrics(
             id,
             req.total_transactions,
@@ -221,7 +227,8 @@ pub async fn create_anchor_asset(
         )));
     }
 
-    let asset = app_state.db
+    let asset = app_state
+        .db
         .create_asset(id, req.asset_code, req.asset_issuer)
         .await?;
 
@@ -242,7 +249,10 @@ pub async fn list_corridors(
     State(app_state): State<AppState>,
     Query(params): Query<ListCorridorsQuery>,
 ) -> ApiResult<Json<ListCorridorsResponse>> {
-    let corridors = app_state.db.list_corridors(params.limit, params.offset).await?;
+    let corridors = app_state
+        .db
+        .list_corridors(params.limit, params.offset)
+        .await?;
     let total = corridors.len();
     Ok(Json(ListCorridorsResponse { corridors, total }))
 }
@@ -263,10 +273,10 @@ pub async fn create_corridor(
         ));
     }
     let corridor = app_state.db.create_corridor(req).await?;
-    
+
     // Broadcast the new corridor to WebSocket clients
     broadcast_corridor_update(&app_state.ws_state, &corridor);
-    
+
     Ok(Json(corridor))
 }
 
@@ -307,10 +317,10 @@ pub async fn update_corridor_metrics_from_transactions(
 
     let metrics = compute_corridor_metrics(&txs, None, 1.0);
     let corridor = app_state.db.update_corridor_metrics(id, metrics).await?;
-    
+
     // Broadcast the corridor update to WebSocket clients
     broadcast_corridor_update(&app_state.ws_state, &corridor);
-    
+
     Ok(Json(corridor))
 }
 

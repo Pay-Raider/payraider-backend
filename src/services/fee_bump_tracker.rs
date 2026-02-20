@@ -23,18 +23,24 @@ impl FeeBumpTrackerService {
             if let Some(fee_bump) = &tx.fee_bump_transaction {
                 if let Some(inner) = &tx.inner_transaction {
                     // Extract data safely
-                    let fee_charged = tx.fee_charged.as_ref()
-                        .and_then(|f| f.parse::<i64>().ok())
-                        .unwrap_or(0);
-                    
-                    let max_fee = tx.max_fee.as_ref()
+                    let fee_charged = tx
+                        .fee_charged
+                        .as_ref()
                         .and_then(|f| f.parse::<i64>().ok())
                         .unwrap_or(0);
 
-                    let inner_max_fee = inner.max_fee.as_ref()
+                    let max_fee = tx
+                        .max_fee
+                        .as_ref()
                         .and_then(|f| f.parse::<i64>().ok())
                         .unwrap_or(0);
-                    
+
+                    let inner_max_fee = inner
+                        .max_fee
+                        .as_ref()
+                        .and_then(|f| f.parse::<i64>().ok())
+                        .unwrap_or(0);
+
                     // Parse created_at
                     let created_at = DateTime::parse_from_rfc3339(&tx.created_at)
                         .map(|dt| dt.with_timezone(&Utc))
@@ -43,7 +49,10 @@ impl FeeBumpTrackerService {
                     let fee_bump_tx = FeeBumpTransaction {
                         transaction_hash: tx.hash.clone(),
                         ledger_sequence: tx.ledger as i64,
-                        fee_source: tx.fee_account.clone().unwrap_or_else(|| tx.source_account.clone()),
+                        fee_source: tx
+                            .fee_account
+                            .clone()
+                            .unwrap_or_else(|| tx.source_account.clone()),
                         fee_charged,
                         max_fee,
                         inner_transaction_hash: inner.hash.clone(),

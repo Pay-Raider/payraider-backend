@@ -9,9 +9,7 @@ use tracing_subscriber;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     info!("Starting corridor aggregation service demo");
 
@@ -35,9 +33,9 @@ async fn main() -> Result<()> {
 
     // Configure aggregation service
     let config = AggregationConfig {
-        interval_hours: 1,  // Run every hour
-        lookback_hours: 2,  // Process last 2 hours
-        batch_size: 10000,  // Process 10k payments at a time
+        interval_hours: 1, // Run every hour
+        lookback_hours: 2, // Process last 2 hours
+        batch_size: 10000, // Process 10k payments at a time
     };
 
     // Create aggregation service
@@ -60,15 +58,12 @@ async fn main() -> Result<()> {
     // Option 3: Calculate volume trends
     info!("Calculating volume trends for last 24 hours...");
     let trends = aggregation_service.calculate_volume_trends(24).await?;
-    
+
     info!("Found {} corridor trends:", trends.len());
     for trend in trends.iter().take(10) {
         info!(
             "  {} - Total: ${:.2}, Avg: ${:.2}, Trend: {:.2}%",
-            trend.corridor_key,
-            trend.total_volume,
-            trend.avg_volume,
-            trend.trend_percentage
+            trend.corridor_key, trend.total_volume, trend.avg_volume, trend.trend_percentage
         );
     }
 

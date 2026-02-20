@@ -1,8 +1,8 @@
+use chrono::Utc;
 use sqlx::SqlitePool;
 use std::sync::Arc;
+use stellar_insights_backend::rpc::{FeeBumpTransactionInfo, HorizonTransaction, InnerTransaction};
 use stellar_insights_backend::services::fee_bump_tracker::FeeBumpTrackerService;
-use stellar_insights_backend::rpc::{HorizonTransaction, FeeBumpTransactionInfo, InnerTransaction};
-use chrono::Utc;
 
 #[sqlx::test]
 async fn test_fee_bump_tracker_process_transactions(pool: SqlitePool) {

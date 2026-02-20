@@ -43,7 +43,9 @@ impl CacheInvalidationService {
     /// Invalidate specific corridor cache
     pub async fn invalidate_corridor(&self, corridor_key: &str) -> anyhow::Result<()> {
         tracing::info!("Invalidating cache for corridor: {}", corridor_key);
-        self.cache.delete(&keys::corridor_detail(corridor_key)).await?;
+        self.cache
+            .delete(&keys::corridor_detail(corridor_key))
+            .await?;
         // Also invalidate the list caches since they contain this corridor
         self.cache.delete_pattern(&keys::corridor_pattern()).await
     }

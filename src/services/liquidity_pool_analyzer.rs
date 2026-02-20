@@ -37,10 +37,18 @@ impl LiquidityPoolAnalyzer {
             let total_value_usd = reserve_a + reserve_b; // Simplified valuation
 
             // Compute volume from recent trades
-            let trades = self.rpc_client.fetch_pool_trades(&hp.id, 100).await.unwrap_or_default();
-            let volume_24h_usd: f64 = trades.iter().map(|t| {
-                t.base_amount.parse::<f64>().unwrap_or(0.0) + t.counter_amount.parse::<f64>().unwrap_or(0.0)
-            }).sum();
+            let trades = self
+                .rpc_client
+                .fetch_pool_trades(&hp.id, 100)
+                .await
+                .unwrap_or_default();
+            let volume_24h_usd: f64 = trades
+                .iter()
+                .map(|t| {
+                    t.base_amount.parse::<f64>().unwrap_or(0.0)
+                        + t.counter_amount.parse::<f64>().unwrap_or(0.0)
+                })
+                .sum();
 
             let trade_count_24h = trades.len() as i32;
 
@@ -56,7 +64,9 @@ impl LiquidityPoolAnalyzer {
             };
 
             // Compute impermanent loss (requires initial reserves, use snapshot if available)
-            let il = self.compute_impermanent_loss_for_pool(&hp.id, reserve_a, reserve_b).await;
+            let il = self
+                .compute_impermanent_loss_for_pool(&hp.id, reserve_a, reserve_b)
+                .await;
 
             let now = Utc::now();
 
@@ -162,7 +172,7 @@ impl LiquidityPoolAnalyzer {
     /// Get all pools from the database
     pub async fn get_all_pools(&self) -> Result<Vec<LiquidityPool>> {
         let pools = sqlx::query_as::<_, LiquidityPool>(
-            "SELECT * FROM liquidity_pools ORDER BY total_value_usd DESC"
+            "SELECT * FROM liquidity_pools ORDER BY total_value_usd DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -170,13 +180,15 @@ impl LiquidityPoolAnalyzer {
     }
 
     /// Get a single pool by ID with its historical snapshots
-    pub async fn get_pool_detail(&self, pool_id: &str) -> Result<(LiquidityPool, Vec<LiquidityPoolSnapshot>)> {
-        let pool = sqlx::query_as::<_, LiquidityPool>(
-            "SELECT * FROM liquidity_pools WHERE pool_id = $1"
-        )
-        .bind(pool_id)
-        .fetch_one(&self.pool)
-        .await?;
+    pub async fn get_pool_detail(
+        &self,
+        pool_id: &str,
+    ) -> Result<(LiquidityPool, Vec<LiquidityPoolSnapshot>)> {
+        let pool =
+            sqlx::query_as::<_, LiquidityPool>("SELECT * FROM liquidity_pools WHERE pool_id = $1")
+                .bind(pool_id)
+                .fetch_one(&self.pool)
+                .await?;
 
         let snapshots = self.get_pool_snapshots(pool_id, 100).await?;
 
@@ -184,7 +196,11 @@ impl LiquidityPoolAnalyzer {
     }
 
     /// Get pool snapshots for historical charts
-    pub async fn get_pool_snapshots(&self, pool_id: &str, limit: i64) -> Result<Vec<LiquidityPoolSnapshot>> {
+    pub async fn get_pool_snapshots(
+        &self,
+        pool_id: &str,
+        limit: i64,
+    ) -> Result<Vec<LiquidityPoolSnapshot>> {
         let snapshots = sqlx::query_as::<_, LiquidityPoolSnapshot>(
             r#"
             SELECT * FROM liquidity_pool_snapshots

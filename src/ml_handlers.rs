@@ -1,9 +1,9 @@
+use crate::ml::{MLService, PredictionResult};
 use axum::{extract::Query, http::StatusCode, response::Json, Extension};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::ml::{MLService, PredictionResult};
 
 #[derive(Debug, Deserialize)]
 pub struct PredictionQuery {
@@ -30,7 +30,7 @@ impl From<PredictionResult> for PredictionResponse {
     fn from(result: PredictionResult) -> Self {
         let risk_level = match result.success_probability {
             p if p >= 0.8 => "low",
-            p if p >= 0.6 => "medium", 
+            p if p >= 0.6 => "medium",
             _ => "high",
         };
 
@@ -55,7 +55,7 @@ pub async fn predict_payment_success(
     Extension(ml_service): Extension<Arc<RwLock<MLService>>>,
 ) -> Result<Json<PredictionResponse>, StatusCode> {
     let service = ml_service.read().await;
-    
+
     match service
         .predict_payment_success(&query.corridor, query.amount_usd, query.timestamp)
         .await
@@ -88,7 +88,7 @@ pub async fn retrain_model(
     Extension(ml_service): Extension<Arc<RwLock<MLService>>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let mut service = ml_service.write().await;
-    
+
     match service.retrain_weekly().await {
         Ok(_) => Ok(Json(serde_json::json!({
             "status": "success",

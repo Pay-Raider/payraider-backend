@@ -1,11 +1,6 @@
 //! HTTP handlers for snapshot generation and submission
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -53,7 +48,7 @@ pub struct SnapshotAppState {
 }
 
 /// Generate a snapshot (optionally submit to contract)
-/// 
+///
 /// POST /api/snapshots/generate
 pub async fn generate_snapshot(
     State(state): State<SnapshotAppState>,
@@ -65,7 +60,11 @@ pub async fn generate_snapshot(
     );
 
     // Use the comprehensive snapshot service to handle all requirements
-    match state.snapshot_service.generate_and_submit_snapshot(request.epoch).await {
+    match state
+        .snapshot_service
+        .generate_and_submit_snapshot(request.epoch)
+        .await
+    {
         Ok(result) => {
             let hash = result.hash.clone();
             let response = SnapshotResponse {
@@ -94,14 +93,17 @@ pub async fn generate_snapshot(
             Ok(Json(response))
         }
         Err(e) => {
-            error!("Failed to generate snapshot for epoch {}: {}", request.epoch, e);
+            error!(
+                "Failed to generate snapshot for epoch {}: {}",
+                request.epoch, e
+            );
             Err(SnapshotError::GenerationFailed(e.to_string()))
         }
     }
 }
 
 /// Health check for contract service
-/// 
+///
 /// GET /api/snapshots/contract/health
 pub async fn contract_health_check(
     State(state): State<SnapshotAppState>,

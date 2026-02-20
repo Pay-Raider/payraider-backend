@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
-use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAnalyzer;
-use stellar_insights_backend::rpc::StellarRpcClient;
 use std::sync::Arc;
+use stellar_insights_backend::rpc::StellarRpcClient;
+use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAnalyzer;
 
 #[sqlx::test]
 async fn test_liquidity_pool_sync_and_query(pool: SqlitePool) {

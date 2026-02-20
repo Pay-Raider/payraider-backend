@@ -78,7 +78,10 @@ pub async fn get_anchors(
     State(app_state): State<AppState>,
     Query(params): Query<ListAnchorsQuery>,
 ) -> ApiResult<Json<AnchorsResponse>> {
-    let anchors = app_state.db.list_anchors(params.limit, params.offset).await?;
+    let anchors = app_state
+        .db
+        .list_anchors(params.limit, params.offset)
+        .await?;
 
     let mut anchor_responses = Vec::new();
 

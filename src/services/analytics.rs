@@ -170,7 +170,7 @@ pub fn compute_metrics_from_payments(payments: &[PaymentRecord]) -> Vec<Corridor
             if p.successful {
                 successful_transactions += 1;
                 volume_usd += p.amount; // Assuming amount is already USD or normalized.
-                // Compute settlement latency from submission/confirmation times
+                                        // Compute settlement latency from submission/confirmation times
                 if let Some(latency_ms) = p.settlement_latency_ms() {
                     // Filter out negative latencies which might be due to data synchronization issues
                     if latency_ms >= 0 {

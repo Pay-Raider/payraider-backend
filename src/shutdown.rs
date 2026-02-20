@@ -110,10 +110,9 @@ pub async fn wait_for_signal() {
     {
         use tokio::signal::unix::{signal, SignalKind};
 
-        let mut sigterm = signal(SignalKind::terminate())
-            .expect("Failed to install SIGTERM handler");
-        let mut sigint = signal(SignalKind::interrupt())
-            .expect("Failed to install SIGINT handler");
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
+        let mut sigint = signal(SignalKind::interrupt()).expect("Failed to install SIGINT handler");
 
         tokio::select! {
             _ = sigterm.recv() => {
@@ -168,10 +167,7 @@ pub async fn shutdown_background_tasks(
 /// Gracefully close database connection pool
 ///
 /// Attempts to close the database pool within the timeout period.
-pub async fn shutdown_database(
-    pool: sqlx::SqlitePool,
-    timeout_duration: Duration,
-) {
+pub async fn shutdown_database(pool: sqlx::SqlitePool, timeout_duration: Duration) {
     info!("Closing database connections");
 
     let close_future = async {
@@ -226,10 +222,10 @@ mod tests {
     fn test_shutdown_coordinator_creation() {
         let config = ShutdownConfig::default();
         let coordinator = ShutdownCoordinator::new(config);
-        
+
         // Should be able to subscribe
         let _rx = coordinator.subscribe();
-        
+
         // Should be able to get timeouts
         assert_eq!(coordinator.graceful_timeout(), Duration::from_secs(30));
     }
@@ -238,12 +234,12 @@ mod tests {
     async fn test_shutdown_coordinator_broadcast() {
         let config = ShutdownConfig::default();
         let coordinator = ShutdownCoordinator::new(config);
-        
+
         let mut rx1 = coordinator.subscribe();
         let mut rx2 = coordinator.subscribe();
-        
+
         coordinator.trigger_shutdown();
-        
+
         // Both receivers should get the signal
         assert!(rx1.recv().await.is_ok());
         assert!(rx2.recv().await.is_ok());
@@ -254,16 +250,13 @@ mod tests {
         let task1 = tokio::spawn(async {
             tokio::time::sleep(Duration::from_millis(10)).await;
         });
-        
+
         let task2 = tokio::spawn(async {
             tokio::time::sleep(Duration::from_millis(20)).await;
         });
-        
-        shutdown_background_tasks(
-            vec![task1, task2],
-            Duration::from_secs(1),
-        ).await;
-        
+
+        shutdown_background_tasks(vec![task1, task2], Duration::from_secs(1)).await;
+
         // Should complete without panic
     }
 
@@ -272,11 +265,8 @@ mod tests {
         let task = tokio::spawn(async {
             tokio::time::sleep(Duration::from_secs(10)).await;
         });
-        
+
         // Should timeout but not panic
-        shutdown_background_tasks(
-            vec![task],
-            Duration::from_millis(100),
-        ).await;
+        shutdown_background_tasks(vec![task], Duration::from_millis(100)).await;
     }
 }

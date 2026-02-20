@@ -1,5 +1,5 @@
-use axum::{routing::get, extract::State, Json, Router};
-use serde::{Serialize, Deserialize};
+use axum::{extract::State, routing::get, Json, Router};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::cache::{keys, CacheManager};
@@ -15,9 +15,7 @@ pub struct MetricsOverview {
 }
 
 /// Handler for GET /api/metrics/overview (cached with 1 min TTL)
-pub async fn metrics_overview(
-    State(cache): State<Arc<CacheManager>>,
-) -> Json<MetricsOverview> {
+pub async fn metrics_overview(State(cache): State<Arc<CacheManager>>) -> Json<MetricsOverview> {
     let cache_key = keys::metrics_overview();
 
     let overview = <()>::get_or_fetch(

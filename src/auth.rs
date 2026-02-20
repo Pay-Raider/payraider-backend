@@ -59,10 +59,10 @@ pub struct LogoutRequest {
 /// JWT Claims
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,      // User ID
-    pub username: String, // Username
-    pub exp: i64,         // Expiry timestamp
-    pub iat: i64,         // Issued at timestamp
+    pub sub: String,        // User ID
+    pub username: String,   // Username
+    pub exp: i64,           // Expiry timestamp
+    pub iat: i64,           // Issued at timestamp
     pub token_type: String, // "access" or "refresh"
 }
 
@@ -76,7 +76,7 @@ impl AuthService {
     pub fn new(redis_connection: Arc<RwLock<Option<MultiplexedConnection>>>) -> Self {
         let jwt_secret = std::env::var("JWT_SECRET")
             .unwrap_or_else(|_| "your-secret-key-change-in-production".to_string());
-        
+
         Self {
             jwt_secret,
             redis_connection,
@@ -145,7 +145,7 @@ impl AuthService {
     /// Validate and decode token
     pub fn validate_token(&self, token: &str) -> Result<Claims> {
         let validation = Validation::default();
-        
+
         decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.jwt_secret.as_bytes()),
@@ -165,12 +165,12 @@ impl AuthService {
             conn.set_ex::<_, _, ()>(&key, token, expiry as u64)
                 .await
                 .map_err(|e| anyhow!("Failed to store refresh token: {}", e))?;
-            
+
             tracing::debug!("Stored refresh token for user: {}", user_id);
         } else {
             tracing::warn!("Redis not available, refresh token not stored");
         }
-        
+
         Ok(())
     }
 
@@ -188,7 +188,7 @@ impl AuthService {
         if let Some(conn) = self.redis_connection.read().await.as_ref() {
             let mut conn = conn.clone();
             let key = format!("refresh_token:{}", claims.sub);
-            
+
             let stored_token: Option<String> = conn
                 .get(&key)
                 .await
@@ -209,14 +209,14 @@ impl AuthService {
         if let Some(conn) = self.redis_connection.read().await.as_ref() {
             let mut conn = conn.clone();
             let key = format!("refresh_token:{}", user_id);
-            
+
             conn.del::<_, ()>(&key)
                 .await
                 .map_err(|e| anyhow!("Failed to invalidate refresh token: {}", e))?;
-            
+
             tracing::debug!("Invalidated refresh token for user: {}", user_id);
         }
-        
+
         Ok(())
     }
 

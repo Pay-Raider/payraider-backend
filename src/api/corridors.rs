@@ -135,7 +135,8 @@ pub async fn list_corridors(
 
     let metrics = if params.time_period.is_some() {
         // Use aggregated metrics for time periods
-        let aggregated = app_state.db
+        let aggregated = app_state
+            .db
             .corridor_aggregates()
             .get_aggregated_corridor_metrics(start_date, end_date)
             .await
@@ -166,7 +167,9 @@ pub async fn list_corridors(
             .collect()
     } else {
         // Use daily metrics for single day
-        app_state.db.corridor_aggregates()
+        app_state
+            .db
+            .corridor_aggregates()
             .get_corridor_metrics_for_date(today)
             .await
             .map_err(|e| ApiError::InternalError(format!("Failed to fetch corridors: {}", e)))?
@@ -277,7 +280,8 @@ pub async fn get_corridor_detail(
     let end_date = Utc::now().date_naive();
     let start_date = end_date - Duration::days(30);
 
-    let metrics = app_state.db
+    let metrics = app_state
+        .db
         .corridor_aggregates()
         .get_corridor_metrics(&corridor, start_date, end_date)
         .await
@@ -366,7 +370,8 @@ pub async fn get_corridor_detail(
         })
         .collect();
 
-    let related_metrics = app_state.db
+    let related_metrics = app_state
+        .db
         .corridor_aggregates()
         .get_top_corridors_by_volume(end_date, 4)
         .await

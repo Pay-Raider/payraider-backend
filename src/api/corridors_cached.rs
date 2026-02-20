@@ -4,7 +4,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use utoipa::{ToSchema, IntoParams};
+use utoipa::{IntoParams, ToSchema};
 
 use crate::cache::{keys, CacheManager};
 use crate::cache_middleware::CacheAware;
@@ -223,7 +223,11 @@ fn generate_corridor_list_cache_key(params: &ListCorridorsQuery) -> String {
     tag = "Corridors"
 )]
 pub async fn list_corridors(
-    State((_db, cache, rpc_client)): State<(Arc<Database>, Arc<CacheManager>, Arc<StellarRpcClient>)>,
+    State((_db, cache, rpc_client)): State<(
+        Arc<Database>,
+        Arc<CacheManager>,
+        Arc<StellarRpcClient>,
+    )>,
     Query(params): Query<ListCorridorsQuery>,
 ) -> ApiResult<Json<Vec<CorridorResponse>>> {
     let cache_key = generate_corridor_list_cache_key(&params);
@@ -261,12 +265,15 @@ pub async fn list_corridors(
                     payment.asset_code.as_deref().unwrap_or("XLM"),
                     payment.asset_issuer.as_deref().unwrap_or("native")
                 );
-                
+
                 // For now, assume destination is XLM (we'd need more data to determine actual destination asset)
                 let asset_to = "XLM:native".to_string();
-                
+
                 let corridor_key = format!("{}->{}", asset_from, asset_to);
-                corridor_map.entry(corridor_key).or_insert_with(Vec::new).push(payment);
+                corridor_map
+                    .entry(corridor_key)
+                    .or_insert_with(Vec::new)
+                    .push(payment);
             }
 
             // Calculate metrics for each corridor
@@ -274,7 +281,7 @@ pub async fn list_corridors(
 
             for (corridor_key, corridor_payments) in corridor_map.iter() {
                 let total_attempts = corridor_payments.len() as i64;
-                
+
                 // In Stellar, payments in the stream are successful
                 let successful_payments = total_attempts;
                 let failed_payments = 0;
@@ -353,7 +360,10 @@ pub async fn list_corridors(
                     if let Some(asset_code) = &params.asset_code {
                         let asset_code_lower = asset_code.to_lowercase();
                         if !c.source_asset.to_lowercase().contains(&asset_code_lower)
-                            && !c.destination_asset.to_lowercase().contains(&asset_code_lower)
+                            && !c
+                                .destination_asset
+                                .to_lowercase()
+                                .contains(&asset_code_lower)
                         {
                             return false;
                         }
@@ -369,7 +379,6 @@ pub async fn list_corridors(
 
     Ok(Json(corridors))
 }
-
 
 /// Get detailed corridor information
 ///
@@ -390,12 +399,16 @@ pub async fn list_corridors(
     tag = "Corridors"
 )]
 pub async fn get_corridor_detail(
-    State((_db, _cache, _rpc_client)): State<(Arc<Database>, Arc<CacheManager>, Arc<StellarRpcClient>)>,
+    State((_db, _cache, _rpc_client)): State<(
+        Arc<Database>,
+        Arc<CacheManager>,
+        Arc<StellarRpcClient>,
+    )>,
     Path(_corridor_key): Path<String>,
 ) -> ApiResult<Json<CorridorDetailResponse>> {
     // TODO: Implement RPC-based corridor detail
     Err(crate::handlers::ApiError::NotFound(
-        "Corridor detail endpoint not yet implemented with RPC".to_string()
+        "Corridor detail endpoint not yet implemented with RPC".to_string(),
     ))
 }
 

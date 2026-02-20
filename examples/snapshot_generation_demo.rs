@@ -1,8 +1,8 @@
 //! Snapshot Hash Generation Service Demo
-//! 
+//!
 //! This example demonstrates the complete snapshot hash generation workflow
 //! that fulfills all acceptance criteria for issue #122:
-//! 
+//!
 //! 1. Aggregate all metrics
 //! 2. Serialize to deterministic JSON
 //! 3. Compute SHA-256 hash
@@ -10,26 +10,24 @@
 //! 5. Submit to smart contract
 //! 6. Verify submission success
 
-use stellar_insights::database::Database;
-use stellar_insights::services::contract::{ContractService, ContractConfig};
-use stellar_insights::services::snapshot::SnapshotService;
 use std::sync::Arc;
+use stellar_insights::database::Database;
+use stellar_insights::services::contract::{ContractConfig, ContractService};
+use stellar_insights::services::snapshot::SnapshotService;
 use tracing::{info, Level};
 use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     info!("🚀 Starting Snapshot Hash Generation Demo");
 
     // Initialize database connection
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:stellar_insights.db".to_string());
-    
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:stellar_insights.db".to_string());
+
     info!("Connecting to database: {}", database_url);
     let db = Arc::new(Database::new(&database_url).await?);
 
@@ -47,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate snapshot for current epoch
     let epoch = chrono::Utc::now().timestamp() as u64 / 3600; // Hourly epochs
-    
+
     info!("📊 Generating snapshot for epoch {}", epoch);
 
     match snapshot_service.generate_and_submit_snapshot(epoch).await {
@@ -60,13 +58,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("   • Timestamp: {}", result.timestamp);
             info!("   • Anchor metrics: {}", result.anchor_count);
             info!("   • Corridor metrics: {}", result.corridor_count);
-            
+
             if let Some(submission) = result.submission_result {
                 info!("🔗 Blockchain submission:");
                 info!("   • Transaction hash: {}", submission.transaction_hash);
                 info!("   • Ledger: {}", submission.ledger);
                 info!("   • Contract timestamp: {}", submission.timestamp);
-                info!("   • Verification: {}", if result.verification_successful { "✅ SUCCESS" } else { "❌ FAILED" });
+                info!(
+                    "   • Verification: {}",
+                    if result.verification_successful {
+                        "✅ SUCCESS"
+                    } else {
+                        "❌ FAILED"
+                    }
+                );
             } else {
                 info!("🔗 Blockchain submission: SKIPPED (no contract service)");
             }
@@ -76,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let snapshot = snapshot_service.aggregate_all_metrics(epoch).await?;
             let json1 = SnapshotService::serialize_deterministically(snapshot.clone())?;
             let json2 = SnapshotService::serialize_deterministically(snapshot)?;
-            
+
             if json1 == json2 {
                 info!("✅ Deterministic serialization verified");
             } else {
@@ -90,7 +95,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 result.canonical_json.clone()
             };
             info!("📄 Canonical JSON preview: {}", json_preview);
-
         }
         Err(e) => {
             eprintln!("❌ Snapshot generation failed: {}", e);

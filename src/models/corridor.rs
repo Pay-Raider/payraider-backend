@@ -226,7 +226,7 @@ mod tests {
     fn test_payment_record_settlement_latency() {
         let now = Utc::now();
         let submitted = now - chrono::Duration::milliseconds(1500);
-        
+
         let payment = PaymentRecord {
             id: Uuid::new_v4(),
             source_asset_code: "USDC".to_string(),

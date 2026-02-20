@@ -1,5 +1,5 @@
 //! Integration test for the Snapshot Hash Generation Service
-//! 
+//!
 //! This test verifies all acceptance criteria for issue #122:
 //! 1. Aggregate all metrics ✅
 //! 2. Serialize to deterministic JSON ✅
@@ -8,16 +8,17 @@
 //! 5. Submit to smart contract ✅ (mocked)
 //! 6. Verify submission success ✅ (mocked)
 
+use std::sync::Arc;
 use stellar_insights_backend::database::Database;
 use stellar_insights_backend::services::snapshot::SnapshotService;
 use stellar_insights_backend::snapshot::schema::AnalyticsSnapshot;
-use std::sync::Arc;
 
 async fn setup_test_database() -> Arc<Database> {
     let db = Database::new("sqlite::memory:").await.unwrap();
-    
+
     // Create test tables
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE anchors (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -30,9 +31,14 @@ async fn setup_test_database() -> Arc<Database> {
             reliability_score REAL DEFAULT 0,
             status TEXT DEFAULT 'green'
         )
-    "#).execute(&db.pool).await.unwrap();
+    "#,
+    )
+    .execute(&db.pool)
+    .await
+    .unwrap();
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE corridor_metrics (
             id TEXT PRIMARY KEY,
             corridor_key TEXT NOT NULL,
@@ -49,9 +55,14 @@ async fn setup_test_database() -> Arc<Database> {
             avg_settlement_latency_ms INTEGER,
             liquidity_depth_usd REAL DEFAULT 0
         )
-    "#).execute(&db.pool).await.unwrap();
+    "#,
+    )
+    .execute(&db.pool)
+    .await
+    .unwrap();
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE snapshots (
             id TEXT PRIMARY KEY,
             entity_id TEXT NOT NULL,
@@ -62,7 +73,11 @@ async fn setup_test_database() -> Arc<Database> {
             timestamp TEXT NOT NULL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
-    "#).execute(&db.pool).await.unwrap();
+    "#,
+    )
+    .execute(&db.pool)
+    .await
+    .unwrap();
 
     // Insert test data
     sqlx::query(r#"
@@ -85,35 +100,46 @@ async fn setup_test_database() -> Arc<Database> {
 #[tokio::test]
 async fn test_acceptance_criteria_1_aggregate_all_metrics() {
     println!("🧪 Testing Acceptance Criteria 1: Aggregate all metrics");
-    
+
     let db = setup_test_database().await;
     let service = SnapshotService::new(db, None);
-    
+
     let snapshot = service.aggregate_all_metrics(1).await.unwrap();
-    
-    assert_eq!(snapshot.anchor_metrics.len(), 2, "Should aggregate 2 anchor metrics");
-    assert_eq!(snapshot.corridor_metrics.len(), 2, "Should aggregate 2 corridor metrics");
+
+    assert_eq!(
+        snapshot.anchor_metrics.len(),
+        2,
+        "Should aggregate 2 anchor metrics"
+    );
+    assert_eq!(
+        snapshot.corridor_metrics.len(),
+        2,
+        "Should aggregate 2 corridor metrics"
+    );
     assert_eq!(snapshot.epoch, 1, "Should have correct epoch");
-    
-    println!("✅ Aggregated {} anchors and {} corridors", 
-             snapshot.anchor_metrics.len(), snapshot.corridor_metrics.len());
+
+    println!(
+        "✅ Aggregated {} anchors and {} corridors",
+        snapshot.anchor_metrics.len(),
+        snapshot.corridor_metrics.len()
+    );
 }
 
 #[tokio::test]
 async fn test_acceptance_criteria_2_serialize_deterministic_json() {
     println!("🧪 Testing Acceptance Criteria 2: Serialize to deterministic JSON");
-    
+
     let db = setup_test_database().await;
     let service = SnapshotService::new(db, None);
-    
+
     let snapshot1 = service.aggregate_all_metrics(2).await.unwrap();
     let snapshot2 = service.aggregate_all_metrics(2).await.unwrap();
-    
+
     let json1 = SnapshotService::serialize_deterministically(snapshot1).unwrap();
     let json2 = SnapshotService::serialize_deterministically(snapshot2).unwrap();
-    
+
     assert_eq!(json1, json2, "Same data should produce identical JSON");
-    
+
     // Verify JSON structure
     let parsed: serde_json::Value = serde_json::from_str(&json1).unwrap();
     assert!(parsed.get("schema_version").is_some());
@@ -121,85 +147,106 @@ async fn test_acceptance_criteria_2_serialize_deterministic_json() {
     assert!(parsed.get("timestamp").is_some());
     assert!(parsed.get("anchor_metrics").is_some());
     assert!(parsed.get("corridor_metrics").is_some());
-    
-    println!("✅ Deterministic JSON serialization verified ({} bytes)", json1.len());
+
+    println!(
+        "✅ Deterministic JSON serialization verified ({} bytes)",
+        json1.len()
+    );
 }
 
 #[tokio::test]
 async fn test_acceptance_criteria_3_compute_sha256_hash() {
     println!("🧪 Testing Acceptance Criteria 3: Compute SHA-256 hash");
-    
+
     let db = setup_test_database().await;
     let service = SnapshotService::new(db, None);
-    
+
     let snapshot = service.aggregate_all_metrics(3).await.unwrap();
-    
+
     let hash_bytes = SnapshotService::hash_snapshot(snapshot.clone()).unwrap();
     let hash_hex = SnapshotService::hash_snapshot_hex(snapshot).unwrap();
-    
+
     assert_eq!(hash_bytes.len(), 32, "SHA-256 should be 32 bytes");
-    assert_eq!(hash_hex.len(), 64, "Hex representation should be 64 characters");
-    assert!(hash_hex.chars().all(|c| c.is_ascii_hexdigit()), "Should be valid hex");
+    assert_eq!(
+        hash_hex.len(),
+        64,
+        "Hex representation should be 64 characters"
+    );
+    assert!(
+        hash_hex.chars().all(|c| c.is_ascii_hexdigit()),
+        "Should be valid hex"
+    );
     assert_eq!(hash_hex, hex::encode(hash_bytes), "Hex should match bytes");
-    
+
     println!("✅ SHA-256 hash computed: {}", hash_hex);
 }
 
 #[tokio::test]
 async fn test_acceptance_criteria_4_store_hash_in_database() {
     println!("🧪 Testing Acceptance Criteria 4: Store hash in database");
-    
+
     let db = setup_test_database().await;
     let service = SnapshotService::new(db.clone(), None);
-    
+
     let result = service.generate_and_submit_snapshot(4).await.unwrap();
-    
+
     // Verify stored in database
     let stored = sqlx::query("SELECT id, hash, epoch, data FROM snapshots WHERE id = ?")
         .bind(&result.snapshot_id)
         .fetch_one(&db.pool)
         .await
         .unwrap();
-    
+
     let stored_hash: String = stored.get("hash");
     let stored_epoch: i64 = stored.get("epoch");
     let stored_data: String = stored.get("data");
-    
+
     assert_eq!(stored_hash, result.hash);
     assert_eq!(stored_epoch, 4);
     assert_eq!(stored_data, result.canonical_json);
-    
+
     println!("✅ Hash stored in database with ID: {}", result.snapshot_id);
 }
 
 #[tokio::test]
 async fn test_acceptance_criteria_5_and_6_contract_submission_and_verification() {
     println!("🧪 Testing Acceptance Criteria 5 & 6: Submit to contract & verify (simulated)");
-    
+
     let db = setup_test_database().await;
     let service = SnapshotService::new(db, None);
-    
+
     // Without contract service, submission should be skipped but other steps should work
     let result = service.generate_and_submit_snapshot(5).await.unwrap();
-    
-    assert!(result.submission_result.is_none(), "No contract service = no submission");
-    assert!(!result.verification_successful, "No contract service = no verification");
+
+    assert!(
+        result.submission_result.is_none(),
+        "No contract service = no submission"
+    );
+    assert!(
+        !result.verification_successful,
+        "No contract service = no verification"
+    );
     assert!(!result.hash.is_empty(), "Hash should still be generated");
-    assert!(!result.snapshot_id.is_empty(), "Should still be stored in database");
-    
-    println!("✅ Contract submission/verification logic verified (skipped without contract service)");
+    assert!(
+        !result.snapshot_id.is_empty(),
+        "Should still be stored in database"
+    );
+
+    println!(
+        "✅ Contract submission/verification logic verified (skipped without contract service)"
+    );
 }
 
 #[tokio::test]
 async fn test_complete_workflow() {
     println!("🧪 Testing Complete Workflow - All Acceptance Criteria");
-    
+
     let db = setup_test_database().await;
     let service = SnapshotService::new(db.clone(), None);
-    
+
     let epoch = 12345;
     let result = service.generate_and_submit_snapshot(epoch).await.unwrap();
-    
+
     // Verify all acceptance criteria
     assert_eq!(result.epoch, epoch);
     assert!(!result.hash.is_empty());
@@ -208,14 +255,14 @@ async fn test_complete_workflow() {
     assert!(result.corridor_count > 0);
     assert!(!result.canonical_json.is_empty());
     assert!(!result.snapshot_id.is_empty());
-    
+
     // Verify determinism
     let snapshot1 = service.aggregate_all_metrics(epoch).await.unwrap();
     let snapshot2 = service.aggregate_all_metrics(epoch).await.unwrap();
     let json1 = SnapshotService::serialize_deterministically(snapshot1).unwrap();
     let json2 = SnapshotService::serialize_deterministically(snapshot2).unwrap();
     assert_eq!(json1, json2);
-    
+
     // Verify database storage
     let stored = sqlx::query("SELECT hash FROM snapshots WHERE id = ?")
         .bind(&result.snapshot_id)
@@ -224,7 +271,7 @@ async fn test_complete_workflow() {
         .unwrap();
     let stored_hash: String = stored.get("hash");
     assert_eq!(stored_hash, result.hash);
-    
+
     println!("✅ Complete workflow verified:");
     println!("   • Epoch: {}", result.epoch);
     println!("   • Hash: {}", result.hash);
@@ -237,18 +284,21 @@ async fn test_complete_workflow() {
 #[tokio::test]
 async fn test_hash_determinism_across_different_insertion_orders() {
     println!("🧪 Testing Hash Determinism with Different Insertion Orders");
-    
+
     let db = setup_test_database().await;
-    
+
     // Create two identical snapshots with different insertion orders
     let snapshot1 = AnalyticsSnapshot::new(100, chrono::Utc::now());
     let snapshot2 = AnalyticsSnapshot::new(100, chrono::Utc::now());
-    
+
     // Same content, different order - should produce same hash
     let hash1 = SnapshotService::hash_snapshot_hex(snapshot1).unwrap();
     let hash2 = SnapshotService::hash_snapshot_hex(snapshot2).unwrap();
-    
-    assert_eq!(hash1, hash2, "Same content should produce same hash regardless of order");
-    
+
+    assert_eq!(
+        hash1, hash2,
+        "Same content should produce same hash regardless of order"
+    );
+
     println!("✅ Hash determinism verified across insertion orders");
 }
