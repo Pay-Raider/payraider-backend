@@ -8,4 +8,5 @@ pub mod fee_bump;
 pub mod liquidity_pools;
 pub mod metrics;
 pub mod metrics_cached;
+pub mod transactions;
 pub mod trustlines;
