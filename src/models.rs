@@ -28,6 +28,42 @@ pub struct Anchor {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Extended anchor information with stellar.toml metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnchorWithMetadata {
+    #[serde(flatten)]
+    pub anchor: Anchor,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<AnchorMetadata>,
+}
+
+/// Anchor metadata from stellar.toml (SEP-1)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnchorMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization_name: Option<String>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization_dba: Option<String>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization_url: Option<String>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization_logo: Option<String>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization_description: Option<String>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization_support_email: Option<String>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supported_currencies: Option<Vec<String>>,
+    
+    pub fetched_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Asset {
     pub id: String,
