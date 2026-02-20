@@ -540,7 +540,21 @@ async fn main() -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .await?;
+    .with_state(app_state.clone())
+    .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+        rate_limiter.clone(),
+        rate_limit_middleware,
+    )))
+    .layer(cors.clone());
 
-    Ok(())
-}
+// Build trustline routes
+let trustline_routes = Router::new()
+    .nest(
+        "/api/trustlines",
+        stellar_insights_backend::api::trustlines::routes(Arc::clone(&trustline_analyzer)),
+    )
+    .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+        rate_limiter.clone(),
+        rate_limit_middleware,
+    )))
+    .layer(cors.clone());
