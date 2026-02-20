@@ -7,6 +7,8 @@ use dotenv::dotenv;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 use stellar_insights_backend::api::anchors_cached::get_anchors;
 use stellar_insights_backend::api::corridors_cached::{get_corridor_detail, list_corridors};
@@ -18,6 +20,7 @@ use stellar_insights_backend::cache::{CacheConfig, CacheManager};
 use stellar_insights_backend::cache_invalidation::CacheInvalidationService;
 use stellar_insights_backend::database::Database;
 use stellar_insights_backend::handlers::*;
+use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::shutdown::{ShutdownConfig, ShutdownCoordinator};
 use stellar_insights_backend::ingestion::DataIngestionService;
 use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
@@ -364,8 +367,14 @@ async fn main() -> Result<()> {
         )
         .layer(cors.clone());
 
+    // Build Swagger UI route
+    let openapi = ApiDoc::openapi();
+    let swagger_routes = SwaggerUi::new("/api/docs")
+        .url("/api/docs/openapi.json", openapi);
+
     // Merge routers
     let app = Router::new()
+        .merge(swagger_routes)
         .merge(auth_routes)
         .merge(cached_routes)
         .merge(anchor_routes)
