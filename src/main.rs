@@ -26,6 +26,7 @@ use stellar_insights_backend::database::Database;
 use stellar_insights_backend::handlers::*;
 use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
 use stellar_insights_backend::ingestion::DataIngestionService;
+use stellar_insights_backend::network::NetworkConfig;
 use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
 use stellar_insights_backend::rpc::StellarRpcClient;
@@ -36,6 +37,7 @@ use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAn
 use stellar_insights_backend::services::price_feed::{
     default_asset_mapping, PriceFeedClient, PriceFeedConfig,
 };
+use stellar_insights_backend::services::realtime_broadcaster::RealtimeBroadcaster;
 use stellar_insights_backend::services::trustline_analyzer::TrustlineAnalyzer;
 use stellar_insights_backend::shutdown::{ShutdownConfig, ShutdownCoordinator};
 use stellar_insights_backend::state::AppState;
@@ -88,20 +90,23 @@ async fn main() -> Result<()> {
         .parse::<bool>()
         .unwrap_or(false);
 
-    let rpc_url = std::env::var("STELLAR_RPC_URL")
-        .unwrap_or_else(|_| "https://stellar.api.onfinality.io/public".to_string());
-
-    let horizon_url = std::env::var("STELLAR_HORIZON_URL")
-        .unwrap_or_else(|_| "https://horizon.stellar.org".to_string());
-
+    // Initialize Stellar RPC Client with network configuration
+    let network_config = NetworkConfig::from_env();
     tracing::info!(
-        "Initializing Stellar RPC client (mock_mode: {}, rpc: {}, horizon: {})",
-        mock_mode,
-        rpc_url,
-        horizon_url
+        "Initializing Stellar RPC client for {} (mock_mode: {})",
+        network_config.display_name(),
+        mock_mode
     );
 
-    let rpc_client = Arc::new(StellarRpcClient::new(rpc_url, horizon_url, mock_mode));
+    let rpc_client = if mock_mode {
+        Arc::new(StellarRpcClient::new_with_network(network_config.network, true))
+    } else {
+        Arc::new(StellarRpcClient::new(
+            network_config.rpc_url.clone(),
+            network_config.horizon_url.clone(),
+            false,
+        ))
+    };
 
     // Initialize WebSocket state
     let ws_state = Arc::new(WsState::new());
@@ -155,6 +160,15 @@ async fn main() -> Result<()> {
 
     // Initialize cache invalidation service
     let cache_invalidation = Arc::new(CacheInvalidationService::new(Arc::clone(&cache)));
+
+    // Initialize RealtimeBroadcaster
+    let mut realtime_broadcaster = RealtimeBroadcaster::new(
+        Arc::clone(&ws_state),
+        Arc::clone(&db),
+        Arc::clone(&rpc_client),
+        Arc::clone(&cache),
+    );
+    tracing::info!("RealtimeBroadcaster initialized");
 
     // Create app state for handlers that need it
     let app_state = AppState::new(
@@ -287,6 +301,12 @@ async fn main() -> Result<()> {
                 tracing::error!("Trustline snapshot failed: {}", e);
             }
         }
+    });
+
+    // Start RealtimeBroadcaster background task
+    tokio::spawn(async move {
+        tracing::info!("Starting RealtimeBroadcaster background task");
+        realtime_broadcaster.start().await;
     });
 
     // Run initial sync (skip on network errors)
@@ -550,6 +570,15 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build network routes
+    let network_routes = Router::new()
+        .nest("/api/network", stellar_insights_backend::api::network::routes())
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+        .layer(cors.clone());
+
     // Build trustline routes
     let trustline_routes = Router::new()
         .nest(
@@ -565,6 +594,13 @@ async fn main() -> Result<()> {
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
+    
+    // Build WebSocket routes
+    let ws_routes = Router::new()
+        .route("/ws", get(stellar_insights_backend::websocket::ws_handler))
+        .with_state(Arc::clone(&ws_state))
+        .layer(cors.clone());
+    
     let app = Router::new()
         .merge(swagger_routes)
         .merge(auth_routes)
@@ -577,8 +613,10 @@ async fn main() -> Result<()> {
         .merge(lp_routes)
         .merge(price_routes)
         .merge(trustline_routes)
+        .merge(network_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
+        .merge(ws_routes);
         .layer(compression); // Apply compression to all routes
 
     // Start server
