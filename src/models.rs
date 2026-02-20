@@ -1,12 +1,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 pub mod corridor;
 
-// =========================
-// Anchor domain
-// =========================
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SortBy {
+    #[default]
+    SuccessRate,
+    Volume,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Anchor {
@@ -17,10 +20,10 @@ pub struct Anchor {
     pub total_transactions: i64,
     pub successful_transactions: i64,
     pub failed_transactions: i64,
-    pub avg_settlement_time_ms: Option<i32>,
+    pub total_volume_usd: f64,
+    pub avg_settlement_time_ms: i32,
     pub reliability_score: f64,
     pub status: String,
-    pub total_volume_usd: f64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -38,6 +41,16 @@ pub struct AnchorDetailResponse {
     pub anchor: Anchor,
     pub assets: Vec<Asset>,
     pub metrics_history: Vec<AnchorMetricsHistory>,
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Asset {
+    pub id: String,
+    pub anchor_id: String,
+    pub asset_code: String,
+    pub asset_issuer: String,
+    pub total_supply: Option<f64>,
+    pub num_holders: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -66,9 +79,10 @@ pub struct AnchorMetrics {
     pub successful_transactions: i64,
     pub failed_transactions: i64,
     pub avg_settlement_time_ms: Option<i32>,
+    pub status: AnchorStatus,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AnchorStatus {
     Green,
     Yellow,
@@ -129,6 +143,32 @@ pub struct CreateCorridorRequest {
     pub source_asset_issuer: String,
     pub dest_asset_code: String,
     pub dest_asset_issuer: String,
+        }
+    }
+
+    pub fn from_metrics(success_rate: f64, failure_rate: f64) -> Self {
+        if success_rate > 98.0 && failure_rate <= 1.0 {
+            AnchorStatus::Green
+        } else if success_rate >= 95.0 && failure_rate <= 5.0 {
+            AnchorStatus::Yellow
+        } else {
+            AnchorStatus::Red
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnchorWithAssets {
+    #[serde(flatten)]
+    pub anchor: Anchor,
+    pub assets: Vec<Asset>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnchorDetailResponse {
+    pub anchor: Anchor,
+    pub assets: Vec<Asset>,
+    pub metrics_history: Vec<AnchorMetricsHistory>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -160,6 +200,20 @@ pub struct MetricRecord {
     pub total_transactions: i64,
     pub successful_transactions: i64,
     pub failed_transactions: i64,
+    pub reliability_score: f64,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct MetricRecord {
+    pub id: String,
+    pub name: String,
+    pub value: f64,
+    pub entity_id: Option<String>,
+    pub entity_type: Option<String>,
+    pub timestamp: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -204,6 +258,29 @@ pub struct IngestionState {
     pub last_cursor: String,
     pub last_ledger: i64,
     pub updated_at: DateTime<Utc>,
+    pub entity_id: String,
+    pub entity_type: String,
+    pub data: String,
+    pub hash: Option<String>,
+    pub epoch: Option<i64>,
+    pub timestamp: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateAnchorRequest {
+    pub name: String,
+    pub stellar_account: String,
+    pub home_domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCorridorRequest {
+    pub name: Option<String>,
+    pub source_asset_code: String,
+    pub source_asset_issuer: String,
+    pub dest_asset_code: String,
+    pub dest_asset_issuer: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -253,40 +330,42 @@ pub struct FeeBumpStats {
     pub unique_fee_sources: i64,
 }
 
-// =========================
-// Liquidity Pool domain
-// =========================
-
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct LiquidityPool {
-    pub id: String,
     pub pool_id: String,
-    pub asset_a_code: String,
-    pub asset_a_issuer: String,
-    pub asset_b_code: String,
-    pub asset_b_issuer: String,
-    pub total_shares: f64,
-    pub reserve_a: f64,
-    pub reserve_b: f64,
+    pub pool_type: String,
+    pub fee_bp: i32,
+    pub total_trustlines: i32,
+    pub total_shares: String,
+    pub reserve_a_asset_code: String,
+    pub reserve_a_asset_issuer: Option<String>,
     pub reserve_a_amount: f64,
+    pub reserve_b_asset_code: String,
+    pub reserve_b_asset_issuer: Option<String>,
     pub reserve_b_amount: f64,
     pub total_value_usd: f64,
     pub volume_24h_usd: f64,
     pub fees_earned_24h_usd: f64,
     pub apy: f64,
     pub impermanent_loss_pct: f64,
-    pub trade_count_24h: i64,
+    pub trade_count_24h: i32,
+    pub last_synced_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct LiquidityPoolSnapshot {
-    pub id: String,
+    pub id: i64,
     pub pool_id: String,
-    pub total_shares: f64,
-    pub reserve_a: f64,
-    pub reserve_b: f64,
+    pub reserve_a_amount: f64,
+    pub reserve_b_amount: f64,
+    pub total_value_usd: f64,
+    pub volume_usd: f64,
+    pub fees_usd: f64,
+    pub apy: f64,
+    pub impermanent_loss_pct: f64,
+    pub trade_count: i32,
     pub snapshot_at: DateTime<Utc>,
 }
 
@@ -324,6 +403,23 @@ impl Default for SortBy {
 // =========================
 // Transactions domain
 // =========================
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MuxedAccountAnalytics {
+    pub total_muxed_payments: i64,
+    pub unique_muxed_addresses: i64,
+    pub top_muxed_by_activity: Vec<MuxedAccountUsage>,
+    pub base_accounts_with_muxed: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MuxedAccountUsage {
+    pub account_address: String,
+    pub base_account: Option<String>,
+    pub muxed_id: Option<u64>,
+    pub payment_count_as_source: i64,
+    pub payment_count_as_destination: i64,
+    pub total_payments: i64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PendingTransaction {
@@ -357,10 +453,6 @@ pub struct TransactionResult {
     pub hash: String,
     pub status: String,
 }
-
-// =========================
-// Trustline domain
-// =========================
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct TrustlineStat {
