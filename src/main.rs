@@ -7,6 +7,8 @@ use dotenv::dotenv;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 use stellar_insights_backend::api::anchors_cached::get_anchors;
 use stellar_insights_backend::api::corridors_cached::{get_corridor_detail, list_corridors};
@@ -20,8 +22,14 @@ use stellar_insights_backend::cache::{CacheConfig, CacheManager};
 use stellar_insights_backend::cache_invalidation::CacheInvalidationService;
 use stellar_insights_backend::database::Database;
 use stellar_insights_backend::handlers::*;
+use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::shutdown::{ShutdownConfig, ShutdownCoordinator};
 use stellar_insights_backend::ingestion::DataIngestionService;
+use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
+use stellar_insights_backend::services::fee_bump_tracker::FeeBumpTrackerService;
+use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAnalyzer;
+use stellar_insights_backend::api::fee_bump;
+use stellar_insights_backend::api::liquidity_pools;
 use stellar_insights_backend::rpc::StellarRpcClient;
 use stellar_insights_backend::rpc_handlers;
 use stellar_insights_backend::rate_limit::{RateLimiter, RateLimitConfig, rate_limit_middleware};
@@ -32,7 +40,7 @@ use stellar_insights_backend::websocket::WsState;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Track shutdown start time for logging
-    let shutdown_start = std::time::Instant::now();
+    let _shutdown_start = std::time::Instant::now();
 
     // Load environment variables
     dotenv().ok();
@@ -56,7 +64,7 @@ async fn main() -> Result<()> {
         shutdown_config.background_task_timeout,
         shutdown_config.db_close_timeout
     );
-    let shutdown_coordinator = Arc::new(ShutdownCoordinator::new(shutdown_config));
+    let _shutdown_coordinator = Arc::new(ShutdownCoordinator::new(shutdown_config));
 
     // Database connection
     let database_url =
@@ -99,6 +107,22 @@ async fn main() -> Result<()> {
     let ingestion_service = Arc::new(DataIngestionService::new(
         Arc::clone(&rpc_client),
         Arc::clone(&db),
+    ));
+
+    // Initialize Fee Bump Tracker Service
+    let fee_bump_tracker = Arc::new(FeeBumpTrackerService::new(pool.clone()));
+
+    // Initialize Liquidity Pool Analyzer
+    let lp_analyzer = Arc::new(LiquidityPoolAnalyzer::new(
+        pool.clone(),
+        Arc::clone(&rpc_client),
+    ));
+
+    // Initialize Ledger Ingestion Service
+    let ledger_ingestion_service = Arc::new(LedgerIngestionService::new(
+        Arc::clone(&rpc_client),
+        Arc::clone(&fee_bump_tracker),
+        pool.clone(),
     ));
 
 
@@ -179,8 +203,7 @@ async fn main() -> Result<()> {
     });
     */
 
-    // Ledger ingestion task (commented out)
-    /*
+    // Ledger ingestion task
     let ledger_ingestion_clone = Arc::clone(&ledger_ingestion_service);
     tokio::spawn(async move {
         tracing::info!("Starting ledger ingestion background task");
@@ -199,9 +222,23 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        tracing::info!("Background sync task stopped");
     });
-    */
+
+    // Liquidity pool sync background task
+    let lp_analyzer_clone = Arc::clone(&lp_analyzer);
+    tokio::spawn(async move {
+        tracing::info!("Starting liquidity pool sync background task");
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300)); // 5 minutes
+        loop {
+            interval.tick().await;
+            if let Err(e) = lp_analyzer_clone.sync_pools().await {
+                tracing::error!("Liquidity pool sync failed: {}", e);
+            }
+            if let Err(e) = lp_analyzer_clone.take_snapshots().await {
+                tracing::error!("Liquidity pool snapshot failed: {}", e);
+            }
+        }
+    });
 
     // Run initial sync (skip on network errors)
     tracing::info!("Running initial metrics synchronization...");
@@ -248,43 +285,8 @@ async fn main() -> Result<()> {
         whitelist_ips: vec![],
     }).await;
 
-    rate_limiter.register_endpoint("/api/sep24/info".to_string(), RateLimitConfig {
-        requests_per_minute: 60,
-        whitelist_ips: vec![],
-    }).await;
-
-    rate_limiter.register_endpoint("/api/sep24/deposit/interactive".to_string(), RateLimitConfig {
-        requests_per_minute: 30,
-        whitelist_ips: vec![],
-    }).await;
-
-    rate_limiter.register_endpoint("/api/sep24/withdraw/interactive".to_string(), RateLimitConfig {
-        requests_per_minute: 30,
-        whitelist_ips: vec![],
-    }).await;
-
-    rate_limiter.register_endpoint("/api/sep24/transactions".to_string(), RateLimitConfig {
-        requests_per_minute: 60,
-        whitelist_ips: vec![],
-    }).await;
-
-    rate_limiter.register_endpoint("/api/sep31/info".to_string(), RateLimitConfig {
-        requests_per_minute: 60,
-        whitelist_ips: vec![],
-    }).await;
-
-    rate_limiter.register_endpoint("/api/sep31/quote".to_string(), RateLimitConfig {
-        requests_per_minute: 60,
-        whitelist_ips: vec![],
-    }).await;
-
-    rate_limiter.register_endpoint("/api/sep31/transactions".to_string(), RateLimitConfig {
-        requests_per_minute: 30,
-        whitelist_ips: vec![],
-    }).await;
-
-    rate_limiter.register_endpoint("/api/sep31/customer".to_string(), RateLimitConfig {
-        requests_per_minute: 30,
+    rate_limiter.register_endpoint("/api/liquidity-pools".to_string(), RateLimitConfig {
+        requests_per_minute: 100,
         whitelist_ips: vec![],
     }).await;
 
@@ -384,13 +386,40 @@ async fn main() -> Result<()> {
         )
         .layer(cors.clone());
 
+    // Build fee bump routes
+    let fee_bump_routes = Router::new()
+        .nest("/api/fee-bumps", fee_bump::routes(Arc::clone(&fee_bump_tracker)))
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                ))
+        )
+        .layer(cors.clone());
+
+    // Build liquidity pool routes
+    let lp_routes = Router::new()
+        .nest("/api/liquidity-pools", liquidity_pools::routes(Arc::clone(&lp_analyzer)))
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                ))
+        )
+        .layer(cors.clone());
+
     // Merge routers
     let app = Router::new()
+        .merge(swagger_routes)
         .merge(auth_routes)
         .merge(cached_routes)
         .merge(anchor_routes)
         .merge(protected_anchor_routes)
         .merge(rpc_routes)
+        .merge(fee_bump_routes)
+        .merge(lp_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
         .merge(

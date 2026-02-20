@@ -187,3 +187,82 @@ pub struct IngestionState {
     pub last_cursor: String,
     pub updated_at: DateTime<Utc>,
 }
+
+// =========================
+// Fee Bump domain
+// =========================
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct FeeBumpTransaction {
+    pub transaction_hash: String,
+    pub ledger_sequence: i64,
+    pub fee_source: String,
+    pub fee_charged: i64,
+    pub max_fee: i64,
+    pub inner_transaction_hash: String,
+    pub inner_max_fee: i64,
+    pub signatures_count: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeBumpStats {
+    pub total_fee_bumps: i64,
+    pub avg_fee_charged: f64,
+    pub max_fee_charged: i64,
+    pub min_fee_charged: i64,
+    pub unique_fee_sources: i64,
+}
+
+// =========================
+// Liquidity Pool domain
+// =========================
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct LiquidityPool {
+    pub pool_id: String,
+    pub pool_type: String,
+    pub fee_bp: i32,
+    pub total_trustlines: i32,
+    pub total_shares: String,
+    pub reserve_a_asset_code: String,
+    pub reserve_a_asset_issuer: Option<String>,
+    pub reserve_a_amount: f64,
+    pub reserve_b_asset_code: String,
+    pub reserve_b_asset_issuer: Option<String>,
+    pub reserve_b_amount: f64,
+    pub total_value_usd: f64,
+    pub volume_24h_usd: f64,
+    pub fees_earned_24h_usd: f64,
+    pub apy: f64,
+    pub impermanent_loss_pct: f64,
+    pub trade_count_24h: i32,
+    pub last_synced_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct LiquidityPoolSnapshot {
+    pub id: i64,
+    pub pool_id: String,
+    pub reserve_a_amount: f64,
+    pub reserve_b_amount: f64,
+    pub total_value_usd: f64,
+    pub volume_usd: f64,
+    pub fees_usd: f64,
+    pub apy: f64,
+    pub impermanent_loss_pct: f64,
+    pub trade_count: i32,
+    pub snapshot_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiquidityPoolStats {
+    pub total_pools: i64,
+    pub total_value_locked_usd: f64,
+    pub total_volume_24h_usd: f64,
+    pub total_fees_24h_usd: f64,
+    pub avg_apy: f64,
+    pub avg_impermanent_loss: f64,
+}
