@@ -8,3 +8,7 @@ pub mod fee_bump;
 pub mod liquidity_pools;
 pub mod metrics;
 pub mod metrics_cached;
+pub mod prediction;
+pub mod price_feed;
+pub mod sep24_proxy;
+pub mod sep31_proxy;
