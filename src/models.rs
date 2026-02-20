@@ -266,3 +266,31 @@ pub struct LiquidityPoolStats {
     pub avg_apy: f64,
     pub avg_impermanent_loss: f64,
 }
+
+// =========================
+// Muxed account domain
+// =========================
+
+/// Analytics for muxed account usage across payments
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MuxedAccountAnalytics {
+    /// Total number of payments where source or destination was a muxed account
+    pub total_muxed_payments: i64,
+    /// Number of unique muxed addresses seen (as source or destination)
+    pub unique_muxed_addresses: i64,
+    /// Muxed addresses with payment counts (top N)
+    pub top_muxed_by_activity: Vec<MuxedAccountUsage>,
+    /// Base accounts (G) that have muxed sub-accounts seen in payments
+    pub base_accounts_with_muxed: Vec<String>,
+}
+
+/// Per-address muxed account usage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MuxedAccountUsage {
+    pub account_address: String,
+    pub base_account: Option<String>,
+    pub muxed_id: Option<u64>,
+    pub payment_count_as_source: i64,
+    pub payment_count_as_destination: i64,
+    pub total_payments: i64,
+}
