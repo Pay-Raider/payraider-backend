@@ -14,6 +14,8 @@ use stellar_insights_backend::api::anchors_cached::get_anchors;
 use stellar_insights_backend::api::corridors_cached::{get_corridor_detail, list_corridors};
 use stellar_insights_backend::api::cache_stats;
 use stellar_insights_backend::api::metrics_cached;
+use stellar_insights_backend::api::sep24_proxy;
+use stellar_insights_backend::api::sep31_proxy;
 use stellar_insights_backend::auth::AuthService;
 use stellar_insights_backend::auth_middleware::auth_middleware;
 use stellar_insights_backend::cache::{CacheConfig, CacheManager};
@@ -419,7 +421,23 @@ async fn main() -> Result<()> {
         .merge(fee_bump_routes)
         .merge(lp_routes)
         .merge(cache_routes)
-        .merge(metrics_routes);
+        .merge(metrics_routes)
+        .merge(
+            sep24_proxy::routes().layer(
+                ServiceBuilder::new().layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                )),
+            ).layer(cors.clone())
+        )
+        .merge(
+            sep31_proxy::routes().layer(
+                ServiceBuilder::new().layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                )),
+            ).layer(cors.clone())
+        );
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
