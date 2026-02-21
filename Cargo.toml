@@ -27,7 +27,7 @@ dotenv = "0.15"
 redis = { version = "0.25", features = ["aio", "tokio-comp"] }
 async-lock = "3.0"
 futures = "0.3"
-tokio-tungstenite = "0.21"
+tokio-tungstenite = "0.24"
 dashmap = "5.5"
 stellar-xdr = { version = "21.0.0", features = ["std", "curr"] }
 # stellar-base = "0.1"  # Commented out due to compilation errors with sodiumoxide
@@ -40,6 +40,7 @@ utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 async-trait = "0.1"
 urlencoding = "2.1"
 data-encoding = "2.6"
+aes-gcm = "0.10.3"
 
 [dev-dependencies]
 tempfile = "3.0"
