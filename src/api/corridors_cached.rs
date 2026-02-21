@@ -12,7 +12,7 @@ use anyhow::anyhow;
 use crate::cache::{keys, CacheManager};
 use crate::cache_middleware::CacheAware;
 use crate::database::Database;
-use crate::handlers::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::models::SortBy;
 use crate::rpc::error::{with_retry, CircuitBreaker, CircuitBreakerConfig, RetryConfig, RpcError};
 use crate::rpc::StellarRpcClient;
@@ -541,8 +541,9 @@ pub async fn get_corridor_detail(
     Path(_corridor_key): Path<String>,
 ) -> ApiResult<Json<CorridorDetailResponse>> {
     // TODO: Implement RPC-based corridor detail
-    Err(crate::handlers::ApiError::NotFound(
-        "Corridor detail endpoint not yet implemented with RPC".to_string(),
+    Err(ApiError::not_found(
+        "NOT_IMPLEMENTED",
+        "Corridor detail endpoint not yet implemented with RPC",
     ))
 }
 
