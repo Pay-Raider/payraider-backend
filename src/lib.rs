@@ -14,6 +14,7 @@ pub mod env_config;
 pub mod handlers;
 pub mod http_cache;
 pub mod ingestion;
+pub mod jobs;
 pub mod ml;
 pub mod ml_handlers;
 pub mod models;
