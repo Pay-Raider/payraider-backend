@@ -35,21 +35,6 @@ pub struct Anchor {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateAnchorRequest {
-    pub name: String,
-    pub stellar_account: String,
-    pub home_domain: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnchorDetailResponse {
-    #[serde(flatten)]
-    pub anchor: Anchor,
-    pub assets: Vec<Asset>,
-    pub metrics_history: Vec<AnchorMetricsHistory>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Asset {
     pub id: String,
@@ -83,7 +68,6 @@ pub struct AnchorMetrics {
     pub success_rate: f64,
     pub failure_rate: f64,
     pub reliability_score: f64,
-    pub status: AnchorStatus,
     pub total_transactions: i64,
     pub successful_transactions: i64,
     pub failed_transactions: i64,
@@ -95,48 +79,26 @@ pub enum AnchorStatus {
     Green,
     Yellow,
     Red,
-    Active,
-    Inactive,
-    Degraded,
 }
 
 impl AnchorStatus {
-    pub fn from_metrics(success_rate: f64, _failure_rate: f64) -> Self {
-        if success_rate > 98.0 {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AnchorStatus::Green => "green",
+            AnchorStatus::Yellow => "yellow",
+            AnchorStatus::Red => "red",
+        }
+    }
+
+    pub fn from_metrics(success_rate: f64, failure_rate: f64) -> Self {
+        if success_rate > 98.0 && failure_rate <= 1.0 {
             AnchorStatus::Green
-        } else if success_rate >= 95.0 {
+        } else if success_rate >= 95.0 && failure_rate <= 5.0 {
             AnchorStatus::Yellow
         } else {
             AnchorStatus::Red
         }
     }
-
-    pub fn as_str(&self) -> &str {
-        match self {
-            AnchorStatus::Green => "green",
-            AnchorStatus::Yellow => "yellow",
-            AnchorStatus::Red => "red",
-            AnchorStatus::Active => "active",
-            AnchorStatus::Inactive => "inactive",
-            AnchorStatus::Degraded => "degraded",
-        }
-    }
-}
-
-// =========================
-// Corridor domain
-// =========================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateCorridorRequest {
-    pub asset_a_code: String,
-    pub asset_a_issuer: String,
-    pub asset_b_code: String,
-    pub asset_b_issuer: String,
-    pub source_asset_code: String,
-    pub source_asset_issuer: String,
-    pub dest_asset_code: String,
-    pub dest_asset_issuer: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,20 +111,15 @@ pub struct AnchorWithAssets {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CorridorRecord {
     pub id: String,
-    pub asset_a_code: String,
-    pub asset_a_issuer: String,
-    pub asset_b_code: String,
-    pub asset_b_issuer: String,
     pub source_asset_code: String,
     pub source_asset_issuer: String,
     pub destination_asset_code: String,
     pub destination_asset_issuer: String,
+    pub reliability_score: f64,
+    pub status: String,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
-
-// =========================
-// Metrics domain
-// =========================
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct MetricRecord {
@@ -187,29 +144,6 @@ pub struct SnapshotRecord {
     pub created_at: DateTime<Utc>,
 }
 
-// =========================
-// Muxed Account domain
-// =========================
-
-// =========================
-// Ingestion domain
-// =========================
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct IngestionState {
-    pub id: String,
-    pub last_cursor: String,
-    pub last_ledger: i64,
-    pub updated_at: DateTime<Utc>,
-    pub entity_id: String,
-    pub entity_type: String,
-    pub data: String,
-    pub hash: Option<String>,
-    pub epoch: Option<i64>,
-    pub timestamp: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PaymentRecord {
     pub id: String,
@@ -219,21 +153,59 @@ pub struct PaymentRecord {
     pub asset_type: String,
     pub asset_code: Option<String>,
     pub asset_issuer: Option<String>,
+    #[sqlx(default)]
     pub source_asset_code: String,
+    #[sqlx(default)]
     pub source_asset_issuer: String,
+    #[sqlx(default)]
     pub destination_asset_code: String,
+    #[sqlx(default)]
     pub destination_asset_issuer: String,
     pub amount: f64,
+    #[sqlx(default)]
     pub successful: bool,
-    pub timestamp: DateTime<Utc>,
+    #[sqlx(default)]
+    pub timestamp: Option<DateTime<Utc>>,
+    #[sqlx(default)]
     pub submission_time: Option<DateTime<Utc>>,
+    #[sqlx(default)]
     pub confirmation_time: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 
-// =========================
-// Fee Bump domain
-// =========================
+impl PaymentRecord {
+    pub fn get_corridor(&self) -> crate::models::corridor::Corridor {
+        let src_code = if self.source_asset_code.is_empty() {
+            self.asset_code.clone().unwrap_or_default()
+        } else {
+            self.source_asset_code.clone()
+        };
+        let src_issuer = if self.source_asset_issuer.is_empty() {
+            self.asset_issuer.clone().unwrap_or_default()
+        } else {
+            self.source_asset_issuer.clone()
+        };
+        let dst_code = if self.destination_asset_code.is_empty() {
+            self.asset_code.clone().unwrap_or_default()
+        } else {
+            self.destination_asset_code.clone()
+        };
+        let dst_issuer = if self.destination_asset_issuer.is_empty() {
+            self.asset_issuer.clone().unwrap_or_default()
+        } else {
+            self.destination_asset_issuer.clone()
+        };
+
+        crate::models::corridor::Corridor::new(src_code, src_issuer, dst_code, dst_issuer)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct IngestionState {
+    pub task_name: String,
+    pub last_cursor: String,
+    pub updated_at: DateTime<Utc>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct FeeBumpTransaction {
@@ -308,13 +280,6 @@ pub struct LiquidityPoolStats {
     pub avg_impermanent_loss: f64,
 }
 
-// =========================
-// Sorting and Filtering
-// =========================
-
-// =========================
-// Transactions domain
-// =========================
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MuxedAccountAnalytics {
     #[serde(skip_serializing_if = "Option::is_none")]

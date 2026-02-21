@@ -10,6 +10,7 @@ pub mod database;
 pub mod db;
 pub mod error;
 pub mod handlers;
+pub mod http_cache;
 pub mod ingestion;
 pub mod ml;
 pub mod ml_handlers;

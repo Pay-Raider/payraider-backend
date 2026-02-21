@@ -1,5 +1,7 @@
 use axum::{
     extract::{Query, State},
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -99,7 +101,8 @@ pub async fn get_anchors(
         Arc<PriceFeedClient>,
     )>,
     Query(params): Query<ListAnchorsQuery>,
-) -> ApiResult<Json<AnchorsResponse>> {
+    headers: HeaderMap,
+) -> ApiResult<Response> {
     let cache_key = keys::anchor_list(params.limit, params.offset);
 
     let response = <()>::get_or_fetch(&cache, &cache_key, cache.config.get_ttl("anchor"), async {
@@ -194,7 +197,9 @@ pub async fn get_anchors(
     })
     .await?;
 
-    Ok(Json(response))
+    let ttl = cache.config.get_ttl("anchor");
+    let response = crate::http_cache::cached_json_response(&headers, &cache_key, &response, ttl)?;
+    Ok(response)
 }
 
 #[cfg(test)]

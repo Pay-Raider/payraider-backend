@@ -1,11 +1,13 @@
 use anyhow::Result;
 use axum::{
+    http::Method,
     routing::{get, put},
     Router,
 };
 use dotenv::dotenv;
 use std::sync::Arc;
-use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
+use std::time::Duration;
+use tower_http::compression::{CompressionLayer, predicate::SizeAbove};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
@@ -418,10 +420,62 @@ async fn main() -> Result<()> {
         .await;
 
     // CORS configuration
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // Read comma-separated allowed origins from env.
+    // Use "*" to allow all origins (development only).
+    // Production example: CORS_ALLOWED_ORIGINS=https://stellar-insights.com
+    let cors_allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:3000,http://localhost:3001".to_string());
+
+    tracing::info!("Configuring CORS with allowed origins: {}", cors_allowed_origins);
+
+    let cors_methods = [
+        Method::GET,
+        Method::POST,
+        Method::PUT,
+        Method::DELETE,
+        Method::OPTIONS,
+        Method::PATCH,
+        Method::HEAD,
+    ];
+
+    let cors = {
+        let base = CorsLayer::new()
+            .allow_methods(cors_methods)
+            .allow_headers(Any)
+            .max_age(Duration::from_secs(3600));
+
+        if cors_allowed_origins.trim() == "*" {
+            tracing::warn!(
+                "CORS configured to allow ALL origins (*). \
+                 This is insecure and should not be used in production."
+            );
+            base.allow_origin(Any)
+        } else {
+            let origins: Vec<axum::http::HeaderValue> = cors_allowed_origins
+                .split(',')
+                .filter_map(|o| {
+                    let trimmed = o.trim();
+                    trimmed
+                        .parse::<axum::http::HeaderValue>()
+                        .map_err(|e| {
+                            tracing::warn!("Skipping invalid CORS origin '{}': {}", trimmed, e);
+                        })
+                        .ok()
+                })
+                .collect();
+
+            if origins.is_empty() {
+                tracing::warn!(
+                    "No valid CORS origins parsed from CORS_ALLOWED_ORIGINS; \
+                     falling back to allow-all. Check your configuration."
+                );
+                base.allow_origin(Any)
+            } else {
+                tracing::info!("CORS restricted to {} specific origin(s)", origins.len());
+                base.allow_origin(origins)
+            }
+        }
+    };
 
     // Compression configuration
     // Only compress responses larger than 1KB to avoid overhead on small responses
