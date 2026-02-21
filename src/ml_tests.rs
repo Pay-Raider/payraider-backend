@@ -4,9 +4,9 @@ use crate::ml::PredictionFeatures;
 async fn test_ml_prediction() {
     let features = PredictionFeatures {
         corridor_hash: 0.5,
-        amount_usd: 2.0, // log10(100)
-        hour_of_day: 0.5, // 12 PM
-        day_of_week: 0.3, // Tuesday
+        amount_usd: 2.0,      // log10(100)
+        hour_of_day: 0.5,     // 12 PM
+        day_of_week: 0.3,     // Tuesday
         liquidity_depth: 3.0, // log10(1000)
         recent_success_rate: 0.85,
     };
@@ -20,15 +20,15 @@ async fn test_ml_prediction() {
 
 #[test]
 fn test_prediction_result_risk_levels() {
-    use crate::ml_handlers::PredictionResponse;
     use crate::ml::PredictionResult;
+    use crate::ml_handlers::PredictionResponse;
 
     let high_prob = PredictionResult {
         success_probability: 0.9,
         confidence: 0.8,
         model_version: "1.0.0".to_string(),
     };
-    
+
     let response: PredictionResponse = high_prob.into();
     assert_eq!(response.risk_level, "low");
     assert!(response.recommendation.contains("Proceed"));
@@ -38,7 +38,7 @@ fn test_prediction_result_risk_levels() {
         confidence: 0.8,
         model_version: "1.0.0".to_string(),
     };
-    
+
     let response: PredictionResponse = low_prob.into();
     assert_eq!(response.risk_level, "high");
     assert!(response.recommendation.contains("High risk"));
@@ -47,7 +47,7 @@ fn test_prediction_result_risk_levels() {
 #[test]
 fn test_simple_model_prediction() {
     use crate::ml::SimpleMLModel;
-    
+
     let model = SimpleMLModel::new();
     let features = PredictionFeatures {
         corridor_hash: 0.5,
@@ -57,7 +57,7 @@ fn test_simple_model_prediction() {
         liquidity_depth: 3.0,
         recent_success_rate: 0.85,
     };
-    
+
     let result = model.predict(features);
     assert!(result.success_probability >= 0.0 && result.success_probability <= 1.0);
     assert!(result.confidence >= 0.0 && result.confidence <= 1.0);

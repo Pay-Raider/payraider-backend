@@ -65,13 +65,8 @@ mod tests {
             value: "test".to_string(),
         };
 
-        let result = <()>::get_or_fetch(
-            &cache,
-            "test:key",
-            60,
-            async { Ok(test_data.clone()) },
-        )
-        .await;
+        let result =
+            <()>::get_or_fetch(&cache, "test:key", 60, async { Ok(test_data.clone()) }).await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data);

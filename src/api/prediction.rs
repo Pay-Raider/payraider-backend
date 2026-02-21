@@ -19,7 +19,7 @@ pub struct PredictionResponse {
 
 /// POST /api/predict/success - Predict payment success
 pub async fn predict_success(
-    Query(params): Query<PredictionQuery>,
+    Query(_params): Query<PredictionQuery>,
 ) -> Json<PredictionResponse> {
     // Mock implementation
     let mut rng = rand::thread_rng();

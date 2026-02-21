@@ -1,15 +1,19 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::rpc::{GetLedgersResult, RpcLedger, StellarRpcClient};
+use crate::services::account_merge_detector::AccountMergeDetector;
+use crate::services::fee_bump_tracker::FeeBumpTrackerService;
 
 /// Ledger ingestion service that fetches and persists ledgers sequentially
 pub struct LedgerIngestionService {
     rpc_client: Arc<StellarRpcClient>,
-    pool: PgPool,
+    fee_bump_tracker: Arc<FeeBumpTrackerService>,
+    account_merge_detector: Arc<AccountMergeDetector>,
+    pool: SqlitePool,
 }
 
 /// Represents a payment operation extracted from a ledger
@@ -26,8 +30,18 @@ pub struct ExtractedPayment {
 }
 
 impl LedgerIngestionService {
-    pub fn new(rpc_client: Arc<StellarRpcClient>, pool: PgPool) -> Self {
-        Self { rpc_client, pool }
+    pub fn new(
+        rpc_client: Arc<StellarRpcClient>,
+        fee_bump_tracker: Arc<FeeBumpTrackerService>,
+        account_merge_detector: Arc<AccountMergeDetector>,
+        pool: SqlitePool,
+    ) -> Self {
+        Self {
+            rpc_client,
+            fee_bump_tracker,
+            account_merge_detector,
+            pool,
+        }
     }
 
     /// I'm running the main ingestion loop - fetches ledgers and persists them
@@ -36,9 +50,13 @@ impl LedgerIngestionService {
         let start_ledger = match self.get_last_ledger().await? {
             Some(l) => Some(l + 1),
             None => {
-                let health = self.rpc_client.check_health().await.context("Failed to check health")?;
+                let health = self
+                    .rpc_client
+                    .check_health()
+                    .await
+                    .context("Failed to check health")?;
                 Some(health.oldest_ledger)
-            },
+            }
         };
 
         info!(
@@ -74,11 +92,15 @@ impl LedgerIngestionService {
             }
 
             // Fetch real payments from Horizon
-            match self.rpc_client.fetch_payments_for_ledger(ledger.sequence).await {
+            match self
+                .rpc_client
+                .fetch_payments_for_ledger(ledger.sequence)
+                .await
+            {
                 Ok(payments) => {
-                     for payment in payments {
-                         // Convert RPC Payment to ExtractedPayment
-                         let extracted = ExtractedPayment {
+                    for payment in payments {
+                        // Convert RPC Payment to ExtractedPayment
+                        let extracted = ExtractedPayment {
                             ledger_sequence: ledger.sequence,
                             transaction_hash: payment.transaction_hash,
                             operation_type: "payment".to_string(), // Horizon 'payments' endpoint returns payments
@@ -87,17 +109,54 @@ impl LedgerIngestionService {
                             asset_code: payment.asset_code,
                             asset_issuer: payment.asset_issuer,
                             amount: payment.amount,
-                         };
+                        };
 
                         if let Err(e) = self.persist_payment(&extracted).await {
                             warn!("Failed to persist payment: {}", e);
                         }
-                     }
+                    }
                 }
                 Err(e) => {
-                     warn!("Failed to fetch payments for ledger {}: {}", ledger.sequence, e);
-                     // Non-fatal, continue ingesting ledgers
+                    warn!(
+                        "Failed to fetch payments for ledger {}: {}",
+                        ledger.sequence, e
+                    );
+                    // Non-fatal, continue ingesting ledgers
                 }
+            }
+
+            // Fetch and process transactions for fee bumps
+            match self
+                .rpc_client
+                .fetch_transactions_for_ledger(ledger.sequence)
+                .await
+            {
+                Ok(transactions) => {
+                    if let Err(e) = self
+                        .fee_bump_tracker
+                        .process_transactions(&transactions)
+                        .await
+                    {
+                        warn!("Failed to process transactions for fee bumps: {}", e);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to fetch transactions for ledger {}: {}",
+                        ledger.sequence, e
+                    );
+                }
+            }
+
+            if let Err(e) = self
+                .account_merge_detector
+                .process_ledger_operations(ledger.sequence)
+                .await
+            {
+                warn!(
+                    "Failed to process account merge operations for ledger {}: {}",
+                    ledger.sequence, e
+                );
             }
 
             count += 1;
@@ -146,8 +205,6 @@ impl LedgerIngestionService {
 
         Ok(())
     }
-
-
 
     /// I'm persisting an extracted payment to the database
     async fn persist_payment(&self, payment: &ExtractedPayment) -> Result<()> {

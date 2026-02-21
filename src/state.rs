@@ -1,7 +1,7 @@
-use std::sync::Arc;
 use crate::database::Database;
-use crate::websocket::WsState;
 use crate::ingestion::DataIngestionService;
+use crate::websocket::WsState;
+use std::sync::Arc;
 
 /// Shared application state for handlers
 #[derive(Clone)]

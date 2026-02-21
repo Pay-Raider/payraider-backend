@@ -41,7 +41,7 @@ mod tests {
         let hash_hex = SnapshotService::hash_snapshot_hex(snapshot).unwrap();
 
         assert_eq!(hash_bytes.len(), 32); // SHA-256 is 32 bytes
-        assert_eq!(hash_hex.len(), 64);   // 32 bytes * 2 hex chars
+        assert_eq!(hash_hex.len(), 64); // 32 bytes * 2 hex chars
         assert!(hash_hex.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(hash_hex, hex::encode(hash_bytes));
 

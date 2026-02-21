@@ -63,14 +63,10 @@ pub enum AuthApiError {
 impl IntoResponse for AuthApiError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            AuthApiError::InvalidCredentials => (
-                StatusCode::UNAUTHORIZED,
-                "Invalid username or password",
-            ),
-            AuthApiError::InvalidToken => (
-                StatusCode::UNAUTHORIZED,
-                "Invalid or expired token",
-            ),
+            AuthApiError::InvalidCredentials => {
+                (StatusCode::UNAUTHORIZED, "Invalid username or password")
+            }
+            AuthApiError::InvalidToken => (StatusCode::UNAUTHORIZED, "Invalid or expired token"),
         };
 
         let body = json!({

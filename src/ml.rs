@@ -1,6 +1,6 @@
-use chrono::{DateTime, Utc, Datelike, Timelike};
-use serde::{Deserialize, Serialize};
 use crate::database::Database;
+use chrono::{DateTime, Datelike, Timelike, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PredictionFeatures {
@@ -53,7 +53,7 @@ impl SimpleMLModel {
 
         // Sigmoid activation
         let prob = 1.0 / (1.0 + (-score).exp());
-        
+
         PredictionResult {
             success_probability: prob,
             confidence: if prob > 0.7 || prob < 0.3 { 0.9 } else { 0.7 },
@@ -65,7 +65,7 @@ impl SimpleMLModel {
         // Simple gradient descent (placeholder)
         // In production, this would implement actual training
         println!("Training model with {} samples", _training_data.len());
-        
+
         // Update version after training
         self.version = format!("1.0.{}", chrono::Utc::now().timestamp() % 1000);
     }
@@ -92,18 +92,18 @@ impl MLService {
     async fn prepare_training_data(&self) -> anyhow::Result<Vec<(Vec<f32>, f32)>> {
         // Mock training data for now
         let mut training_data = Vec::new();
-        
+
         // Generate some sample data
         for i in 0..1000 {
             let features = vec![
-                (i % 100) as f32 / 100.0,  // corridor_hash
-                (i % 50) as f32 / 10.0,    // amount (log scale)
-                (i % 24) as f32 / 24.0,    // hour
-                (i % 7) as f32 / 7.0,      // day
-                5.0 + (i % 10) as f32,     // liquidity
+                (i % 100) as f32 / 100.0,      // corridor_hash
+                (i % 50) as f32 / 10.0,        // amount (log scale)
+                (i % 24) as f32 / 24.0,        // hour
+                (i % 7) as f32 / 7.0,          // day
+                5.0 + (i % 10) as f32,         // liquidity
                 0.7 + (i % 30) as f32 / 100.0, // success rate
             ];
-            
+
             // Simple target: higher success rate = higher probability
             let target = if features[5] > 0.8 { 1.0 } else { 0.0 };
             training_data.push((features, target));
@@ -115,7 +115,7 @@ impl MLService {
     fn hash_corridor(&self, asset_code: &Option<String>, asset_issuer: &Option<String>) -> f32 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         asset_code.hash(&mut hasher);
         asset_issuer.hash(&mut hasher);
@@ -134,7 +134,10 @@ impl MLService {
             &Some(parts.get(1).unwrap_or(&"").to_string()),
         );
 
-        let liquidity = self.get_corridor_liquidity(corridor).await.unwrap_or(1000.0);
+        let liquidity = self
+            .get_corridor_liquidity(corridor)
+            .await
+            .unwrap_or(1000.0);
         let recent_success = self.get_recent_success_rate(corridor).await.unwrap_or(0.8);
 
         let features = PredictionFeatures {
@@ -155,15 +158,18 @@ impl MLService {
     }
 
     async fn get_recent_success_rate(&self, corridor: &str) -> Option<f32> {
-        // Mock data for now - in production this would query the database  
+        // Mock data for now - in production this would query the database
         Some(0.8 + (corridor.len() as f32 * 0.01) % 0.2)
     }
 
     pub async fn retrain_weekly(&mut self) -> anyhow::Result<()> {
         println!("Starting weekly model retraining...");
         self.train_model().await?;
-        
-        println!("Model retrained successfully. Version: {}", self.model.version);
+
+        println!(
+            "Model retrained successfully. Version: {}",
+            self.model.version
+        );
         Ok(())
     }
 }

@@ -1,12 +1,17 @@
 use axum::{
-    extract::Request,
+    extract::{Request, Extension},
     http::{header, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use serde_json::json;
+use std::sync::Arc;
 
 use crate::auth::Claims;
+
+/// JWT secret shared via extension
+#[derive(Clone)]
+pub struct JwtSecret(pub Arc<str>);
 
 /// Extract user from authenticated request
 #[derive(Debug, Clone)]
@@ -17,6 +22,7 @@ pub struct AuthUser {
 
 /// Auth middleware - validates JWT from Authorization header
 pub async fn auth_middleware(
+    Extension(JwtSecret(jwt_secret)): Extension<JwtSecret>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, AuthError> {
@@ -32,12 +38,8 @@ pub async fn auth_middleware(
         .strip_prefix("Bearer ")
         .ok_or(AuthError::InvalidToken)?;
 
-    // Get JWT secret from environment
-    let jwt_secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "your-secret-key-change-in-production".to_string());
-
     // Validate token
-    let claims = validate_access_token(token, &jwt_secret)?;
+    let claims = validate_access_token(token, jwt_secret.as_ref())?;
 
     // Attach user to request extensions
     let auth_user = AuthUser {
@@ -54,7 +56,7 @@ fn validate_access_token(token: &str, secret: &str) -> Result<Claims, AuthError>
     use jsonwebtoken::{decode, DecodingKey, Validation};
 
     let validation = Validation::default();
-    
+
     decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
@@ -80,14 +82,8 @@ pub enum AuthError {
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            AuthError::MissingToken => (
-                StatusCode::UNAUTHORIZED,
-                "Missing authentication token",
-            ),
-            AuthError::InvalidToken => (
-                StatusCode::UNAUTHORIZED,
-                "Invalid or expired token",
-            ),
+            AuthError::MissingToken => (StatusCode::UNAUTHORIZED, "Missing authentication token"),
+            AuthError::InvalidToken => (StatusCode::UNAUTHORIZED, "Invalid or expired token"),
         };
 
         let body = json!({

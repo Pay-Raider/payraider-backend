@@ -141,20 +141,19 @@ pub struct IngestionStatus {
 
 impl DataIngestionService {
     // ... (existing methods remain, adding new one below)
-    
+
     pub async fn get_ingestion_status(&self) -> Result<IngestionStatus> {
         // We get local state
-        let cursor_row: Option<(i64,)> = sqlx::query_as(
-            "SELECT last_ledger_sequence FROM ingestion_cursor WHERE id = 1"
-        )
-        .fetch_optional(self.db.pool())
-        .await?;
-        
+        let cursor_row: Option<(i64,)> =
+            sqlx::query_as("SELECT last_ledger_sequence FROM ingestion_cursor WHERE id = 1")
+                .fetch_optional(self.db.pool())
+                .await?;
+
         let last_ingested = cursor_row.map(|r| r.0 as u64).unwrap_or(0);
 
         // We get network state
         let health = self.rpc_client.check_health().await?;
-        
+
         Ok(IngestionStatus {
             last_ingested_ledger: last_ingested,
             network_latest_ledger: health.latest_ledger,

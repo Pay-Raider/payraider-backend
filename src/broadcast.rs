@@ -1,5 +1,5 @@
-use crate::models::Anchor;
 use crate::models::corridor::Corridor;
+use crate::models::Anchor;
 use crate::websocket::{WsMessage, WsState};
 use std::sync::Arc;
 
@@ -22,6 +22,9 @@ pub fn broadcast_corridor_update(ws_state: &Arc<WsState>, corridor: &Corridor) {
         asset_a_issuer: corridor.asset_a_issuer.clone(),
         asset_b_code: corridor.asset_b_code.clone(),
         asset_b_issuer: corridor.asset_b_issuer.clone(),
+        success_rate: None,
+        health_score: None,
+        last_updated: None,
     };
     ws_state.broadcast(message);
 }
