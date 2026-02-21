@@ -36,6 +36,7 @@ use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
 use stellar_insights_backend::rpc::StellarRpcClient;
 use stellar_insights_backend::rpc_handlers;
+use stellar_insights_backend::vault;
 use stellar_insights_backend::services::account_merge_detector::AccountMergeDetector;
 use stellar_insights_backend::services::fee_bump_tracker::FeeBumpTrackerService;
 use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAnalyzer;
@@ -476,17 +477,7 @@ async fn main() -> Result<()> {
 
     rate_limiter
         .register_endpoint(
-            "/api/verifications".to_string(),
-            RateLimitConfig {
-                requests_per_minute: 60,
-                whitelist_ips: vec![],
-            },
-        )
-        .await;
-
-    rate_limiter
-        .register_endpoint(
-            "/api/cost-calculator".to_string(),
+            "/api/achievements".to_string(),
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
@@ -758,14 +749,11 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
-    // Build verification rewards routes
-    let verification_routes = Router::new()
+    // Build achievements / quests routes
+    let achievements_routes = Router::new()
         .nest(
-            "/api/verifications",
-            stellar_insights_backend::api::verification_rewards::routes(
-                Arc::clone(&verification_rewards_service),
-                Arc::clone(&sep10_service),
-            ),
+            "/api",
+            stellar_insights_backend::api::achievements::routes(),
         )
         .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
             rate_limiter.clone(),
@@ -798,12 +786,12 @@ async fn main() -> Result<()> {
         .merge(price_routes)
         .merge(cost_calculator_routes)
         .merge(trustline_routes)
+        .merge(achievements_routes)
         .merge(network_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
-        .merge(verification_routes)
         .merge(ws_routes)
-        .layer(compression); // Apply compression to all routes
+        .layer(compression);
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());

@@ -1,4 +1,5 @@
 pub mod account_merges;
+pub mod achievements;
 pub mod anchors;
 pub mod anchors_cached;
 pub mod auth;
