@@ -5,6 +5,7 @@ pub mod auth;
 pub mod cache_stats;
 pub mod corridors;
 pub mod corridors_cached;
+pub mod cost_calculator;
 pub mod fee_bump;
 pub mod liquidity_pools;
 pub mod metrics;

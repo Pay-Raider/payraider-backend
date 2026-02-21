@@ -7,7 +7,7 @@ use axum::{
 use serde_json::json;
 use std::sync::Arc;
 
-use super::sep10_simple::{Sep10Service, Sep10Session};
+use super::sep10_simple::Sep10Service;
 
 /// Extract SEP-10 authenticated user from request
 #[derive(Debug, Clone)]
@@ -32,11 +32,12 @@ pub async fn sep10_auth_middleware(
     // Extract Bearer token
     let token = auth_header
         .strip_prefix("Bearer ")
-        .ok_or(Sep10AuthError::InvalidToken)?;
+        .ok_or(Sep10AuthError::InvalidToken)?
+        .to_string();
 
     // Validate session
     let session = sep10_service
-        .validate_session(token)
+        .validate_session(&token)
         .await
         .map_err(|_| Sep10AuthError::InvalidToken)?;
 
@@ -46,7 +47,7 @@ pub async fn sep10_auth_middleware(
         client_domain: session.client_domain,
     };
     req.extensions_mut().insert(sep10_user);
-    req.extensions_mut().insert(token.to_string());
+    req.extensions_mut().insert(token);
 
     Ok(next.run(req).await)
 }
