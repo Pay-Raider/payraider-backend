@@ -32,12 +32,12 @@ use stellar_insights_backend::database::Database;
 use stellar_insights_backend::handlers::*;
 use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
 use stellar_insights_backend::ingestion::DataIngestionService;
+use stellar_insights_backend::jobs::JobScheduler;
 use stellar_insights_backend::network::NetworkConfig;
 use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
 use stellar_insights_backend::rpc::StellarRpcClient;
 use stellar_insights_backend::rpc_handlers;
-use stellar_insights_backend::vault;
 use stellar_insights_backend::services::account_merge_detector::AccountMergeDetector;
 use stellar_insights_backend::services::fee_bump_tracker::FeeBumpTrackerService;
 use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAnalyzer;
@@ -52,6 +52,7 @@ use stellar_insights_backend::shutdown::{
     shutdown_websockets, wait_for_signal, ShutdownConfig, ShutdownCoordinator,
 };
 use stellar_insights_backend::state::AppState;
+use stellar_insights_backend::vault;
 use stellar_insights_backend::websocket::WsState;
 
 #[tokio::main]
@@ -62,21 +63,15 @@ async fn main() -> Result<()> {
     // Load environment variables
     dotenv().ok();
 
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "backend=info,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // Initialize logging with ELK support
+    stellar_insights_backend::logging::init_logging();
 
     tracing::info!("Starting Stellar Insights Backend");
 
     // Validate environment configuration
     stellar_insights_backend::env_config::validate_env()
         .context("Environment configuration validation failed")?;
-    
+
     // Log sanitized environment configuration
     stellar_insights_backend::env_config::log_env_config();
 
@@ -95,7 +90,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "sqlite:./stellar_insights.db".to_string());
 
     tracing::info!("Connecting to database: {}", database_url);
-    
+
     // Load pool configuration from environment
     let pool_config = stellar_insights_backend::database::PoolConfig::from_env();
     tracing::info!(
@@ -107,7 +102,7 @@ async fn main() -> Result<()> {
         pool_config.idle_timeout_seconds,
         pool_config.max_lifetime_seconds
     );
-    
+
     let pool = pool_config.create_pool(&database_url).await?;
 
     tracing::info!("Running database migrations...");
@@ -286,8 +281,9 @@ async fn main() -> Result<()> {
     let sep10_redis_connection = Arc::new(tokio::sync::RwLock::new(auth_redis_connection));
     let sep10_service = Arc::new(
         stellar_insights_backend::auth::sep10_simple::Sep10Service::new(
-            std::env::var("SEP10_SERVER_PUBLIC_KEY")
-                .unwrap_or_else(|_| "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string()),
+            std::env::var("SEP10_SERVER_PUBLIC_KEY").unwrap_or_else(|_| {
+                "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string()
+            }),
             network_config.network_passphrase.clone(),
             std::env::var("SEP10_HOME_DOMAIN")
                 .unwrap_or_else(|_| "stellar-insights.local".to_string()),
@@ -441,6 +437,18 @@ async fn main() -> Result<()> {
     // Run initial sync (skip on network errors)
     tracing::info!("Running initial metrics synchronization...");
     let _ = ingestion_service.sync_all_metrics().await;
+
+    // Start background job scheduler
+    tracing::info!("Starting background job scheduler...");
+    let _job_scheduler = JobScheduler::start(
+        Arc::clone(&db),
+        Arc::clone(&cache),
+        Arc::clone(&rpc_client),
+        Arc::clone(&ingestion_service),
+        Arc::clone(&price_feed),
+    )
+    .await;
+    tracing::info!("Background job scheduler started");
 
     // Initialize rate limiter
     let rate_limiter_result = RateLimiter::new().await;
