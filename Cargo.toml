@@ -40,6 +40,7 @@ utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 async-trait = "0.1"
 urlencoding = "2.1"
 data-encoding = "2.6"
+aes-gcm = "0.10.3"
 
 [dev-dependencies]
 tempfile = "3.0"

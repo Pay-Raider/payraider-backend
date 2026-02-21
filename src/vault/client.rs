@@ -5,7 +5,7 @@
 /// - Dynamic database credentials with automatic renewal
 /// - Lease tracking and background renewal
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;

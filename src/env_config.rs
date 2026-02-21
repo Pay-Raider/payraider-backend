@@ -4,11 +4,11 @@
 //! and ensures the application fails fast with clear error messages
 //! if critical configuration is missing.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::env;
 
 /// Required environment variables that must be set
-const REQUIRED_VARS: &[&str] = &["DATABASE_URL"];
+const REQUIRED_VARS: &[&str] = &["DATABASE_URL", "ENCRYPTION_KEY"];
 
 /// Environment variables that should be validated if present
 const VALIDATED_VARS: &[(&str, fn(&str) -> bool)] = &[
@@ -90,6 +90,13 @@ pub fn log_env_config() {
     if env::var("PRICE_FEED_API_KEY").is_ok() {
         tracing::info!("  PRICE_FEED_API_KEY: [REDACTED]");
     }
+    
+    // Encryption
+    if env::var("ENCRYPTION_KEY").is_ok() {
+        tracing::info!("  ENCRYPTION_KEY: [SET]");
+    } else {
+        tracing::warn!("  ENCRYPTION_KEY: [MISSING]");
+    }
 }
 
 /// Helper to log a single environment variable
@@ -134,7 +141,7 @@ fn sanitize_url(url: &str) -> String {
 
 /// Validate port number
 fn validate_port(value: &str) -> bool {
-    value.parse::<u16>().is_ok()
+    value.parse::<u16>().map(|p| p > 0).unwrap_or(false)
 }
 
 /// Validate positive number

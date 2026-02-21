@@ -9,7 +9,19 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 use crate::services::stellar_toml::StellarTomlClient;
-use crate::models::AnchorMetadata;
+// use crate::models::AnchorMetadata; // Removed to define locally
+
+#[derive(Debug, Serialize)]
+pub struct AnchorMetadata {
+    pub organization_name: Option<String>,
+    pub organization_dba: Option<String>,
+    pub organization_url: Option<String>,
+    pub organization_logo: Option<String>,
+    pub organization_description: Option<String>,
+    pub organization_support_email: Option<String>,
+    pub supported_currencies: Option<Vec<String>>,
+    pub fetched_at: Option<i64>,
+}
 
 pub type ApiResult<T> = Result<T, ApiError>;
 
@@ -91,7 +103,7 @@ pub async fn get_anchors(
     // Create stellar.toml client
     let toml_client = Arc::new(
         StellarTomlClient::new(
-            app_state.redis_connection.clone(),
+            Arc::new(tokio::sync::RwLock::new(None)),
             Some("Public Global Stellar Network ; September 2015".to_string()),
         )
         .map_err(|e| ApiError::InternalError(format!("Failed to create TOML client: {}", e)))?
@@ -203,6 +215,7 @@ mod tests {
             successful_transactions: anchor.successful_transactions,
             failed_transactions: anchor.failed_transactions,
             status: anchor.status,
+            metadata: None,
         };
 
         assert_eq!(response.name, "Test Anchor");
