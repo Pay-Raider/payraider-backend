@@ -1,39 +1,33 @@
 use std::net::TcpStream;
-use std::io::Write;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-pub fn init_elk_logging(logstash_host: &str) -> anyhow::Result<()> {
+pub fn init_logging() {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"));
 
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(tracing_subscriber::fmt::layer().json())
-        .init();
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_target(true)
+        .with_level(true);
 
-    Ok(())
-}
+    let logstash_layer = std::env::var("LOGSTASH_HOST")
+        .ok()
+        .and_then(|host| {
+            TcpStream::connect(&host)
+                .ok()
+                .map(|stream| tracing_logstash::Layer::new(stream).unwrap())
+        });
 
-pub struct LogstashWriter {
-    stream: Option<TcpStream>,
-    host: String,
-}
-
-impl LogstashWriter {
-    pub fn new(host: String) -> Self {
-        Self {
-            stream: TcpStream::connect(&host).ok(),
-            host,
-        }
-    }
-
-    pub fn send(&mut self, log: &str) {
-        if self.stream.is_none() {
-            self.stream = TcpStream::connect(&self.host).ok();
-        }
-
-        if let Some(ref mut stream) = self.stream {
-            let _ = writeln!(stream, "{}", log);
-        }
+    if let Some(logstash) = logstash_layer {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt_layer)
+            .with(logstash)
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt_layer)
+            .init();
     }
 }

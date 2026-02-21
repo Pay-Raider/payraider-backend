@@ -846,10 +846,13 @@ impl Database {
             .collect();
 
         Ok(MuxedAccountAnalytics {
-            total_muxed_payments,
-            unique_muxed_addresses,
-            top_muxed_by_activity,
-            base_accounts_with_muxed,
+            total_muxed_accounts: None,
+            active_accounts: None,
+            top_accounts: None,
+            total_muxed_payments: Some(total_muxed_payments),
+            unique_muxed_addresses: Some(unique_muxed_addresses),
+            top_muxed_by_activity: Some(top_muxed_by_activity),
+            base_accounts_with_muxed: Some(base_accounts_with_muxed),
         })
     }
 
