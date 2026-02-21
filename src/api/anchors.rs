@@ -7,9 +7,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::state::AppState;
-use crate::services::stellar_toml::StellarTomlClient;
 use crate::models::AnchorMetadata;
+use crate::services::stellar_toml::StellarTomlClient;
+use crate::state::AppState;
 
 pub type ApiResult<T> = Result<T, ApiError>;
 
@@ -94,7 +94,7 @@ pub async fn get_anchors(
             app_state.redis_connection.clone(),
             Some("Public Global Stellar Network ; September 2015".to_string()),
         )
-        .map_err(|e| ApiError::InternalError(format!("Failed to create TOML client: {}", e)))?
+        .map_err(|e| ApiError::InternalError(format!("Failed to create TOML client: {}", e)))?,
     );
 
     let mut anchor_responses = Vec::new();
@@ -114,9 +114,10 @@ pub async fn get_anchors(
         let metadata = if let Some(ref domain) = anchor.home_domain {
             match toml_client.fetch_toml(domain).await {
                 Ok(toml) => {
-                    let supported_currencies = toml.currencies.as_ref().map(|currencies| {
-                        currencies.iter().map(|c| c.code.clone()).collect()
-                    });
+                    let supported_currencies = toml
+                        .currencies
+                        .as_ref()
+                        .map(|currencies| currencies.iter().map(|c| c.code.clone()).collect());
 
                     Some(AnchorMetadata {
                         organization_name: toml.organization_name,

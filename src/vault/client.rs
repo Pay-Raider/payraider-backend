@@ -1,10 +1,9 @@
 /// VaultClient provides secure access to secrets stored in HashiCorp Vault
-/// 
+///
 /// Supports:
 /// - Static secrets from KV v2 secrets engine
 /// - Dynamic database credentials with automatic renewal
 /// - Lease tracking and background renewal
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -97,7 +96,7 @@ impl VaultClient {
     }
 
     /// Read a static secret from KV v2
-    /// 
+    ///
     /// # Arguments
     /// * `path` - Secret path (e.g., "stellar/jwt_secret")
     /// * `field` - Specific field to extract (e.g., "value"), None returns all fields
@@ -150,7 +149,7 @@ impl VaultClient {
     }
 
     /// Request dynamic PostgreSQL database credentials
-    /// 
+    ///
     /// # Arguments
     /// * `role` - Database role (e.g., "stellar-app") must exist in Vault
     ///
@@ -160,10 +159,7 @@ impl VaultClient {
         &self,
         role: &str,
     ) -> Result<DatabaseCredentials, VaultError> {
-        let url = format!(
-            "{}/v1/database/creds/{}",
-            self.config.vault_addr, role
-        );
+        let url = format!("{}/v1/database/creds/{}", self.config.vault_addr, role);
 
         let resp = self
             .http_client
