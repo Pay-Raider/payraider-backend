@@ -17,6 +17,9 @@ module_name_repetitions = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 
+[features]
+legacy_sep10_tests = []
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }
