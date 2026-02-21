@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     http::Method,
     routing::{get, put},
@@ -21,6 +21,8 @@ use stellar_insights_backend::api::cost_calculator;
 use stellar_insights_backend::api::fee_bump;
 use stellar_insights_backend::api::liquidity_pools;
 use stellar_insights_backend::api::metrics_cached;
+use stellar_insights_backend::api::oauth;
+use stellar_insights_backend::api::webhooks;
 use stellar_insights_backend::auth::AuthService;
 use stellar_insights_backend::auth_middleware::auth_middleware;
 use stellar_insights_backend::cache::{CacheConfig, CacheManager};
@@ -42,8 +44,10 @@ use stellar_insights_backend::services::price_feed::{
 };
 use stellar_insights_backend::services::realtime_broadcaster::RealtimeBroadcaster;
 use stellar_insights_backend::services::trustline_analyzer::TrustlineAnalyzer;
+use stellar_insights_backend::services::webhook_dispatcher::WebhookDispatcher;
 use stellar_insights_backend::shutdown::{ShutdownConfig, ShutdownCoordinator};
 use stellar_insights_backend::state::AppState;
+use stellar_insights_backend::vault;
 use stellar_insights_backend::websocket::WsState;
 
 #[tokio::main]
@@ -68,7 +72,7 @@ async fn main() -> Result<()> {
     // Validate environment configuration
     stellar_insights_backend::env_config::validate_env()
         .context("Environment configuration validation failed")?;
-    
+
     // Log sanitized environment configuration
     stellar_insights_backend::env_config::log_env_config();
 
@@ -87,7 +91,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "sqlite:./stellar_insights.db".to_string());
 
     tracing::info!("Connecting to database: {}", database_url);
-    
+
     // Load pool configuration from environment
     let pool_config = stellar_insights_backend::database::PoolConfig::from_env();
     tracing::info!(
@@ -99,7 +103,7 @@ async fn main() -> Result<()> {
         pool_config.idle_timeout_seconds,
         pool_config.max_lifetime_seconds
     );
-    
+
     let pool = pool_config.create_pool(&database_url).await?;
 
     tracing::info!("Running database migrations...");
@@ -256,9 +260,33 @@ async fn main() -> Result<()> {
         None
     };
     let auth_service = Arc::new(AuthService::new(Arc::new(tokio::sync::RwLock::new(
-        auth_redis_connection,
+        auth_redis_connection.clone(),
     ))));
     tracing::info!("Auth service initialized");
+
+    // Initialize SEP-10 Service for Stellar authentication
+    let sep10_redis_connection = Arc::new(tokio::sync::RwLock::new(auth_redis_connection));
+    let sep10_service = Arc::new(
+        stellar_insights_backend::auth::sep10_simple::Sep10Service::new(
+            std::env::var("SEP10_SERVER_PUBLIC_KEY").unwrap_or_else(|_| {
+                "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string()
+            }),
+            network_config.network_passphrase.clone(),
+            std::env::var("SEP10_HOME_DOMAIN")
+                .unwrap_or_else(|_| "stellar-insights.local".to_string()),
+            sep10_redis_connection,
+        )
+        .expect("Failed to initialize SEP-10 service"),
+    );
+    tracing::info!("SEP-10 service initialized");
+
+    // Initialize Verification Rewards Service
+    let verification_rewards_service = Arc::new(
+        stellar_insights_backend::services::verification_rewards::VerificationRewardsService::new(
+            Arc::clone(&db),
+        ),
+    );
+    tracing::info!("Verification rewards service initialized");
 
     // ML Retraining task (commented out)
     /*
@@ -333,6 +361,14 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         tracing::info!("Starting RealtimeBroadcaster background task");
         realtime_broadcaster.start().await;
+    });
+
+    // Start Webhook Dispatcher background task
+    let webhook_dispatcher = WebhookDispatcher::new(pool.clone());
+    tokio::spawn(async move {
+        if let Err(e) = webhook_dispatcher.run().await {
+            tracing::error!("Webhook dispatcher encountered fatal error: {}", e);
+        }
     });
 
     // Run initial sync (skip on network errors)
@@ -442,7 +478,7 @@ async fn main() -> Result<()> {
 
     rate_limiter
         .register_endpoint(
-            "/api/cost-calculator".to_string(),
+            "/api/achievements".to_string(),
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
@@ -589,6 +625,22 @@ async fn main() -> Result<()> {
         )
         .layer(cors.clone());
 
+    // Build OAuth routes
+    let oauth_routes = oauth::routes(pool.clone());
+
+    // Build webhook routes (require authentication)
+    let webhook_routes = Router::new()
+        .nest("/api/webhooks", webhooks::routes(pool.clone()))
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn(auth_middleware))
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                )),
+        )
+        .layer(cors.clone());
+
     // Build cache stats and metrics routes
     let cache_routes = cache_stats::routes(Arc::clone(&cache));
     let metrics_routes = metrics_cached::routes(Arc::clone(&cache));
@@ -698,6 +750,18 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build achievements / quests routes
+    let achievements_routes = Router::new()
+        .nest(
+            "/api",
+            stellar_insights_backend::api::achievements::routes(),
+        )
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+        .layer(cors.clone());
+
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
@@ -711,6 +775,8 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .merge(swagger_routes)
         .merge(auth_routes)
+        .merge(oauth_routes)
+        .merge(webhook_routes)
         .merge(cached_routes)
         .merge(anchor_routes)
         .merge(protected_anchor_routes)
@@ -721,11 +787,12 @@ async fn main() -> Result<()> {
         .merge(price_routes)
         .merge(cost_calculator_routes)
         .merge(trustline_routes)
+        .merge(achievements_routes)
         .merge(network_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
         .merge(ws_routes)
-        .layer(compression); // Apply compression to all routes
+        .layer(compression);
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());

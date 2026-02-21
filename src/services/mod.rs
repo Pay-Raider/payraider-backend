@@ -8,7 +8,9 @@ pub mod liquidity_pool_analyzer;
 pub mod price_feed;
 pub mod realtime_broadcaster;
 pub mod snapshot;
+pub mod stellar_toml;
 pub mod trustline_analyzer;
+pub mod verification_rewards;
 
 #[cfg(test)]
 mod snapshot_test;
