@@ -9,6 +9,7 @@ pub mod cache_middleware;
 pub mod database;
 pub mod db;
 // pub mod email;  // Commented out - missing lettre dependency
+pub mod env_config;
 pub mod handlers;
 pub mod http_cache;
 pub mod ingestion;

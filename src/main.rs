@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     http::Method,
     routing::{get, put},
@@ -7,7 +7,7 @@ use axum::{
 use dotenv::dotenv;
 use std::sync::Arc;
 use std::time::Duration;
-use tower_http::compression::{CompressionLayer, predicate::SizeAbove};
+use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
@@ -17,6 +17,7 @@ use stellar_insights_backend::api::account_merges;
 use stellar_insights_backend::api::anchors_cached::get_anchors;
 use stellar_insights_backend::api::cache_stats;
 use stellar_insights_backend::api::corridors_cached::{get_corridor_detail, list_corridors};
+use stellar_insights_backend::api::cost_calculator;
 use stellar_insights_backend::api::fee_bump;
 use stellar_insights_backend::api::liquidity_pools;
 use stellar_insights_backend::api::metrics_cached;
@@ -64,6 +65,13 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting Stellar Insights Backend");
 
+    // Validate environment configuration
+    stellar_insights_backend::env_config::validate_env()
+        .context("Environment configuration validation failed")?;
+    
+    // Log sanitized environment configuration
+    stellar_insights_backend::env_config::log_env_config();
+
     // Initialize shutdown coordinator
     let shutdown_config = ShutdownConfig::from_env();
     tracing::info!(
@@ -79,7 +87,20 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "sqlite:./stellar_insights.db".to_string());
 
     tracing::info!("Connecting to database: {}", database_url);
-    let pool = sqlx::SqlitePool::connect(&database_url).await?;
+    
+    // Load pool configuration from environment
+    let pool_config = stellar_insights_backend::database::PoolConfig::from_env();
+    tracing::info!(
+        "Database pool configuration: max_connections={}, min_connections={}, \
+         connect_timeout={}s, idle_timeout={}s, max_lifetime={}s",
+        pool_config.max_connections,
+        pool_config.min_connections,
+        pool_config.connect_timeout_seconds,
+        pool_config.idle_timeout_seconds,
+        pool_config.max_lifetime_seconds
+    );
+    
+    let pool = pool_config.create_pool(&database_url).await?;
 
     tracing::info!("Running database migrations...");
     sqlx::migrate!("./migrations").run(&pool).await?;
@@ -101,7 +122,10 @@ async fn main() -> Result<()> {
     );
 
     let rpc_client = if mock_mode {
-        Arc::new(StellarRpcClient::new_with_network(network_config.network, true))
+        Arc::new(StellarRpcClient::new_with_network(
+            network_config.network,
+            true,
+        ))
     } else {
         Arc::new(StellarRpcClient::new(
             network_config.rpc_url.clone(),
@@ -449,6 +473,16 @@ async fn main() -> Result<()> {
         )
         .await;
 
+    rate_limiter
+        .register_endpoint(
+            "/api/cost-calculator".to_string(),
+            RateLimitConfig {
+                requests_per_minute: 100,
+                whitelist_ips: vec![],
+            },
+        )
+        .await;
+
     // CORS configuration
     // Read comma-separated allowed origins from env.
     // Use "*" to allow all origins (development only).
@@ -456,7 +490,10 @@ async fn main() -> Result<()> {
     let cors_allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
         .unwrap_or_else(|_| "http://localhost:3000,http://localhost:3001".to_string());
 
-    tracing::info!("Configuring CORS with allowed origins: {}", cors_allowed_origins);
+    tracing::info!(
+        "Configuring CORS with allowed origins: {}",
+        cors_allowed_origins
+    );
 
     let cors_methods = [
         Method::GET,
@@ -513,12 +550,12 @@ async fn main() -> Result<()> {
         .ok()
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(1024);
-    
+
     let compression = CompressionLayer::new()
         .gzip(true)
         .br(true)
         .compress_when(SizeAbove::new(compression_min_size));
-    
+
     tracing::info!(
         "Compression enabled (gzip, brotli) for responses > {} bytes",
         compression_min_size
@@ -546,6 +583,7 @@ async fn main() -> Result<()> {
     // Build non-cached anchor routes with app state
     let anchor_routes = Router::new()
         .route("/health", get(health_check))
+        .route("/api/db/pool-metrics", get(pool_metrics))
         .route("/api/anchors/:id", get(get_anchor))
         .route(
             "/api/anchors/account/:stellar_account",
@@ -657,9 +695,24 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build cost calculator routes
+    let cost_calculator_routes = Router::new()
+        .nest(
+            "/api/cost-calculator",
+            cost_calculator::routes(Arc::clone(&price_feed)),
+        )
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+        .layer(cors.clone());
+
     // Build network routes
     let network_routes = Router::new()
-        .nest("/api/network", stellar_insights_backend::api::network::routes())
+        .nest(
+            "/api/network",
+            stellar_insights_backend::api::network::routes(),
+        )
         .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
             rate_limiter.clone(),
             rate_limit_middleware,
@@ -696,13 +749,13 @@ async fn main() -> Result<()> {
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
-    
+
     // Build WebSocket routes
     let ws_routes = Router::new()
         .route("/ws", get(stellar_insights_backend::websocket::ws_handler))
         .with_state(Arc::clone(&ws_state))
         .layer(cors.clone());
-    
+
     let app = Router::new()
         .merge(swagger_routes)
         .merge(auth_routes)
@@ -714,6 +767,7 @@ async fn main() -> Result<()> {
         .merge(account_merge_routes)
         .merge(lp_routes)
         .merge(price_routes)
+        .merge(cost_calculator_routes)
         .merge(trustline_routes)
         .merge(network_routes)
         .merge(cache_routes)
