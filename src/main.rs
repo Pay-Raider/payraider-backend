@@ -59,14 +59,8 @@ async fn main() -> Result<()> {
     // Load environment variables
     dotenv().ok();
 
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "backend=info,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // Initialize logging with ELK support
+    stellar_insights_backend::logging::init_logging();
 
     tracing::info!("Starting Stellar Insights Backend");
 
