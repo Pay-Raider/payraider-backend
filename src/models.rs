@@ -178,12 +178,12 @@ pub struct MetricRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SnapshotRecord {
     pub id: String,
-    pub corridor_id: String,
-    pub snapshot_at: DateTime<Utc>,
-    pub success_rate: f64,
-    pub avg_settlement_latency_ms: i32,
-    pub liquidity_depth_usd: f64,
-    pub total_transactions: i64,
+    pub entity_id: String,
+    pub entity_type: String,
+    pub data: String,
+    pub hash: Option<String>,
+    pub epoch: Option<i64>,
+    pub timestamp: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }
 

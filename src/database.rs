@@ -875,24 +875,4 @@ impl Database {
 
         Ok(())
     }
-
-    // =========================
-    // Muxed Account Analytics
-    // =========================
-
-    pub async fn get_muxed_analytics(
-        &self,
-        limit: i64,
-    ) -> Result<crate::models::MuxedAccountAnalytics> {
-        // Stub implementation - returns empty analytics
-        Ok(crate::models::MuxedAccountAnalytics {
-            total_muxed_accounts: Some(0),
-            active_accounts: Some(0),
-            top_accounts: Some(vec![]),
-            total_muxed_payments: None,
-            unique_muxed_addresses: None,
-            top_muxed_by_activity: None,
-            base_accounts_with_muxed: None,
-        })
-    }
 }

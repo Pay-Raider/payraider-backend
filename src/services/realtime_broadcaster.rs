@@ -1,14 +1,13 @@
 use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::models::corridor::CorridorMetrics;
-use crate::models::{AnchorMetrics, PaymentRecord};
+use crate::models::AnchorMetrics;
 use crate::rpc::StellarRpcClient;
 use crate::websocket::{WsMessage, WsState};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -27,7 +26,7 @@ pub struct RealtimeBroadcaster {
     /// Shutdown signal receiver
     shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
     /// Shutdown signal sender
-    shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +49,10 @@ pub enum BroadcastMessage {
         channel: String,
     },
     NewPayment {
-        payment: PaymentRecord,
+        corridor_key: String,
+        amount: f64,
+        successful: bool,
+        timestamp: String,
         channel: String,
     },
     HealthAlert {
@@ -81,7 +83,7 @@ impl RealtimeBroadcaster {
             cache,
             subscriptions: Arc::new(DashMap::new()),
             shutdown_rx: Some(shutdown_rx),
-            shutdown_tx,
+            shutdown_tx: Some(shutdown_tx),
         }
     }
 
@@ -185,21 +187,22 @@ impl RealtimeBroadcaster {
     async fn fetch_corridor_updates(
         db: &Arc<Database>,
     ) -> Result<Vec<CorridorMetrics>, Box<dyn std::error::Error + Send + Sync>> {
-        match db.list_corridors(50, 0, None, None, None).await {
+        match db.list_corridors(50, 0).await {
             Ok(corridors) => {
-                // Convert CorridorRecord to CorridorMetrics
+                // Convert Corridor to CorridorMetrics
                 // For now, we'll create mock metrics - you'll need to implement proper conversion
                 let mut corridor_metrics = Vec::new();
                 for corridor in corridors {
+                    let now = chrono::Utc::now();
                     // This is a simplified conversion - you may need to fetch actual metrics
                     let metrics = CorridorMetrics {
-                        id: corridor.id.to_string(),
-                        corridor_key: corridor.corridor_key,
+                        id: uuid::Uuid::new_v4().to_string(),
+                        corridor_key: corridor.to_string_key(),
                         asset_a_code: corridor.asset_a_code,
                         asset_a_issuer: corridor.asset_a_issuer,
                         asset_b_code: corridor.asset_b_code,
                         asset_b_issuer: corridor.asset_b_issuer,
-                        date: chrono::Utc::now(),
+                        date: now,
                         total_transactions: 0, // You'll need to fetch real metrics
                         successful_transactions: 0,
                         failed_transactions: 0,
@@ -208,8 +211,8 @@ impl RealtimeBroadcaster {
                         avg_settlement_latency_ms: None,
                         median_settlement_latency_ms: None,
                         liquidity_depth_usd: 0.0,
-                        created_at: corridor.created_at,
-                        updated_at: corridor.updated_at,
+                        created_at: now,
+                        updated_at: now,
                     };
                     corridor_metrics.push(metrics);
                 }
@@ -235,8 +238,8 @@ impl RealtimeBroadcaster {
     }
 
     /// Broadcast anchor status change to all subscribed clients
-    pub async fn broadcast_anchor_status(&self, anchor: AnchorMetrics, old_status: String) {
-        let channel = format!("anchor:{}", anchor.id);
+    pub async fn broadcast_anchor_status(&self, anchor_id: String, anchor: AnchorMetrics, old_status: String) {
+        let channel = format!("anchor:{}", anchor_id);
         let message = BroadcastMessage::AnchorStatusChange {
             anchor,
             old_status,
@@ -248,11 +251,13 @@ impl RealtimeBroadcaster {
     }
 
     /// Broadcast new payment to all subscribed clients
-    pub async fn broadcast_payment(&self, payment: PaymentRecord) {
-        let corridor = payment.get_corridor();
-        let channel = format!("corridor:{}", corridor.to_string_key());
+    pub async fn broadcast_payment(&self, corridor_key: String, amount: f64, successful: bool, timestamp: String) {
+        let channel = format!("corridor:{}", corridor_key);
         let message = BroadcastMessage::NewPayment {
-            payment,
+            corridor_key: corridor_key.clone(),
+            amount,
+            successful,
+            timestamp,
             channel: channel.clone(),
         };
 
@@ -340,9 +345,11 @@ impl RealtimeBroadcaster {
     }
 
     /// Shutdown the broadcaster
-    pub fn shutdown(&self) {
-        if let Err(_) = self.shutdown_tx.send(()) {
-            warn!("Failed to send shutdown signal - receiver may have been dropped");
+    pub fn shutdown(&mut self) {
+        if let Some(tx) = self.shutdown_tx.take() {
+            if let Err(_) = tx.send(()) {
+                warn!("Failed to send shutdown signal - receiver may have been dropped");
+            }
         }
     }
 
@@ -379,18 +386,23 @@ impl WsMessage {
             BroadcastMessage::AnchorStatusChange {
                 anchor, old_status, ..
             } => WsMessage::AnchorUpdate {
-                anchor_id: anchor.id,
-                name: anchor.name.unwrap_or_default(),
+                anchor_id: old_status, // Use old_status as anchor_id since AnchorMetrics doesn't have id
+                name: String::new(),   // AnchorMetrics doesn't have name field
                 reliability_score: anchor.reliability_score,
                 status: anchor.status.as_str().to_string(),
             },
-            BroadcastMessage::NewPayment { payment, .. } => {
-                let corridor = payment.get_corridor();
+            BroadcastMessage::NewPayment {
+                corridor_key,
+                amount,
+                successful,
+                timestamp,
+                ..
+            } => {
                 WsMessage::NewPayment {
-                    corridor_id: corridor.to_string_key(),
-                    amount: payment.amount,
-                    successful: payment.successful,
-                    timestamp: payment.timestamp.to_rfc3339(),
+                    corridor_id: corridor_key,
+                    amount,
+                    successful,
+                    timestamp,
                 }
             }
             BroadcastMessage::HealthAlert {

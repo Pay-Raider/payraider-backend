@@ -139,7 +139,7 @@ impl ApiError {
     }
 
     /// Convert to ErrorResponse with optional request ID
-    fn to_error_response(&self, request_id: Option<String>) -> ErrorResponse {
+    pub fn to_error_response(&self, request_id: Option<String>) -> ErrorResponse {
         let include_stack_trace = cfg!(debug_assertions);
 
         let (code, message, details, source) = match self {
