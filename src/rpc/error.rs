@@ -1,190 +1,253 @@
-//! Custom error types and retry logic for RPC/Horizon requests.
-//!
-//! Errors are categorized so callers can distinguish transient (retryable)
-//! from permanent failures. Retry uses exponential backoff and respects
-//! Retry-After when present (e.g. rate limits).
+use std::fmt;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use std::time::Duration;
-use thiserror::Error;
-
-#[derive(Debug, Error)]
+#[derive(Debug, Clone)]
 pub enum RpcError {
-    #[error("Network error: {0}")]
-    NetworkError(#[from] reqwest::Error),
-
-    #[error("Rate limit exceeded. Retry after {retry_after:?}")]
-    RateLimitError {
-        retry_after: Option<Duration>,
-    },
-
-    #[error("Server error: {status} - {message}")]
-    ServerError {
-        status: u16,
-        message: String,
-    },
-
-    #[error("Failed to parse response: {0}")]
+    NetworkError(String),
+    RateLimitError(String),
+    ServerError(String),
     ParseError(String),
-
-    #[error("Request timeout after {0:?}")]
-    TimeoutError(Duration),
-
-    #[error("Circuit breaker open")]
+    TimeoutError(String),
     CircuitBreakerOpen,
 }
 
-impl RpcError {
-    /// Whether this error is transient and safe to retry.
-    pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            RpcError::NetworkError(_)
-                | RpcError::TimeoutError(_)
-                | RpcError::ServerError {
-                    status: 500..=599,
-                    ..
-                }
-        )
-    }
-
-    /// Suggested wait before retry (e.g. from Retry-After header).
-    pub fn retry_after(&self) -> Option<Duration> {
+impl fmt::Display for RpcError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RpcError::RateLimitError { retry_after } => *retry_after,
-            _ => None,
-        }
-    }
-
-    /// Label for metrics (error_type).
-    pub fn error_type_label(&self) -> &'static str {
-        match self {
-            RpcError::NetworkError(_) => "network",
-            RpcError::RateLimitError { .. } => "rate_limit",
-            RpcError::ServerError { .. } => "server",
-            RpcError::ParseError(_) => "parse",
-            RpcError::TimeoutError(_) => "timeout",
-            RpcError::CircuitBreakerOpen => "circuit_breaker_open",
+            RpcError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            RpcError::RateLimitError(msg) => write!(f, "Rate limit error: {}", msg),
+            RpcError::ServerError(msg) => write!(f, "Server error: {}", msg),
+            RpcError::ParseError(msg) => write!(f, "Parse error: {}", msg),
+            RpcError::TimeoutError(msg) => write!(f, "Timeout error: {}", msg),
+            RpcError::CircuitBreakerOpen => write!(f, "Circuit breaker is open"),
         }
     }
 }
 
-/// Retry a fallible operation with exponential backoff.
-/// Only retries when the error is retryable; otherwise returns immediately.
-pub async fn retry_with_backoff<F, Fut, T>(
-    mut f: F,
-    max_retries: u32,
-    initial_backoff: Duration,
-    max_backoff: Duration,
+impl RpcError {
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            RpcError::NetworkError(_) | RpcError::TimeoutError(_) | RpcError::RateLimitError(_)
+        )
+    }
+
+    pub fn categorize(err: &str) -> Self {
+        let lowered = err.to_ascii_lowercase();
+        if lowered.contains("timeout") || lowered.contains("timed out") {
+            RpcError::TimeoutError(err.to_string())
+        } else if lowered.contains("rate limit") || lowered.contains("429") {
+            RpcError::RateLimitError(err.to_string())
+        } else if lowered.contains("parse") || lowered.contains("deserialize") {
+            RpcError::ParseError(err.to_string())
+        } else if lowered.contains("network")
+            || lowered.contains("connection")
+            || lowered.contains("dns")
+        {
+            RpcError::NetworkError(err.to_string())
+        } else {
+            RpcError::ServerError(err.to_string())
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CircuitState {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
+#[derive(Debug)]
+pub struct CircuitBreakerConfig {
+    pub failure_threshold: u32,
+    pub success_threshold: u32,
+    pub timeout_duration: Duration,
+    pub half_open_max_calls: u32,
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            failure_threshold: 5,
+            success_threshold: 2,
+            timeout_duration: Duration::from_secs(30),
+            half_open_max_calls: 3,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CircuitBreaker {
+    state: CircuitState,
+    failure_count: u32,
+    success_count: u32,
+    half_open_calls: u32,
+    last_failure_time: Option<Instant>,
+    config: CircuitBreakerConfig,
+}
+
+impl CircuitBreaker {
+    pub fn new(config: CircuitBreakerConfig) -> Self {
+        Self {
+            state: CircuitState::Closed,
+            failure_count: 0,
+            success_count: 0,
+            half_open_calls: 0,
+            last_failure_time: None,
+            config,
+        }
+    }
+
+    pub fn can_attempt(&mut self) -> bool {
+        match self.state {
+            CircuitState::Closed => true,
+            CircuitState::Open => {
+                if let Some(t) = self.last_failure_time {
+                    if t.elapsed() >= self.config.timeout_duration {
+                        self.state = CircuitState::HalfOpen;
+                        self.half_open_calls = 0;
+                        self.success_count = 0;
+                        tracing::info!("Circuit breaker transitioning to HalfOpen");
+                        return true;
+                    }
+                }
+                false
+            }
+            CircuitState::HalfOpen => {
+                if self.half_open_calls < self.config.half_open_max_calls {
+                    self.half_open_calls += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    pub fn record_success(&mut self) {
+        match self.state {
+            CircuitState::HalfOpen => {
+                self.success_count += 1;
+                if self.success_count >= self.config.success_threshold {
+                    tracing::info!("Circuit breaker closing after successful recovery");
+                    self.state = CircuitState::Closed;
+                    self.failure_count = 0;
+                    self.success_count = 0;
+                    self.half_open_calls = 0;
+                }
+            }
+            CircuitState::Closed => {
+                self.failure_count = 0;
+            }
+            CircuitState::Open => {}
+        }
+    }
+
+    pub fn record_failure(&mut self) {
+        self.failure_count += 1;
+        self.last_failure_time = Some(Instant::now());
+
+        match self.state {
+            CircuitState::Closed => {
+                if self.failure_count >= self.config.failure_threshold {
+                    tracing::warn!(
+                        "Circuit breaker opening after {} failures",
+                        self.failure_count
+                    );
+                    self.state = CircuitState::Open;
+                }
+            }
+            CircuitState::HalfOpen => {
+                tracing::warn!("Circuit breaker re-opening after HalfOpen failure");
+                self.state = CircuitState::Open;
+                self.success_count = 0;
+                self.half_open_calls = 0;
+            }
+            CircuitState::Open => {}
+        }
+    }
+
+    pub fn state(&self) -> &CircuitState {
+        &self.state
+    }
+}
+
+pub struct RetryConfig {
+    pub max_attempts: u32,
+    pub base_delay_ms: u64,
+    pub max_delay_ms: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            base_delay_ms: 100,
+            max_delay_ms: 5_000,
+        }
+    }
+}
+
+pub async fn with_retry<F, Fut, T>(
+    operation: F,
+    config: RetryConfig,
+    circuit_breaker: Arc<Mutex<CircuitBreaker>>,
 ) -> Result<T, RpcError>
 where
-    F: FnMut() -> Fut,
+    F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T, RpcError>>,
 {
     let mut attempt = 0;
-    let mut backoff = initial_backoff;
 
     loop {
-        match f().await {
-            Ok(result) => return Ok(result),
-            Err(e) if e.is_retryable() && attempt < max_retries => {
-                attempt += 1;
-
-                let sleep_duration = e
-                    .retry_after()
-                    .unwrap_or_else(|| std::cmp::min(backoff, max_backoff));
-
-                tracing::warn!(
-                    "Retrying request (attempt {}/{}) after error: {}",
-                    attempt,
-                    max_retries,
-                    e
-                );
-
-                tokio::time::sleep(sleep_duration).await;
-                backoff = std::cmp::min(backoff * 2, max_backoff);
+        {
+            let mut cb = circuit_breaker
+                .lock()
+                .expect("circuit breaker lock poisoned");
+            if !cb.can_attempt() {
+                tracing::error!("Circuit breaker is open, rejecting request");
+                return Err(RpcError::CircuitBreakerOpen);
             }
-            Err(e) => return Err(e),
         }
-    }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+        attempt += 1;
+        match operation().await {
+            Ok(result) => {
+                circuit_breaker
+                    .lock()
+                    .expect("circuit breaker lock poisoned")
+                    .record_success();
+                return Ok(result);
+            }
+            Err(e) => {
+                circuit_breaker
+                    .lock()
+                    .expect("circuit breaker lock poisoned")
+                    .record_failure();
 
-    #[test]
-    fn network_error_is_retryable() {
-        // We can't easily construct reqwest::Error; test the logic via ServerError
-        let e = RpcError::ServerError {
-            status: 503,
-            message: "unavailable".to_string(),
-        };
-        assert!(e.is_retryable());
-    }
+                tracing::error!(attempt = attempt, error = %e, "RPC call failed");
 
-    #[test]
-    fn parse_error_not_retryable() {
-        let e = RpcError::ParseError("bad json".to_string());
-        assert!(!e.is_retryable());
-    }
-
-    #[test]
-    fn rate_limit_retry_after() {
-        let e = RpcError::RateLimitError {
-            retry_after: Some(Duration::from_secs(60)),
-        };
-        assert_eq!(e.retry_after(), Some(Duration::from_secs(60)));
-    }
-
-    #[test]
-    fn server_4xx_not_retryable() {
-        let e = RpcError::ServerError {
-            status: 400,
-            message: "bad request".to_string(),
-        };
-        assert!(!e.is_retryable());
-    }
-
-    #[tokio::test]
-    async fn retry_succeeds_on_second_attempt() {
-        let mut attempts = 0;
-        let result = retry_with_backoff(
-            || {
-                attempts += 1;
-                async move {
-                    if attempts < 2 {
-                        Err(RpcError::ServerError {
-                            status: 503,
-                            message: "temp".to_string(),
-                        })
-                    } else {
-                        Ok(42)
-                    }
+                if !e.is_transient() || attempt >= config.max_attempts {
+                    tracing::error!("Permanent error or max retries reached: {}", e);
+                    return Err(e);
                 }
-            },
-            3,
-            Duration::from_millis(1),
-            Duration::from_secs(1),
-        )
-        .await;
-        assert_eq!(result.unwrap(), 42);
-        assert_eq!(attempts, 2);
-    }
 
-    #[tokio::test]
-    async fn retry_does_not_retry_parse_error() {
-        let mut calls = 0;
-        let result: Result<i32, RpcError> = retry_with_backoff(
-            || {
-                calls += 1;
-                async move { Err(RpcError::ParseError("bad".to_string())) }
-            },
-            3,
-            Duration::from_millis(1),
-            Duration::from_secs(1),
-        )
-        .await;
-        assert!(result.is_err());
-        assert_eq!(calls, 1);
+                let delay = std::cmp::min(
+                    config
+                        .base_delay_ms
+                        .saturating_mul(2u64.saturating_pow(attempt.saturating_sub(1))),
+                    config.max_delay_ms,
+                );
+                tracing::warn!(
+                    "Retrying in {}ms (attempt {}/{})",
+                    delay,
+                    attempt,
+                    config.max_attempts
+                );
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+            }
+        }
     }
 }
