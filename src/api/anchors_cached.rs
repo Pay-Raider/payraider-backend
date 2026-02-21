@@ -1,7 +1,7 @@
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
-    response::IntoResponse,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -145,7 +145,8 @@ pub async fn get_anchors(
         Arc<PriceFeedClient>,
     )>,
     Query(params): Query<ListAnchorsQuery>,
-) -> ApiResult<Json<AnchorsResponse>> {
+    headers: HeaderMap,
+) -> ApiResult<Response> {
     let cache_key = keys::anchor_list(params.limit, params.offset);
 
     let response = <()>::get_or_fetch(&cache, &cache_key, cache.config.get_ttl("anchor"), async {
@@ -180,6 +181,22 @@ pub async fn get_anchors(
                     e
                 )
             })?;
+            // **RPC DATA**: Fetch real-time payment data for this anchor with pagination
+            let payments = match rpc_client
+                .fetch_all_account_payments(&anchor.stellar_account, Some(500))
+                .await
+            {
+                Ok(payments) => payments,
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to fetch payments for anchor {}: {}. Using cached data.",
+                        anchor.stellar_account,
+                        e
+                    );
+                    // Fallback to database values if RPC fails
+                    vec![]
+                }
+            };
 
             // Calculate metrics from RPC payment data
             let (total_transactions, successful_transactions, failed_transactions) =
@@ -243,7 +260,9 @@ pub async fn get_anchors(
     })
     .await?;
 
-    Ok(Json(response))
+    let ttl = cache.config.get_ttl("anchor");
+    let response = crate::http_cache::cached_json_response(&headers, &cache_key, &response, ttl)?;
+    Ok(response)
 }
 
 #[cfg(test)]

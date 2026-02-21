@@ -1,5 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
+    response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -313,7 +315,8 @@ pub async fn list_corridors(
         Arc<PriceFeedClient>,
     )>,
     Query(params): Query<ListCorridorsQuery>,
-) -> ApiResult<Json<Vec<CorridorResponse>>> {
+    headers: HeaderMap,
+) -> ApiResult<Response> {
     let cache_key = generate_corridor_list_cache_key(&params);
 
     let corridors = <()>::get_or_fetch(
@@ -350,6 +353,24 @@ pub async fn list_corridors(
             )
             .await
             .map_err(|e| anyhow::anyhow!("Failed to fetch trades from RPC: {}", e))?;
+            // **RPC DATA**: Fetch recent payments with pagination to identify active corridors
+            // Use paginated fetch to get more complete data (up to configured limit)
+            let payments = match rpc_client.fetch_all_payments(Some(1000)).await {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::error!("Failed to fetch payments from RPC: {}", e);
+                    return Ok(vec![]);
+                }
+            };
+
+            // **RPC DATA**: Fetch recent trades with pagination for volume data
+            let _trades = match rpc_client.fetch_all_trades(Some(1000)).await {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch trades from RPC: {}", e);
+                    vec![]
+                }
+            };
 
             // Group payments by asset pairs to identify corridors
             use std::collections::HashMap;
@@ -486,7 +507,9 @@ pub async fn list_corridors(
     )
     .await?;
 
-    Ok(Json(corridors))
+    let ttl = cache.config.get_ttl("corridor");
+    let response = crate::http_cache::cached_json_response(&headers, &cache_key, &corridors, ttl)?;
+    Ok(response)
 }
 
 /// Get detailed corridor information
