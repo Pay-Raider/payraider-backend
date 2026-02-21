@@ -232,9 +232,32 @@ async fn main() -> Result<()> {
         None
     };
     let auth_service = Arc::new(AuthService::new(Arc::new(tokio::sync::RwLock::new(
-        auth_redis_connection,
+        auth_redis_connection.clone(),
     ))));
     tracing::info!("Auth service initialized");
+
+    // Initialize SEP-10 Service for Stellar authentication
+    let sep10_redis_connection = Arc::new(tokio::sync::RwLock::new(auth_redis_connection));
+    let sep10_service = Arc::new(
+        stellar_insights_backend::auth::sep10_simple::Sep10Service::new(
+            std::env::var("SEP10_SERVER_PUBLIC_KEY")
+                .unwrap_or_else(|_| "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string()),
+            network_config.network_passphrase.clone(),
+            std::env::var("SEP10_HOME_DOMAIN")
+                .unwrap_or_else(|_| "stellar-insights.local".to_string()),
+            sep10_redis_connection,
+        )
+        .expect("Failed to initialize SEP-10 service"),
+    );
+    tracing::info!("SEP-10 service initialized");
+
+    // Initialize Verification Rewards Service
+    let verification_rewards_service = Arc::new(
+        stellar_insights_backend::services::verification_rewards::VerificationRewardsService::new(
+            Arc::clone(&db),
+        ),
+    );
+    tracing::info!("Verification rewards service initialized");
 
     // ML Retraining task (commented out)
     /*
@@ -411,6 +434,16 @@ async fn main() -> Result<()> {
             "/api/account-merges".to_string(),
             RateLimitConfig {
                 requests_per_minute: 100,
+                whitelist_ips: vec![],
+            },
+        )
+        .await;
+
+    rate_limiter
+        .register_endpoint(
+            "/api/verifications".to_string(),
+            RateLimitConfig {
+                requests_per_minute: 60,
                 whitelist_ips: vec![],
             },
         )
@@ -645,6 +678,21 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build verification rewards routes
+    let verification_routes = Router::new()
+        .nest(
+            "/api/verifications",
+            stellar_insights_backend::api::verification_rewards::routes(
+                Arc::clone(&verification_rewards_service),
+                Arc::clone(&sep10_service),
+            ),
+        )
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+        .layer(cors.clone());
+
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
@@ -670,6 +718,7 @@ async fn main() -> Result<()> {
         .merge(network_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
+        .merge(verification_routes)
         .merge(ws_routes)
         .layer(compression); // Apply compression to all routes
 
