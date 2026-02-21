@@ -1,5 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
+    response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -301,7 +303,8 @@ pub async fn list_corridors(
         Arc<PriceFeedClient>,
     )>,
     Query(params): Query<ListCorridorsQuery>,
-) -> ApiResult<Json<Vec<CorridorResponse>>> {
+    headers: HeaderMap,
+) -> ApiResult<Response> {
     let cache_key = generate_corridor_list_cache_key(&params);
 
     let corridors = <()>::get_or_fetch(
@@ -462,7 +465,9 @@ pub async fn list_corridors(
     )
     .await?;
 
-    Ok(Json(corridors))
+    let ttl = cache.config.get_ttl("corridor");
+    let response = crate::http_cache::cached_json_response(&headers, &cache_key, &corridors, ttl)?;
+    Ok(response)
 }
 
 /// Get detailed corridor information
@@ -683,4 +688,3 @@ mod tests {
         assert_eq!(pair.destination_asset, "NGNT:GNGNTISSUER");
     }
 }
-
