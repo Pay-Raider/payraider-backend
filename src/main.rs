@@ -35,6 +35,7 @@ use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
 use stellar_insights_backend::rpc::StellarRpcClient;
 use stellar_insights_backend::rpc_handlers;
+use stellar_insights_backend::vault;
 use stellar_insights_backend::services::account_merge_detector::AccountMergeDetector;
 use stellar_insights_backend::services::fee_bump_tracker::FeeBumpTrackerService;
 use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAnalyzer;
@@ -66,6 +67,46 @@ async fn main() -> Result<()> {
         .init();
 
     tracing::info!("Starting Stellar Insights Backend");
+
+    // Initialize Vault client (optional - uses env fallback)
+    let vault_client = match vault::init_vault().await {
+        Ok(client) => {
+            tracing::info!("Vault client initialized successfully");
+            Some(client)
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Vault initialization failed ({}), falling back to environment variables",
+                e
+            );
+            None
+        }
+    };
+
+    // Load JWT_SECRET from Vault or environment
+    let jwt_secret = if let Some(vault) = &vault_client {
+        match vault.read().await.read_secret("stellar/jwt_secret", Some("value")).await {
+            Ok(secret) => {
+                tracing::info!("JWT_SECRET loaded from Vault");
+                secret
+            }
+            Err(e) => {
+                tracing::warn!("Failed to read JWT_SECRET from Vault ({}), falling back to environment", e);
+                std::env::var("JWT_SECRET")
+                    .unwrap_or_else(|_| {
+                        tracing::error!("JWT_SECRET not found in Vault or environment - THIS IS INSECURE");
+                        "insecure-change-me".to_string()
+                    })
+            }
+        }
+    } else {
+        std::env::var("JWT_SECRET")
+            .unwrap_or_else(|_| {
+                tracing::error!("JWT_SECRET not found in environment - THIS IS INSECURE");
+                "insecure-change-me".to_string()
+            })
+    };
+    let jwt_secret_ext = crate::auth_middleware::JwtSecret(Arc::from(jwt_secret));
 
     // Initialize shutdown coordinator
     let shutdown_config = ShutdownConfig::from_env();
@@ -700,7 +741,11 @@ async fn main() -> Result<()> {
         .merge(cache_routes)
         .merge(metrics_routes)
         .merge(ws_routes)
-        .layer(compression); // Apply compression to all routes
+        .layer(compression) // Apply compression to all routes
+        .layer(axum::middleware::from_fn(|mut req, next| async move {
+            req.extensions_mut().insert(jwt_secret_ext.clone());
+            next.run(req).await
+        }));
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
