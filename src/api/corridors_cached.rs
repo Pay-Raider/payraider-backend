@@ -9,7 +9,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::cache::{keys, CacheManager};
 use crate::cache_middleware::CacheAware;
 use crate::database::Database;
-use crate::handlers::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::models::SortBy;
 use crate::rpc::StellarRpcClient;
 use crate::services::price_feed::PriceFeedClient;
@@ -31,7 +31,7 @@ impl AssetPair {
 /// Handles regular payments, path_payment_strict_send, and path_payment_strict_receive
 fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<AssetPair> {
     let operation_type = payment.operation_type.as_deref().unwrap_or("payment");
-    
+
     match operation_type {
         "path_payment_strict_send" | "path_payment_strict_receive" => {
             // Path payments have explicit source and destination assets
@@ -48,7 +48,7 @@ fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<Asse
             } else {
                 return None;
             };
-            
+
             let destination_asset = if payment.asset_type == "native" {
                 "XLM:native".to_string()
             } else {
@@ -58,7 +58,7 @@ fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<Asse
                     payment.asset_issuer.as_deref().unwrap_or("unknown")
                 )
             };
-            
+
             Some(AssetPair {
                 source_asset,
                 destination_asset,
@@ -75,7 +75,7 @@ fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<Asse
                     payment.asset_issuer.as_deref().unwrap_or("unknown")
                 )
             };
-            
+
             Some(AssetPair {
                 source_asset: asset.clone(),
                 destination_asset: asset,
@@ -340,10 +340,7 @@ pub async fn list_corridors(
                         .or_insert_with(Vec::new)
                         .push(payment);
                 } else {
-                    tracing::warn!(
-                        "Failed to extract asset pair from payment: {}",
-                        payment.id
-                    );
+                    tracing::warn!("Failed to extract asset pair from payment: {}", payment.id);
                 }
             }
 
@@ -374,7 +371,7 @@ pub async fn list_corridors(
                 // Calculate volume from payment amounts and convert to USD
                 let mut volume_usd: f64 = 0.0;
                 let source_asset_key = parts[0];
-                
+
                 // Get price for source asset
                 if let Ok(price) = price_feed.get_price(source_asset_key).await {
                     for payment in corridor_payments.iter() {
@@ -384,7 +381,10 @@ pub async fn list_corridors(
                     }
                 } else {
                     // Fallback: use raw amounts if price unavailable
-                    tracing::warn!("Price unavailable for {}, using raw amounts", source_asset_key);
+                    tracing::warn!(
+                        "Price unavailable for {}, using raw amounts",
+                        source_asset_key
+                    );
                     volume_usd = corridor_payments
                         .iter()
                         .filter_map(|p| p.amount.parse::<f64>().ok())
@@ -493,8 +493,9 @@ pub async fn get_corridor_detail(
     Path(_corridor_key): Path<String>,
 ) -> ApiResult<Json<CorridorDetailResponse>> {
     // TODO: Implement RPC-based corridor detail
-    Err(crate::handlers::ApiError::NotFound(
-        "Corridor detail endpoint not yet implemented with RPC".to_string(),
+    Err(ApiError::not_found(
+        "NOT_IMPLEMENTED",
+        "Corridor detail endpoint not yet implemented with RPC",
     ))
 }
 
@@ -683,4 +684,3 @@ mod tests {
         assert_eq!(pair.destination_asset, "NGNT:GNGNTISSUER");
     }
 }
-

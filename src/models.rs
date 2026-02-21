@@ -3,12 +3,19 @@ use serde::{Deserialize, Serialize};
 
 pub mod corridor;
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SortBy {
-    #[default]
+    #[serde(rename = "success_rate")]
     SuccessRate,
+    #[serde(rename = "volume")]
     Volume,
+}
+
+impl Default for SortBy {
+    fn default() -> Self {
+        SortBy::SuccessRate
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -41,6 +48,8 @@ pub struct AnchorDetailResponse {
     pub anchor: Anchor,
     pub assets: Vec<Asset>,
     pub metrics_history: Vec<AnchorMetricsHistory>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Asset {
     pub id: String,
@@ -79,7 +88,6 @@ pub struct AnchorMetrics {
     pub successful_transactions: i64,
     pub failed_transactions: i64,
     pub avg_settlement_time_ms: Option<i32>,
-    pub status: AnchorStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -116,20 +124,6 @@ impl AnchorStatus {
 }
 
 // =========================
-// Asset domain
-// =========================
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Asset {
-    pub id: String,
-    pub code: String,
-    pub issuer: String,
-    pub anchor_id: String,
-    pub asset_type: String,
-    pub created_at: DateTime<Utc>,
-}
-
-// =========================
 // Corridor domain
 // =========================
 
@@ -143,18 +137,6 @@ pub struct CreateCorridorRequest {
     pub source_asset_issuer: String,
     pub dest_asset_code: String,
     pub dest_asset_issuer: String,
-        }
-    }
-
-    pub fn from_metrics(success_rate: f64, failure_rate: f64) -> Self {
-        if success_rate > 98.0 && failure_rate <= 1.0 {
-            AnchorStatus::Green
-        } else if success_rate >= 95.0 && failure_rate <= 5.0 {
-            AnchorStatus::Yellow
-        } else {
-            AnchorStatus::Red
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,13 +144,6 @@ pub struct AnchorWithAssets {
     #[serde(flatten)]
     pub anchor: Anchor,
     pub assets: Vec<Asset>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnchorDetailResponse {
-    pub anchor: Anchor,
-    pub assets: Vec<Asset>,
-    pub metrics_history: Vec<AnchorMetricsHistory>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -188,23 +163,6 @@ pub struct CorridorRecord {
 // =========================
 // Metrics domain
 // =========================
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct MetricRecord {
-    pub id: String,
-    pub corridor_id: String,
-    pub timestamp: DateTime<Utc>,
-    pub success_rate: f64,
-    pub avg_settlement_latency_ms: i32,
-    pub liquidity_depth_usd: f64,
-    pub total_transactions: i64,
-    pub successful_transactions: i64,
-    pub failed_transactions: i64,
-    pub reliability_score: f64,
-    pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct MetricRecord {
@@ -233,21 +191,6 @@ pub struct SnapshotRecord {
 // Muxed Account domain
 // =========================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct MuxedAccountUsage {
-    pub account_id: String,
-    pub muxed_id: i64,
-    pub usage_count: i64,
-    pub last_used: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MuxedAccountAnalytics {
-    pub total_muxed_accounts: i64,
-    pub active_accounts: i64,
-    pub top_accounts: Vec<MuxedAccountUsage>,
-}
-
 // =========================
 // Ingestion domain
 // =========================
@@ -265,22 +208,6 @@ pub struct IngestionState {
     pub epoch: Option<i64>,
     pub timestamp: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateAnchorRequest {
-    pub name: String,
-    pub stellar_account: String,
-    pub home_domain: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateCorridorRequest {
-    pub name: Option<String>,
-    pub source_asset_code: String,
-    pub source_asset_issuer: String,
-    pub dest_asset_code: String,
-    pub dest_asset_issuer: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -385,30 +312,25 @@ pub struct LiquidityPoolStats {
 // Sorting and Filtering
 // =========================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SortBy {
-    Volume,
-    Transactions,
-    SuccessRate,
-    Liquidity,
-}
-
-impl Default for SortBy {
-    fn default() -> Self {
-        SortBy::Volume
-    }
-}
-
 // =========================
 // Transactions domain
 // =========================
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MuxedAccountAnalytics {
-    pub total_muxed_payments: i64,
-    pub unique_muxed_addresses: i64,
-    pub top_muxed_by_activity: Vec<MuxedAccountUsage>,
-    pub base_accounts_with_muxed: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_muxed_accounts: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_accounts: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_accounts: Option<Vec<MuxedAccountUsage>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_muxed_payments: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unique_muxed_addresses: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_muxed_by_activity: Option<Vec<MuxedAccountUsage>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_accounts_with_muxed: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

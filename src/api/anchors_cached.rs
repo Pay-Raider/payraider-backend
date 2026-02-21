@@ -1,7 +1,5 @@
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
-    response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -11,41 +9,9 @@ use utoipa::{IntoParams, ToSchema};
 use crate::cache::{keys, CacheManager};
 use crate::cache_middleware::CacheAware;
 use crate::database::Database;
+use crate::error::ApiResult;
 use crate::rpc::StellarRpcClient;
 use crate::services::price_feed::PriceFeedClient;
-
-pub type ApiResult<T> = Result<T, ApiError>;
-
-#[derive(Debug)]
-pub enum ApiError {
-    NotFound(String),
-    BadRequest(String),
-    InternalError(String),
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> axum::response::Response {
-        let (status, message) = match self {
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-        };
-
-        (status, Json(serde_json::json!({ "error": message }))).into_response()
-    }
-}
-
-impl From<anyhow::Error> for ApiError {
-    fn from(err: anyhow::Error) -> Self {
-        ApiError::InternalError(err.to_string())
-    }
-}
-
-impl From<sqlx::Error> for ApiError {
-    fn from(err: sqlx::Error) -> Self {
-        ApiError::InternalError(err.to_string())
-    }
-}
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]

@@ -1,7 +1,7 @@
 use crate::cache::CacheManager;
 use crate::database::Database;
-use crate::models::{AnchorMetrics, PaymentRecord};
 use crate::models::corridor::CorridorMetrics;
+use crate::models::{AnchorMetrics, PaymentRecord};
 use crate::rpc::StellarRpcClient;
 use crate::websocket::{WsMessage, WsState};
 use dashmap::DashMap;
@@ -40,27 +40,27 @@ pub enum SubscriptionMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum BroadcastMessage {
-    CorridorUpdate { 
+    CorridorUpdate {
         corridor: CorridorMetrics,
         channel: String,
     },
-    AnchorStatusChange { 
-        anchor: AnchorMetrics, 
+    AnchorStatusChange {
+        anchor: AnchorMetrics,
         old_status: String,
         channel: String,
     },
-    NewPayment { 
+    NewPayment {
         payment: PaymentRecord,
         channel: String,
     },
-    HealthAlert { 
-        corridor_id: String, 
-        severity: String, 
+    HealthAlert {
+        corridor_id: String,
+        severity: String,
         message: String,
         timestamp: String,
     },
-    ConnectionStatus { 
-        status: String 
+    ConnectionStatus {
+        status: String,
     },
 }
 
@@ -73,7 +73,7 @@ impl RealtimeBroadcaster {
         cache: Arc<CacheManager>,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        
+
         Self {
             ws_state,
             db,
@@ -89,11 +89,14 @@ impl RealtimeBroadcaster {
     pub async fn start(&mut self) {
         info!("Starting RealtimeBroadcaster service");
 
-        let shutdown_rx = self.shutdown_rx.take().expect("Shutdown receiver already taken");
-        
+        let shutdown_rx = self
+            .shutdown_rx
+            .take()
+            .expect("Shutdown receiver already taken");
+
         // Start corridor metrics broadcasting task
         let corridor_task = self.start_corridor_broadcast_task();
-        
+
         // Start subscription management task
         let subscription_task = self.start_subscription_management_task();
 
@@ -121,10 +124,10 @@ impl RealtimeBroadcaster {
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-            
+
             loop {
                 interval.tick().await;
-                
+
                 // Fetch latest corridor metrics from database
                 match Self::fetch_corridor_updates(&db).await {
                     Ok(corridors) => {
@@ -134,13 +137,14 @@ impl RealtimeBroadcaster {
                                 corridor: corridor.clone(),
                                 channel: channel.clone(),
                             };
-                            
+
                             Self::broadcast_to_subscribers(
                                 &ws_state,
                                 &subscriptions,
                                 &channel,
                                 message,
-                            ).await;
+                            )
+                            .await;
                         }
                     }
                     Err(e) => {
@@ -160,21 +164,19 @@ impl RealtimeBroadcaster {
             // This task would handle incoming subscription messages
             // For now, we'll implement basic subscription tracking
             info!("Subscription management task started");
-            
+
             // Keep the task alive
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-                
+
                 // Clean up subscriptions for disconnected clients
                 let active_connections: HashSet<Uuid> = ws_state
                     .connections
                     .iter()
                     .map(|entry| *entry.key())
                     .collect();
-                
-                subscriptions.retain(|connection_id, _| {
-                    active_connections.contains(connection_id)
-                });
+
+                subscriptions.retain(|connection_id, _| active_connections.contains(connection_id));
             }
         })
     }
@@ -228,12 +230,8 @@ impl RealtimeBroadcaster {
             channel: channel.clone(),
         };
 
-        Self::broadcast_to_subscribers(
-            &self.ws_state,
-            &self.subscriptions,
-            &channel,
-            message,
-        ).await;
+        Self::broadcast_to_subscribers(&self.ws_state, &self.subscriptions, &channel, message)
+            .await;
     }
 
     /// Broadcast anchor status change to all subscribed clients
@@ -245,12 +243,8 @@ impl RealtimeBroadcaster {
             channel: channel.clone(),
         };
 
-        Self::broadcast_to_subscribers(
-            &self.ws_state,
-            &self.subscriptions,
-            &channel,
-            message,
-        ).await;
+        Self::broadcast_to_subscribers(&self.ws_state, &self.subscriptions, &channel, message)
+            .await;
     }
 
     /// Broadcast new payment to all subscribed clients
@@ -262,12 +256,8 @@ impl RealtimeBroadcaster {
             channel: channel.clone(),
         };
 
-        Self::broadcast_to_subscribers(
-            &self.ws_state,
-            &self.subscriptions,
-            &channel,
-            message,
-        ).await;
+        Self::broadcast_to_subscribers(&self.ws_state, &self.subscriptions, &channel, message)
+            .await;
     }
 
     /// Broadcast health alert to all clients
@@ -285,18 +275,23 @@ impl RealtimeBroadcaster {
         };
 
         // Broadcast to all connections for health alerts
-        self.ws_state.broadcast(WsMessage::from_broadcast_message(alert));
+        self.ws_state
+            .broadcast(WsMessage::from_broadcast_message(alert));
     }
 
     /// Subscribe a connection to specific channels
     pub fn subscribe_connection(&self, connection_id: Uuid, channels: Vec<String>) {
-        let mut subscription_set = self.subscriptions
+        let mut subscription_set = self
+            .subscriptions
             .entry(connection_id)
             .or_insert_with(HashSet::new);
-        
+
         for channel in channels {
             subscription_set.insert(channel.clone());
-            info!("Connection {} subscribed to channel: {}", connection_id, channel);
+            info!(
+                "Connection {} subscribed to channel: {}",
+                connection_id, channel
+            );
         }
     }
 
@@ -305,7 +300,10 @@ impl RealtimeBroadcaster {
         if let Some(mut subscription_set) = self.subscriptions.get_mut(&connection_id) {
             for channel in channels {
                 subscription_set.remove(&channel);
-                info!("Connection {} unsubscribed from channel: {}", connection_id, channel);
+                info!(
+                    "Connection {} unsubscribed from channel: {}",
+                    connection_id, channel
+                );
             }
         }
     }
@@ -318,7 +316,7 @@ impl RealtimeBroadcaster {
         message: BroadcastMessage,
     ) {
         let ws_message = WsMessage::from_broadcast_message(message);
-        
+
         // Find all connections subscribed to this channel
         let mut target_connections = Vec::new();
         for entry in subscriptions.iter() {
@@ -332,7 +330,10 @@ impl RealtimeBroadcaster {
         for connection_id in target_connections {
             if let Some(sender) = ws_state.connections.get(&connection_id) {
                 if let Err(e) = sender.send(ws_message.clone()).await {
-                    warn!("Failed to send message to connection {}: {}", connection_id, e);
+                    warn!(
+                        "Failed to send message to connection {}: {}",
+                        connection_id, e
+                    );
                 }
             }
         }
@@ -375,14 +376,14 @@ impl WsMessage {
                     last_updated: Some(corridor.updated_at.to_rfc3339()),
                 }
             }
-            BroadcastMessage::AnchorStatusChange { anchor, old_status, .. } => {
-                WsMessage::AnchorUpdate {
-                    anchor_id: anchor.id,
-                    name: anchor.name.unwrap_or_default(),
-                    reliability_score: anchor.reliability_score,
-                    status: anchor.status.as_str().to_string(),
-                }
-            }
+            BroadcastMessage::AnchorStatusChange {
+                anchor, old_status, ..
+            } => WsMessage::AnchorUpdate {
+                anchor_id: anchor.id,
+                name: anchor.name.unwrap_or_default(),
+                reliability_score: anchor.reliability_score,
+                status: anchor.status.as_str().to_string(),
+            },
             BroadcastMessage::NewPayment { payment, .. } => {
                 let corridor = payment.get_corridor();
                 WsMessage::NewPayment {
@@ -392,17 +393,18 @@ impl WsMessage {
                     timestamp: payment.timestamp.to_rfc3339(),
                 }
             }
-            BroadcastMessage::HealthAlert { corridor_id, severity, message, timestamp } => {
-                WsMessage::HealthAlert { 
-                    corridor_id,
-                    severity,
-                    message,
-                    timestamp,
-                }
-            }
-            BroadcastMessage::ConnectionStatus { status } => {
-                WsMessage::ConnectionStatus { status }
-            }
+            BroadcastMessage::HealthAlert {
+                corridor_id,
+                severity,
+                message,
+                timestamp,
+            } => WsMessage::HealthAlert {
+                corridor_id,
+                severity,
+                message,
+                timestamp,
+            },
+            BroadcastMessage::ConnectionStatus { status } => WsMessage::ConnectionStatus { status },
         }
     }
 }
@@ -422,7 +424,7 @@ mod tests {
         // Note: This test would need a mock CacheManager
         // let cache = Arc::new(CacheManager::new_mock());
         // let broadcaster = RealtimeBroadcaster::new(ws_state, rpc_client, cache);
-        
+
         // Test subscription logic here
     }
 }

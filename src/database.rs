@@ -763,10 +763,13 @@ impl Database {
             .collect();
 
         Ok(MuxedAccountAnalytics {
-            total_muxed_payments,
-            unique_muxed_addresses,
-            top_muxed_by_activity,
-            base_accounts_with_muxed,
+            total_muxed_accounts: None,
+            active_accounts: None,
+            top_accounts: None,
+            total_muxed_payments: Some(total_muxed_payments),
+            unique_muxed_addresses: Some(unique_muxed_addresses),
+            top_muxed_by_activity: Some(top_muxed_by_activity),
+            base_accounts_with_muxed: Some(base_accounts_with_muxed),
         })
     }
 
@@ -840,7 +843,7 @@ impl Database {
         signature: &str,
     ) -> Result<()> {
         let id = Uuid::new_v4().to_string();
-        
+
         sqlx::query(
             r#"
             INSERT INTO transaction_signatures (id, transaction_id, signer, signature)
@@ -857,11 +860,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn update_transaction_status(
-        &self,
-        id: &str,
-        status: &str,
-    ) -> Result<()> {
+    pub async fn update_transaction_status(&self, id: &str, status: &str) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE pending_transactions
@@ -881,12 +880,19 @@ impl Database {
     // Muxed Account Analytics
     // =========================
 
-    pub async fn get_muxed_analytics(&self, limit: i64) -> Result<crate::models::MuxedAccountAnalytics> {
+    pub async fn get_muxed_analytics(
+        &self,
+        limit: i64,
+    ) -> Result<crate::models::MuxedAccountAnalytics> {
         // Stub implementation - returns empty analytics
         Ok(crate::models::MuxedAccountAnalytics {
-            total_muxed_accounts: 0,
-            active_accounts: 0,
-            top_accounts: vec![],
+            total_muxed_accounts: Some(0),
+            active_accounts: Some(0),
+            top_accounts: Some(vec![]),
+            total_muxed_payments: None,
+            unique_muxed_addresses: None,
+            top_muxed_by_activity: None,
+            base_accounts_with_muxed: None,
         })
     }
 }
