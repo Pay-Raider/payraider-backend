@@ -301,6 +301,14 @@ async fn main() -> Result<()> {
     );
     tracing::info!("Verification rewards service initialized");
 
+    // Initialize Governance Service
+    let governance_service = Arc::new(
+        stellar_insights_backend::services::governance::GovernanceService::new(
+            Arc::clone(&db),
+        ),
+    );
+    tracing::info!("Governance service initialized");
+
     // ML Retraining task (commented out)
     /*
     let ml_service_clone = ml_service.clone();
@@ -837,6 +845,21 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build governance routes
+    let governance_routes = Router::new()
+        .nest(
+            "/api/governance",
+            stellar_insights_backend::api::governance::routes(
+                governance_service,
+                Arc::clone(&sep10_service),
+            ),
+        )
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+        .layer(cors.clone());
+
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
@@ -863,6 +886,7 @@ async fn main() -> Result<()> {
         .merge(cost_calculator_routes)
         .merge(trustline_routes)
         .merge(achievements_routes)
+        .merge(governance_routes)
         .merge(network_routes)
         .merge(cache_routes)
         .merge(metrics_routes)

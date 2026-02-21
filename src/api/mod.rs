@@ -9,6 +9,7 @@ pub mod corridors_cached;
 pub mod cost_calculator;
 pub mod digest;
 pub mod fee_bump;
+pub mod governance;
 pub mod liquidity_pools;
 pub mod metrics;
 pub mod metrics_cached;
