@@ -3,6 +3,20 @@ name = "stellar-insights-backend"
 version = "0.1.0"
 edition = "2021"
 
+# Clippy linting configuration
+[lints.clippy]
+# Enable all clippy warnings
+all = "warn"
+# Enable pedantic lints for code quality
+pedantic = "warn"
+# Enable nursery lints (experimental but useful)
+nursery = "warn"
+
+# Allow some pedantic lints that are too strict for this codebase
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }
