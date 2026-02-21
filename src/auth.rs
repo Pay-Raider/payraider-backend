@@ -1,4 +1,4 @@
-pub mod sep10;
+// pub mod sep10;  // Commented out - uses stellar-xdr types that require stellar-base
 pub mod sep10_middleware;
 pub mod sep10_simple;
 
