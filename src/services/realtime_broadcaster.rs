@@ -17,9 +17,9 @@ pub struct RealtimeBroadcaster {
     ws_state: Arc<WsState>,
     /// Database for fetching data
     db: Arc<Database>,
-    /// RPC client for fetching data
+    /// RPC client for fetching data (reserved for future real-time data fetching)
     _rpc_client: Arc<StellarRpcClient>,
-    /// Cache manager for data access
+    /// Cache manager for data access (reserved for future caching optimizations)
     _cache: Arc<CacheManager>,
     /// Per-connection subscriptions
     subscriptions: Arc<DashMap<Uuid, HashSet<String>>>,
