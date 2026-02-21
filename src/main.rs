@@ -670,7 +670,7 @@ async fn main() -> Result<()> {
         .merge(network_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
-        .merge(ws_routes);
+        .merge(ws_routes)
         .layer(compression); // Apply compression to all routes
 
     // Start server

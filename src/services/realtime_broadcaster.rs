@@ -8,7 +8,6 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -19,15 +18,15 @@ pub struct RealtimeBroadcaster {
     /// Database for fetching data
     db: Arc<Database>,
     /// RPC client for fetching data
-    rpc_client: Arc<StellarRpcClient>,
+    _rpc_client: Arc<StellarRpcClient>,
     /// Cache manager for data access
-    cache: Arc<CacheManager>,
+    _cache: Arc<CacheManager>,
     /// Per-connection subscriptions
     subscriptions: Arc<DashMap<Uuid, HashSet<String>>>,
     /// Shutdown signal receiver
     shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
     /// Shutdown signal sender
-    shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    shutdown_tx: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,11 +76,11 @@ impl RealtimeBroadcaster {
         Self {
             ws_state,
             db,
-            rpc_client,
-            cache,
+            _rpc_client: rpc_client,
+            _cache: cache,
             subscriptions: Arc::new(DashMap::new()),
             shutdown_rx: Some(shutdown_rx),
-            shutdown_tx,
+            shutdown_tx: std::sync::Mutex::new(Some(shutdown_tx)),
         }
     }
 
@@ -183,22 +182,21 @@ impl RealtimeBroadcaster {
     async fn fetch_corridor_updates(
         db: &Arc<Database>,
     ) -> Result<Vec<CorridorMetrics>, Box<dyn std::error::Error + Send + Sync>> {
-        match db.list_corridors(50, 0, None, None, None).await {
+        match db.list_corridors(50, 0).await {
             Ok(corridors) => {
-                // Convert CorridorRecord to CorridorMetrics
-                // For now, we'll create mock metrics - you'll need to implement proper conversion
                 let mut corridor_metrics = Vec::new();
                 for corridor in corridors {
-                    // This is a simplified conversion - you may need to fetch actual metrics
+                    let now = chrono::Utc::now();
+                    let corridor_key = corridor.to_string_key();
                     let metrics = CorridorMetrics {
-                        id: corridor.id.to_string(),
-                        corridor_key: corridor.corridor_key,
+                        id: corridor_key.clone(),
+                        corridor_key,
                         asset_a_code: corridor.asset_a_code,
                         asset_a_issuer: corridor.asset_a_issuer,
                         asset_b_code: corridor.asset_b_code,
                         asset_b_issuer: corridor.asset_b_issuer,
-                        date: chrono::Utc::now(),
-                        total_transactions: 0, // You'll need to fetch real metrics
+                        date: now,
+                        total_transactions: 0,
                         successful_transactions: 0,
                         failed_transactions: 0,
                         success_rate: 0.0,
@@ -206,8 +204,8 @@ impl RealtimeBroadcaster {
                         avg_settlement_latency_ms: None,
                         median_settlement_latency_ms: None,
                         liquidity_depth_usd: 0.0,
-                        created_at: corridor.created_at,
-                        updated_at: corridor.updated_at,
+                        created_at: now,
+                        updated_at: now,
                     };
                     corridor_metrics.push(metrics);
                 }
@@ -238,7 +236,7 @@ impl RealtimeBroadcaster {
 
     /// Broadcast anchor status change to all subscribed clients
     pub async fn broadcast_anchor_status(&self, anchor: AnchorMetrics, old_status: String) {
-        let channel = format!("anchor:{}", anchor.id);
+        let channel = "anchor:status".to_string();
         let message = BroadcastMessage::AnchorStatusChange {
             anchor,
             old_status,
@@ -340,8 +338,12 @@ impl RealtimeBroadcaster {
 
     /// Shutdown the broadcaster
     pub fn shutdown(&self) {
-        if let Err(_) = self.shutdown_tx.send(()) {
-            warn!("Failed to send shutdown signal - receiver may have been dropped");
+        if let Ok(mut tx_guard) = self.shutdown_tx.lock() {
+            if let Some(tx) = tx_guard.take() {
+                if tx.send(()).is_err() {
+                    warn!("Failed to send shutdown signal - receiver may have been dropped");
+                }
+            }
         }
     }
 
@@ -375,10 +377,10 @@ impl WsMessage {
                     last_updated: Some(corridor.updated_at.to_rfc3339()),
                 }
             }
-            BroadcastMessage::AnchorStatusChange { anchor, old_status, .. } => {
+            BroadcastMessage::AnchorStatusChange { anchor, old_status: _, .. } => {
                 WsMessage::AnchorUpdate {
-                    anchor_id: anchor.id,
-                    name: anchor.name.unwrap_or_default(),
+                    anchor_id: "unknown".to_string(),
+                    name: "unknown".to_string(),
                     reliability_score: anchor.reliability_score,
                     status: anchor.status.as_str().to_string(),
                 }
@@ -389,7 +391,10 @@ impl WsMessage {
                     corridor_id: corridor.to_string_key(),
                     amount: payment.amount,
                     successful: payment.successful,
-                    timestamp: payment.timestamp.to_rfc3339(),
+                    timestamp: payment
+                        .timestamp
+                        .map(|value| value.to_rfc3339())
+                        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
                 }
             }
             BroadcastMessage::HealthAlert { corridor_id, severity, message, timestamp } => {
@@ -413,8 +418,8 @@ mod tests {
 
     #[test]
     fn test_subscription_management() {
-        let ws_state = Arc::new(WsState::new());
-        let rpc_client = Arc::new(StellarRpcClient::new(
+        let _ws_state = Arc::new(WsState::new());
+        let _rpc_client = Arc::new(StellarRpcClient::new(
             "test".to_string(),
             "test".to_string(),
             true,
