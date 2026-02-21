@@ -1,3 +1,4 @@
+use crate::admin_audit_log::AdminAuditLogger;
 use anyhow::Result;
 use chrono::Utc;
 use sqlx::SqlitePool;
@@ -108,11 +109,13 @@ pub struct PoolMetrics {
 
 pub struct Database {
     pool: SqlitePool,
+    pub admin_audit_logger: AdminAuditLogger,
 }
 
 impl Database {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        let admin_audit_logger = AdminAuditLogger::new(pool.clone());
+        Self { pool, admin_audit_logger }
     }
 
     pub fn pool(&self) -> &SqlitePool {
