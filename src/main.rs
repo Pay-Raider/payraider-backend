@@ -36,6 +36,7 @@ use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
 use stellar_insights_backend::rpc::StellarRpcClient;
 use stellar_insights_backend::rpc_handlers;
+use stellar_insights_backend::vault;
 use stellar_insights_backend::services::account_merge_detector::AccountMergeDetector;
 use stellar_insights_backend::services::fee_bump_tracker::FeeBumpTrackerService;
 use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAnalyzer;
@@ -803,7 +804,11 @@ async fn main() -> Result<()> {
         .merge(metrics_routes)
         .merge(verification_routes)
         .merge(ws_routes)
-        .layer(compression); // Apply compression to all routes
+        .layer(compression) // Apply compression to all routes
+        .layer(axum::middleware::from_fn(|mut req, next| async move {
+            req.extensions_mut().insert(jwt_secret_ext.clone());
+            next.run(req).await
+        }));
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
