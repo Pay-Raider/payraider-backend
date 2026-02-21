@@ -79,7 +79,20 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "sqlite:./stellar_insights.db".to_string());
 
     tracing::info!("Connecting to database: {}", database_url);
-    let pool = sqlx::SqlitePool::connect(&database_url).await?;
+    
+    // Load pool configuration from environment
+    let pool_config = stellar_insights_backend::database::PoolConfig::from_env();
+    tracing::info!(
+        "Database pool configuration: max_connections={}, min_connections={}, \
+         connect_timeout={}s, idle_timeout={}s, max_lifetime={}s",
+        pool_config.max_connections,
+        pool_config.min_connections,
+        pool_config.connect_timeout_seconds,
+        pool_config.idle_timeout_seconds,
+        pool_config.max_lifetime_seconds
+    );
+    
+    let pool = pool_config.create_pool(&database_url).await?;
 
     tracing::info!("Running database migrations...");
     sqlx::migrate!("./migrations").run(&pool).await?;
@@ -513,6 +526,7 @@ async fn main() -> Result<()> {
     // Build non-cached anchor routes with app state
     let anchor_routes = Router::new()
         .route("/health", get(health_check))
+        .route("/api/db/pool-metrics", get(pool_metrics))
         .route("/api/anchors/:id", get(get_anchor))
         .route(
             "/api/anchors/account/:stellar_account",
