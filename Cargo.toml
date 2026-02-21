@@ -36,6 +36,9 @@ utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 async-trait = "0.1"
 urlencoding = "2.1"
 data-encoding = "2.6"
+thiserror = "1.0"
+lazy_static = "1.4"
+prometheus = "0.13"
 
 [dev-dependencies]
 tempfile = "3.0"

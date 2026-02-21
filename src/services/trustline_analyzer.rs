@@ -24,7 +24,11 @@ impl TrustlineAnalyzer {
     pub async fn sync_assets(&self) -> Result<u64> {
         info!("Starting trustline stats sync from Horizon...");
         // Fetch top 200 assets (by rating)
-        let assets = self.rpc_client.fetch_assets(200, true).await?;
+        let assets = self
+            .rpc_client
+            .fetch_assets(200, true)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
         
         let mut synced_count = 0;
         let mut tx = self.pool.begin().await?;

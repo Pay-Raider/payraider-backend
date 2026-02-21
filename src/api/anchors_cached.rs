@@ -154,14 +154,14 @@ pub async fn get_anchors(
                 .fetch_account_payments(&anchor.stellar_account, 200)
                 .await
             {
-                Ok(payments) => payments,
+                Ok(p) => p,
                 Err(e) => {
                     tracing::warn!(
-                        "Failed to fetch payments for anchor {}: {}. Using cached data.",
+                        error_type = %e.error_type_label(),
+                        "Failed to fetch payments for anchor {}: {}",
                         anchor.stellar_account,
                         e
                     );
-                    // Fallback to database values if RPC fails
                     vec![]
                 }
             };
