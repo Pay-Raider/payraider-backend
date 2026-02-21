@@ -1,11 +1,10 @@
 /// Lease manager for automatic renewal of Vault credentials
-/// 
+///
 /// Runs as a background task that:
 /// - Tracks all active leases
 /// - Renews leases before expiration (80% of TTL)
 /// - Logs renewal failures and retries
 /// - Gracefully revokes all leases on shutdown
-
 use crate::vault::VaultClientRef;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -27,14 +26,14 @@ impl LeaseManager {
     pub fn spawn(self, vault_client: VaultClientRef) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut ticker = interval(self.check_interval);
-            
+
             loop {
                 ticker.tick().await;
-                
+
                 // Note: In real implementation, this would read from a shared state
                 // tracking active leases and check for renewable ones
                 // This is a placeholder for the background renewal loop
-                
+
                 info!("Lease renewal check completed");
             }
         })

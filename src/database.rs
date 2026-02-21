@@ -69,7 +69,7 @@ impl PoolConfig {
             .max_lifetime(Some(Duration::from_secs(self.max_lifetime_seconds)))
             .connect(database_url)
             .await?;
-        
+
         Ok(pool)
     }
 }
@@ -920,7 +920,7 @@ impl Database {
         signature: &str,
     ) -> Result<()> {
         let id = Uuid::new_v4().to_string();
-        
+
         sqlx::query(
             r#"
             INSERT INTO transaction_signatures (id, transaction_id, signer, signature)
@@ -937,11 +937,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn update_transaction_status(
-        &self,
-        id: &str,
-        status: &str,
-    ) -> Result<()> {
+    pub async fn update_transaction_status(&self, id: &str, status: &str) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE pending_transactions
@@ -956,5 +952,4 @@ impl Database {
 
         Ok(())
     }
-
 }
