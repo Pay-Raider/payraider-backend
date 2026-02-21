@@ -12,8 +12,10 @@ pub mod request_signing_middleware;
 // pub mod email;  // Commented out - missing lettre dependency
 pub mod env_config;
 pub mod handlers;
+pub mod logging;
 pub mod http_cache;
 pub mod ingestion;
+pub mod jobs;
 pub mod ml;
 pub mod ml_handlers;
 pub mod models;

@@ -31,6 +31,7 @@ use stellar_insights_backend::database::Database;
 use stellar_insights_backend::handlers::*;
 use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
 use stellar_insights_backend::ingestion::DataIngestionService;
+use stellar_insights_backend::jobs::JobScheduler;
 use stellar_insights_backend::network::NetworkConfig;
 use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
@@ -58,14 +59,8 @@ async fn main() -> Result<()> {
     // Load environment variables
     dotenv().ok();
 
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "backend=info,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // Initialize logging with ELK support
+    stellar_insights_backend::logging::init_logging();
 
     tracing::info!("Starting Stellar Insights Backend");
 
@@ -374,6 +369,18 @@ async fn main() -> Result<()> {
     // Run initial sync (skip on network errors)
     tracing::info!("Running initial metrics synchronization...");
     let _ = ingestion_service.sync_all_metrics().await;
+
+    // Start background job scheduler
+    tracing::info!("Starting background job scheduler...");
+    let _job_scheduler = JobScheduler::start(
+        Arc::clone(&db),
+        Arc::clone(&cache),
+        Arc::clone(&rpc_client),
+        Arc::clone(&ingestion_service),
+        Arc::clone(&price_feed),
+    )
+    .await;
+    tracing::info!("Background job scheduler started");
 
     // Initialize rate limiter
     let rate_limiter_result = RateLimiter::new().await;
