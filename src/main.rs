@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 use tower_http::cors::{Any, CorsLayer};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -25,6 +25,7 @@ use stellar_insights_backend::api::fee_bump;
 use stellar_insights_backend::api::liquidity_pools;
 use stellar_insights_backend::api::metrics_cached;
 use stellar_insights_backend::api::oauth;
+use stellar_insights_backend::api::verification_rewards;
 use stellar_insights_backend::api::webhooks;
 use stellar_insights_backend::auth::AuthService;
 use stellar_insights_backend::auth_middleware::auth_middleware;
@@ -38,7 +39,9 @@ use stellar_insights_backend::ingestion::DataIngestionService;
 use stellar_insights_backend::jobs::JobScheduler;
 use stellar_insights_backend::network::NetworkConfig;
 use stellar_insights_backend::openapi::ApiDoc;
+use stellar_insights_backend::observability::{metrics as obs_metrics, tracing as obs_tracing};
 use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
+use stellar_insights_backend::request_id::request_id_middleware;
 use stellar_insights_backend::rpc::StellarRpcClient;
 use stellar_insights_backend::rpc_handlers;
 use stellar_insights_backend::services::account_merge_detector::AccountMergeDetector;
@@ -69,8 +72,9 @@ async fn main() -> Result<()> {
     // Load environment variables
     dotenv().ok();
 
-    // Initialize logging with ELK support
-    stellar_insights_backend::logging::init_logging();
+    // Initialize tracing + optional OpenTelemetry exporter
+    obs_tracing::init_tracing("stellar-insights-backend")?;
+    obs_metrics::init_metrics();
 
     tracing::info!("Starting Stellar Insights Backend");
 
@@ -228,6 +232,10 @@ async fn main() -> Result<()> {
     );
     tracing::info!("RealtimeBroadcaster initialized");
 
+    // Initialize Webhook Dispatcher
+    let webhook_dispatcher = WebhookDispatcher::new(pool.clone());
+    tracing::info!("Webhook dispatcher initialized");
+
     // Create app state for handlers that need it
     let app_state = AppState::new(
         Arc::clone(&db),
@@ -258,7 +266,9 @@ async fn main() -> Result<()> {
                 _ = interval.tick() => {
                     if let Err(e) = ingestion_clone.sync_all_metrics().await {
                         tracing::error!("Metrics synchronization failed: {}", e);
+                        obs_metrics::record_background_job("metrics_sync", "error");
                     } else {
+                        obs_metrics::record_background_job("metrics_sync", "success");
                         // Invalidate caches after successful sync
                         if let Err(e) = cache_invalidation_clone.invalidate_anchors().await {
                             tracing::warn!("Failed to invalidate anchor caches: {}", e);
@@ -367,6 +377,7 @@ async fn main() -> Result<()> {
                 result = ledger_ingestion_clone.run_ingestion(5) => {
                     match result {
                         Ok(count) => {
+                            obs_metrics::record_background_job("ledger_ingestion", "success");
                             if count == 0 {
                                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                             } else {
@@ -375,6 +386,7 @@ async fn main() -> Result<()> {
                         }
                         Err(e) => {
                             tracing::error!("Ledger ingestion failed: {}", e);
+                            obs_metrics::record_background_job("ledger_ingestion", "error");
                             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                         }
                     }
@@ -400,9 +412,15 @@ async fn main() -> Result<()> {
                 _ = interval.tick() => {
                     if let Err(e) = lp_analyzer_clone.sync_pools().await {
                         tracing::error!("Liquidity pool sync failed: {}", e);
+                        obs_metrics::record_background_job("liquidity_pool_sync", "error");
+                    } else {
+                        obs_metrics::record_background_job("liquidity_pool_sync", "success");
                     }
                     if let Err(e) = lp_analyzer_clone.take_snapshots().await {
                         tracing::error!("Liquidity pool snapshot failed: {}", e);
+                        obs_metrics::record_background_job("liquidity_pool_snapshot", "error");
+                    } else {
+                        obs_metrics::record_background_job("liquidity_pool_snapshot", "success");
                     }
                 }
                 _ = shutdown_rx.recv() => {
@@ -426,9 +444,15 @@ async fn main() -> Result<()> {
                 _ = interval.tick() => {
                     if let Err(e) = trustline_analyzer_clone.sync_assets().await {
                         tracing::error!("Trustline sync failed: {}", e);
+                        obs_metrics::record_background_job("trustline_sync", "error");
+                    } else {
+                        obs_metrics::record_background_job("trustline_sync", "success");
                     }
                     if let Err(e) = trustline_analyzer_clone.take_snapshots().await {
                         tracing::error!("Trustline snapshot failed: {}", e);
+                        obs_metrics::record_background_job("trustline_snapshot", "error");
+                    } else {
+                        obs_metrics::record_background_job("trustline_snapshot", "success");
                     }
                 }
                 _ = shutdown_rx.recv() => {
@@ -978,6 +1002,20 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build verification rewards routes
+    let verification_routes = Router::new()
+        .nest(
+            "/api/verifications",
+            verification_rewards::routes(
+                Arc::clone(&verification_rewards_service),
+                Arc::clone(&sep10_service),
+            ),
+        )
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+
     // Build GDPR routes
     let gdpr_routes = Router::new()
         .route("/api/gdpr/consents", get(gdpr_handlers::get_consents))
@@ -1014,6 +1052,7 @@ async fn main() -> Result<()> {
 
 
     let app = Router::new()
+        .route("/metrics", get(obs_metrics::metrics_handler))
         .merge(swagger_routes)
         .merge(auth_routes)
         .merge(oauth_routes)
@@ -1035,6 +1074,7 @@ async fn main() -> Result<()> {
         .merge(cache_routes)
         .merge(metrics_routes)
         .merge(verification_routes)
+        .merge(gdpr_routes)
         .merge(api_key_routes)
         .merge(ws_routes)
         .merge(alert_ws_routes)
@@ -1043,7 +1083,10 @@ async fn main() -> Result<()> {
             db.clone(),
             stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
         ))
-        .layer(compression);
+        .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
+        .layer(middleware::from_fn(request_id_middleware))
+        .layer(compression); // Apply compression to all routes
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -1106,6 +1149,8 @@ async fn main() -> Result<()> {
     log_shutdown_summary(shutdown_start);
 
     tracing::info!("Graceful shutdown complete");
+
+    obs_tracing::shutdown_tracing();
 
     Ok(())
 }

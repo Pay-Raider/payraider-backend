@@ -125,7 +125,6 @@ impl OAuthService {
         .execute(&self.db)
         .await?;
 
-
         Ok((client_id, client_secret))
     }
 
@@ -377,4 +376,3 @@ impl OAuthService {
         Ok(())
     }
 }
-

@@ -3,7 +3,7 @@ use crate::rpc::config::{
     circuit_breaker_config_from_env, initial_backoff_from_env, max_backoff_from_env,
     max_retries_from_env,
 };
-use crate::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use crate::rpc::circuit_breaker::CircuitBreaker;
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::metrics;
 use crate::rpc::rate_limiter::{RpcRateLimitConfig, RpcRateLimitMetrics, RpcRateLimiter};
@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 

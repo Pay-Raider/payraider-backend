@@ -14,4 +14,3 @@ pub async fn version_middleware(request: Request, next: Next) -> Response {
     
     response
 }
-
