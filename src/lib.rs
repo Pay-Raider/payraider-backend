@@ -19,6 +19,7 @@ pub mod db;
 pub mod request_signing_middleware;
 pub mod email;
 pub mod error;
+pub mod gdpr;
 pub mod env_config;
 pub mod handlers;
 pub mod logging;
