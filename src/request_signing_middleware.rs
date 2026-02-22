@@ -32,11 +32,13 @@ pub async fn request_signing_middleware(
         .headers()
         .get("X-Signature")
         .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string())
         .ok_or(SigningError::MissingSignature)?;
     let timestamp = req
         .headers()
         .get("X-Timestamp")
         .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string())
         .ok_or(SigningError::MissingTimestamp)?;
 
     // Prevent replay: check timestamp is recent (within 5 min)

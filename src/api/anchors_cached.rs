@@ -12,7 +12,11 @@ use crate::cache::{keys, CacheManager};
 use crate::cache_middleware::CacheAware;
 use crate::database::Database;
 use crate::error::ApiResult;
-use crate::rpc::StellarRpcClient;
+use crate::rpc::{
+    circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
+    error::{with_retry, RetryConfig, RpcError},
+    StellarRpcClient,
+};
 use crate::services::price_feed::PriceFeedClient;
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -32,13 +36,14 @@ fn default_limit() -> i64 {
     50
 }
 
-fn rpc_circuit_breaker() -> Arc<Mutex<CircuitBreaker>> {
-    static CIRCUIT_BREAKER: OnceLock<Arc<Mutex<CircuitBreaker>>> = OnceLock::new();
+fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
+    static CIRCUIT_BREAKER: OnceLock<Arc<CircuitBreaker>> = OnceLock::new();
     CIRCUIT_BREAKER
         .get_or_init(|| {
-            Arc::new(Mutex::new(CircuitBreaker::new(
+            Arc::new(CircuitBreaker::new(
                 CircuitBreakerConfig::default(),
-            )))
+                "horizon",
+            ))
         })
         .clone()
 }
@@ -156,7 +161,6 @@ pub async fn get_anchors(
                 Ok(p) => p,
                 Err(e) => {
                     tracing::warn!(
-                        error_type = %e.error_type_label(),
                         "Failed to fetch payments for anchor {}: {}",
                         anchor.stellar_account,
                         e

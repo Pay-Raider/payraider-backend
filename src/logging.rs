@@ -10,24 +10,8 @@ pub fn init_logging() {
         .with_target(true)
         .with_level(true);
 
-    let logstash_layer = std::env::var("LOGSTASH_HOST")
-        .ok()
-        .and_then(|host| {
-            TcpStream::connect(&host)
-                .ok()
-                .map(|stream| tracing_logstash::Layer::new(stream).unwrap())
-        });
-
-    if let Some(logstash) = logstash_layer {
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(fmt_layer)
-            .with(logstash)
-            .init();
-    } else {
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(fmt_layer)
-            .init();
-    }
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer)
+        .init();
 }

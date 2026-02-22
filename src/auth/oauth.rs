@@ -111,17 +111,17 @@ impl OAuthService {
         let encrypted_secret = crate::crypto::encrypt_data(&client_secret, &self.encryption_key)
             .map_err(|e| anyhow!("Failed to encrypt client secret: {}", e))?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO oauth_clients (id, user_id, client_id, client_secret, app_name)
             VALUES (?, ?, ?, ?, ?)
             "#,
-            id,
-            user_id,
-            client_id,
-            encrypted_secret,
-            app_name
         )
+        .bind(id)
+        .bind(user_id)
+        .bind(client_id)
+        .bind(encrypted_secret)
+        .bind(app_name)
         .execute(&self.db)
         .await?;
 
@@ -134,22 +134,27 @@ impl OAuthService {
         client_id: &str,
         client_secret: &str,
     ) -> Result<String> {
-        let client = sqlx::query!(
+        let row = sqlx::query(
             r#"
             SELECT user_id, client_secret FROM oauth_clients
             WHERE client_id = ?
             "#,
-            client_id
         )
+        .bind(client_id)
         .fetch_optional(&self.db)
         .await?;
 
+        let client = row.map(|r| {
+            use sqlx::Row;
+            (r.get::<String, _>(0), r.get::<String, _>(1))
+        });
+
         match client {
-            Some(record) => {
-                let decrypted_secret = crate::crypto::decrypt_data(&record.client_secret, &self.encryption_key)
+            Some((user_id, client_secret_record)) => {
+                let decrypted_secret = crate::crypto::decrypt_data(&client_secret_record, &self.encryption_key)
                     .map_err(|_| anyhow!("Invalid client credentials"))?;
                 if decrypted_secret == client_secret {
-                    Ok(record.user_id)
+                    Ok(user_id)
                 } else {
                     Err(anyhow!("Invalid client credentials"))
                 }
@@ -267,16 +272,16 @@ impl OAuthService {
         let id = Uuid::new_v4().to_string();
         let scopes_str = scopes.join(",");
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO oauth_authorizations (id, client_id, user_id, scopes)
             VALUES (?, ?, ?, ?)
             "#,
-            id,
-            client_id,
-            user_id,
-            scopes_str
         )
+        .bind(id)
+        .bind(client_id)
+        .bind(user_id)
+        .bind(scopes_str)
         .execute(&self.db)
         .await?;
 
@@ -289,22 +294,26 @@ impl OAuthService {
         client_id: &str,
         user_id: &str,
     ) -> Result<Option<Vec<String>>> {
-        let auth = sqlx::query!(
+        let row = sqlx::query(
             r#"
             SELECT scopes FROM oauth_authorizations
             WHERE client_id = ? AND user_id = ?
             "#,
-            client_id,
-            user_id
         )
+        .bind(client_id)
+        .bind(user_id)
         .fetch_optional(&self.db)
         .await?;
 
+        let auth = row.map(|r| {
+            use sqlx::Row;
+            r.get::<String, _>(0)
+        });
+
         Ok(auth.map(|record| {
             record
-                .scopes
                 .split(',')
-                .map(|s| s.to_string())
+                .map(|s: &str| s.to_string())
                 .collect()
         }))
     }
@@ -328,18 +337,18 @@ impl OAuthService {
         let enc_refresh_token = crate::crypto::encrypt_data(refresh_token, &self.encryption_key)
             .map_err(|e| anyhow!("Failed to encrypt refresh token: {}", e))?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO oauth_tokens (id, user_id, access_token, refresh_token, token_type, expires_at)
             VALUES (?, ?, ?, ?, ?, ?)
             "#,
-            id,
-            user_id,
-            enc_access_token,
-            enc_refresh_token,
-            "Bearer",
-            expires_at_str
         )
+        .bind(id)
+        .bind(user_id)
+        .bind(enc_access_token)
+        .bind(enc_refresh_token)
+        .bind("Bearer")
+        .bind(expires_at_str)
         .execute(&self.db)
         .await?;
 

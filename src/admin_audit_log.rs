@@ -36,7 +36,10 @@ impl AdminAuditLogger {
     ) -> Result<()> {
         let timestamp = Utc::now();
         let id = Uuid::new_v4().to_string();
-        let data = format!("{}|{}|{}|{}|{}|{}|{}", id, timestamp, action, resource, user_id, status, details);
+        // The original format string for `data` was correct in terms of placeholder count.
+        // If "Fix placeholders in audit log" implies changing how `details` is serialized,
+        // `details.to_string()` is a common way to include JSON in a string hash.
+        let data = format!("{}|{}|{}|{}|{}|{}|{}", id, timestamp, action, resource, user_id, status, details.to_string());
         let hash_input = match prev_hash {
             Some(h) => format!("{}|{}", h, data),
             None => data.clone(),
@@ -46,7 +49,7 @@ impl AdminAuditLogger {
         sqlx::query(
             r#"
             INSERT INTO admin_audit_log (id, timestamp, action, resource, user_id, status, details, hash)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)

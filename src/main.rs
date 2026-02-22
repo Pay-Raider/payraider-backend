@@ -25,6 +25,7 @@ use stellar_insights_backend::api::liquidity_pools;
 use stellar_insights_backend::api::metrics_cached;
 use stellar_insights_backend::api::oauth;
 use stellar_insights_backend::api::webhooks;
+use stellar_insights_backend::api::api_analytics;
 use stellar_insights_backend::auth::AuthService;
 use stellar_insights_backend::auth_middleware::auth_middleware;
 use stellar_insights_backend::cache::{CacheConfig, CacheManager};
@@ -846,6 +847,8 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build API analytics routes
+    let api_analytics_routes = api_analytics::routes(db.clone())
     // Build governance routes
     let governance_routes = Router::new()
         .nest(
@@ -898,11 +901,16 @@ async fn main() -> Result<()> {
         .merge(achievements_routes)
         .merge(governance_routes)
         .merge(network_routes)
+        .merge(api_analytics_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
         .merge(verification_routes)
         .merge(api_key_routes)
         .merge(ws_routes)
+        .layer(middleware::from_fn_with_state(
+            db.clone(),
+            stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
+        ))
         .layer(compression);
 
     // Start server
