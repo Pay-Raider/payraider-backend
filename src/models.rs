@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+pub mod api_key;
 pub mod corridor;
 
 #[derive(Debug, Deserialize)]

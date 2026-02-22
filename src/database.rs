@@ -1,11 +1,14 @@
 use crate::admin_audit_log::AdminAuditLogger;
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use std::time::Duration;
 use uuid::Uuid;
 
 use crate::analytics::compute_anchor_metrics;
+use crate::models::api_key::{
+    generate_api_key, hash_api_key, ApiKey, ApiKeyInfo, CreateApiKeyRequest, CreateApiKeyResponse,
+};
 use crate::models::{
     Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, CorridorRecord, CreateAnchorRequest,
     MetricRecord, MuxedAccountAnalytics, MuxedAccountUsage, SnapshotRecord,
@@ -957,5 +960,156 @@ impl Database {
         .await?;
 
         Ok(())
+    }
+
+    // API Key operations
+
+    pub async fn create_api_key(
+        &self,
+        wallet_address: &str,
+        req: CreateApiKeyRequest,
+    ) -> Result<CreateApiKeyResponse> {
+        let id = Uuid::new_v4().to_string();
+        let (plain_key, prefix, key_hash) = generate_api_key();
+        let scopes = req.scopes.unwrap_or_else(|| "read".to_string());
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r#"
+            INSERT INTO api_keys (id, name, key_prefix, key_hash, wallet_address, scopes, status, created_at, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8)
+            "#,
+        )
+        .bind(&id)
+        .bind(&req.name)
+        .bind(&prefix)
+        .bind(&key_hash)
+        .bind(wallet_address)
+        .bind(&scopes)
+        .bind(&now)
+        .bind(&req.expires_at)
+        .execute(&self.pool)
+        .await?;
+
+        let key = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = $1")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(CreateApiKeyResponse {
+            key: ApiKeyInfo::from(key),
+            plain_key,
+        })
+    }
+
+    pub async fn list_api_keys(&self, wallet_address: &str) -> Result<Vec<ApiKeyInfo>> {
+        let keys = sqlx::query_as::<_, ApiKey>(
+            r#"
+            SELECT * FROM api_keys
+            WHERE wallet_address = $1
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(wallet_address)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(keys.into_iter().map(ApiKeyInfo::from).collect())
+    }
+
+    pub async fn get_api_key_by_id(
+        &self,
+        id: &str,
+        wallet_address: &str,
+    ) -> Result<Option<ApiKeyInfo>> {
+        let key = sqlx::query_as::<_, ApiKey>(
+            "SELECT * FROM api_keys WHERE id = $1 AND wallet_address = $2",
+        )
+        .bind(id)
+        .bind(wallet_address)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(key.map(ApiKeyInfo::from))
+    }
+
+    pub async fn validate_api_key(&self, plain_key: &str) -> Result<Option<ApiKey>> {
+        let key_hash = hash_api_key(plain_key);
+
+        let key = sqlx::query_as::<_, ApiKey>(
+            "SELECT * FROM api_keys WHERE key_hash = $1 AND status = 'active'",
+        )
+        .bind(&key_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(ref k) = key {
+            if let Some(ref expires_at) = k.expires_at {
+                if let Ok(exp) = DateTime::parse_from_rfc3339(expires_at) {
+                    if exp < Utc::now() {
+                        return Ok(None);
+                    }
+                }
+            }
+
+            sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
+                .bind(Utc::now().to_rfc3339())
+                .bind(&k.id)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        Ok(key)
+    }
+
+    pub async fn revoke_api_key(&self, id: &str, wallet_address: &str) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE api_keys
+            SET status = 'revoked', revoked_at = $1
+            WHERE id = $2 AND wallet_address = $3 AND status = 'active'
+            "#,
+        )
+        .bind(Utc::now().to_rfc3339())
+        .bind(id)
+        .bind(wallet_address)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn rotate_api_key(
+        &self,
+        id: &str,
+        wallet_address: &str,
+    ) -> Result<Option<CreateApiKeyResponse>> {
+        let old_key = sqlx::query_as::<_, ApiKey>(
+            "SELECT * FROM api_keys WHERE id = $1 AND wallet_address = $2 AND status = 'active'",
+        )
+        .bind(id)
+        .bind(wallet_address)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let old_key = match old_key {
+            Some(k) => k,
+            None => return Ok(None),
+        };
+
+        self.revoke_api_key(id, wallet_address).await?;
+
+        let new_key = self
+            .create_api_key(
+                wallet_address,
+                CreateApiKeyRequest {
+                    name: old_key.name,
+                    scopes: Some(old_key.scopes),
+                    expires_at: old_key.expires_at,
+                },
+            )
+            .await?;
+
+        Ok(Some(new_key))
     }
 }
