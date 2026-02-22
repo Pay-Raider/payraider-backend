@@ -260,9 +260,15 @@ pub async fn health_check() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "healthy",
         "service": "stellar-insights-backend",
-        "version": env!("CARGO_PKG_VERSION")
+        "version": env!("CARGO_PKG_VERSION"),
+        "api": {
+            "current_version": "v1",
+            "supported_versions": ["v1"],
+            "status": "active"
+        }
     }))
 }
+
 
 /// Database pool metrics endpoint
 pub async fn pool_metrics(State(state): State<AppState>) -> impl IntoResponse {
