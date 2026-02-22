@@ -1,7 +1,7 @@
 use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::models::corridor::CorridorMetrics;
-use crate::models::{AnchorMetrics, PaymentRecord};
+use crate::models::{AnchorMetrics, AnchorStatus, PaymentRecord};
 use crate::rpc::StellarRpcClient;
 use crate::websocket::{WsMessage, WsState};
 use dashmap::DashMap;
@@ -49,7 +49,10 @@ pub enum BroadcastMessage {
         channel: String,
     },
     NewPayment {
-        payment: PaymentRecord,
+        corridor_key: String,
+        amount: f64,
+        successful: bool,
+        timestamp: String,
         channel: String,
     },
     HealthAlert {
@@ -388,20 +391,22 @@ impl WsMessage {
                 anchor_id: "unknown".to_string(),
                 name: "unknown".to_string(),
                 reliability_score: anchor.reliability_score,
-                status: anchor.status.as_str().to_string(),
+                status: AnchorStatus::from_metrics(anchor.success_rate, anchor.failure_rate)
+                    .as_str()
+                    .to_string(),
             },
-            BroadcastMessage::NewPayment { payment, .. } => {
-                let corridor = payment.get_corridor();
-                WsMessage::NewPayment {
-                    corridor_id: corridor.to_string_key(),
-                    amount: payment.amount,
-                    successful: payment.successful,
-                    timestamp: payment
-                        .timestamp
-                        .map(|value| value.to_rfc3339())
-                        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-                }
-            }
+            BroadcastMessage::NewPayment {
+                corridor_key,
+                amount,
+                successful,
+                timestamp,
+                ..
+            } => WsMessage::NewPayment {
+                corridor_id: corridor_key,
+                amount,
+                successful,
+                timestamp,
+            },
             BroadcastMessage::HealthAlert {
                 corridor_id,
                 severity,

@@ -180,11 +180,12 @@ impl WebhookDispatcher {
 
     /// Get current retry count for an event
     async fn get_event_retries(&self, event_id: &str) -> Result<i32> {
-        let record = sqlx::query!("SELECT retries FROM webhook_events WHERE id = ?", event_id)
+        let retries: Option<i64> = sqlx::query_scalar("SELECT retries FROM webhook_events WHERE id = ?")
+            .bind(event_id)
             .fetch_optional(&self.db)
             .await?;
 
-        Ok(record.map(|r| r.retries as i32).unwrap_or(0))
+        Ok(retries.unwrap_or(0) as i32)
     }
 }
 

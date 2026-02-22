@@ -122,13 +122,17 @@ pub async fn token(
         .map_err(|_| OAuthApiError::InvalidClient)?;
 
     // Get user from database for username
-    let user = sqlx::query!("SELECT username FROM users WHERE id = ?", user_id)
+    let user_row = sqlx::query("SELECT username FROM users WHERE id = ?")
+        .bind(user_id)
         .fetch_optional(&db)
         .await
         .map_err(|e| OAuthApiError::ServerError(e.to_string()))?
         .ok_or_else(|| OAuthApiError::InvalidClient)?;
 
-    let username = user.username;
+    let username: String = {
+        use sqlx::Row;
+        user_row.get(0)
+    };
 
     match request.grant_type.as_str() {
         "authorization_code" => {
@@ -260,24 +264,27 @@ pub async fn list_apps(
     State(db): State<SqlitePool>,
     auth_user: AuthUser,
 ) -> Result<Response, OAuthApiError> {
-    let apps = sqlx::query!(
+    let rows = sqlx::query(
         r#"
         SELECT client_id, app_name, created_at FROM oauth_clients
         WHERE user_id = ?
         ORDER BY created_at DESC
         "#,
-        auth_user.user_id
     )
+    .bind(auth_user.user_id)
     .fetch_all(&db)
     .await
     .map_err(|e: sqlx::Error| OAuthApiError::ServerError(e.to_string()))?;
 
-    let app_list: Vec<OAuthAppInfo> = apps
+    let app_list: Vec<OAuthAppInfo> = rows
         .into_iter()
-        .map(|row| OAuthAppInfo {
-            client_id: row.client_id,
-            app_name: row.app_name,
-            created_at: row.created_at,
+        .map(|row| {
+            use sqlx::Row;
+            OAuthAppInfo {
+                client_id: row.get(0),
+                app_name: row.get(1),
+                created_at: row.get(2),
+            }
         })
         .collect();
 

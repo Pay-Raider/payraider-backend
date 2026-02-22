@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use super::CircuitBreakerConfig;
+use super::circuit_breaker::CircuitBreakerConfig;
 
 /// Load circuit breaker and retry config from environment with defaults.
 pub fn circuit_breaker_config_from_env() -> CircuitBreakerConfig {

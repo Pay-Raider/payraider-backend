@@ -192,13 +192,11 @@ impl WebhookService {
 
     /// Delete/deactivate webhook
     pub async fn delete_webhook(&self, webhook_id: &str, user_id: &str) -> anyhow::Result<bool> {
-        let result = sqlx::query!(
-            "UPDATE webhooks SET is_active = 0 WHERE id = ? AND user_id = ?",
-            webhook_id,
-            user_id
-        )
-        .execute(&self.db)
-        .await?;
+        let result = sqlx::query("UPDATE webhooks SET is_active = 0 WHERE id = ? AND user_id = ?")
+            .bind(webhook_id)
+            .bind(user_id)
+            .execute(&self.db)
+            .await?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -214,19 +212,17 @@ impl WebhookService {
         let payload_str = payload.to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
-        sqlx::query!(
-            r#"
-            INSERT INTO webhook_events (id, webhook_id, event_type, payload, status, retries, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            "#,
-            id,
-            webhook_id,
-            event_type,
-            payload_str,
-            "pending",
-            0,
-            now
+        sqlx::query(
+            "INSERT INTO webhook_events (id, webhook_id, event_type, payload, status, retries, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
         )
+        .bind(id.clone())
+        .bind(webhook_id)
+        .bind(event_type)
+        .bind(payload_str)
+        .bind("pending")
+        .bind(0)
+        .bind(now)
         .execute(&self.db)
         .await?;
 
@@ -240,23 +236,28 @@ impl WebhookService {
     ) -> anyhow::Result<Vec<(String, String, String, String)>> {
         let query_limit = limit as i64;
 
-        let events = sqlx::query!(
-            r#"
-            SELECT we.id, we.webhook_id, we.event_type, we.payload
-            FROM webhook_events we
-            WHERE we.status = 'pending' AND we.retries < 3
-            ORDER BY we.created_at ASC
-            LIMIT ?
-            "#,
-            query_limit
+        let rows = sqlx::query(
+            "SELECT we.id, we.webhook_id, we.event_type, we.payload
+             FROM webhook_events we
+             WHERE we.status = 'pending' AND we.retries < 3
+             ORDER BY we.created_at ASC
+             LIMIT ?"
         )
+        .bind(query_limit)
         .fetch_all(&self.db)
         .await?;
 
-        Ok(events
-            .into_iter()
-            .map(|e| (e.id.unwrap_or_default(), e.webhook_id, e.event_type, e.payload))
-            .collect())
+        let events: Vec<(String, String, String, String)> = rows.into_iter().map(|row| {
+            use sqlx::Row;
+            (
+                row.get::<String, _>(0),
+                row.get::<String, _>(1),
+                row.get::<String, _>(2),
+                row.get::<String, _>(3),
+            )
+        }).collect();
+
+        Ok(events)
     }
 
     /// Update webhook event status
@@ -267,15 +268,13 @@ impl WebhookService {
         error: Option<&str>,
         retries: i32,
     ) -> anyhow::Result<()> {
-        sqlx::query!(
-            "UPDATE webhook_events SET status = ?, last_error = ?, retries = ? WHERE id = ?",
-            status,
-            error,
-            retries,
-            event_id
-        )
-        .execute(&self.db)
-        .await?;
+        sqlx::query("UPDATE webhook_events SET status = ?, last_error = ?, retries = ? WHERE id = ?")
+            .bind(status)
+            .bind(error)
+            .bind(retries)
+            .bind(event_id)
+            .execute(&self.db)
+            .await?;
 
         Ok(())
     }
@@ -283,13 +282,11 @@ impl WebhookService {
     /// Update webhook's last_fired_at timestamp
     pub async fn update_last_fired(&self, webhook_id: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query!(
-            "UPDATE webhooks SET last_fired_at = ? WHERE id = ?",
-            now,
-            webhook_id
-        )
-        .execute(&self.db)
-        .await?;
+        sqlx::query("UPDATE webhooks SET last_fired_at = ? WHERE id = ?")
+            .bind(now)
+            .bind(webhook_id)
+            .execute(&self.db)
+            .await?;
 
         Ok(())
     }

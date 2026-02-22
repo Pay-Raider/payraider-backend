@@ -23,3 +23,4 @@ pub mod transactions;
 pub mod trustlines;
 pub mod verification_rewards;
 pub mod webhooks;
+pub mod api_analytics;

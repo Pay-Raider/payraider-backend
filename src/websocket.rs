@@ -204,6 +204,10 @@ pub enum WsMessage {
     Error {
         message: String,
     },
+    /// Server is shutting down
+    ServerShutdown {
+        message: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]

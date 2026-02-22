@@ -14,7 +14,8 @@ use crate::cache_middleware::CacheAware;
 use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::SortBy;
-use crate::rpc::error::{with_retry, CircuitBreaker, CircuitBreakerConfig, RetryConfig, RpcError};
+use crate::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::StellarRpcClient;
 use crate::services::price_feed::PriceFeedClient;
 
@@ -263,13 +264,14 @@ fn get_liquidity_trend(volume_usd: f64) -> String {
     }
 }
 
-fn rpc_circuit_breaker() -> Arc<Mutex<CircuitBreaker>> {
-    static CIRCUIT_BREAKER: OnceLock<Arc<Mutex<CircuitBreaker>>> = OnceLock::new();
+fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
+    static CIRCUIT_BREAKER: OnceLock<Arc<CircuitBreaker>> = OnceLock::new();
     CIRCUIT_BREAKER
         .get_or_init(|| {
-            Arc::new(Mutex::new(CircuitBreaker::new(
+            Arc::new(CircuitBreaker::new(
                 CircuitBreakerConfig::default(),
-            )))
+                "horizon",
+            ))
         })
         .clone()
 }
