@@ -205,6 +205,10 @@ async fn main() -> Result<()> {
     );
     tracing::info!("RealtimeBroadcaster initialized");
 
+    // Initialize Webhook Dispatcher
+    let webhook_dispatcher = WebhookDispatcher::new(pool.clone());
+    tracing::info!("Webhook dispatcher initialized");
+
     // Create app state for handlers that need it
     let app_state = AppState::new(
         Arc::clone(&db),
