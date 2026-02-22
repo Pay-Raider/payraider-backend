@@ -31,6 +31,7 @@ use stellar_insights_backend::auth_middleware::auth_middleware;
 use stellar_insights_backend::cache::{CacheConfig, CacheManager};
 use stellar_insights_backend::cache_invalidation::CacheInvalidationService;
 use stellar_insights_backend::database::Database;
+use stellar_insights_backend::gdpr::{GdprService, handlers as gdpr_handlers};
 use stellar_insights_backend::handlers::*;
 use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
 use stellar_insights_backend::ingestion::DataIngestionService;
@@ -310,6 +311,10 @@ async fn main() -> Result<()> {
         ),
     );
     tracing::info!("Governance service initialized");
+
+    // Initialize GDPR Service
+    let gdpr_service = Arc::new(GdprService::new(pool.clone()));
+    tracing::info!("GDPR service initialized");
 
     // ML Retraining task (commented out)
     /*
@@ -873,6 +878,24 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build GDPR routes
+    let gdpr_routes = Router::new()
+        .route("/api/gdpr/consents", get(gdpr_handlers::get_consents))
+        .route("/api/gdpr/consents", put(gdpr_handlers::update_consent))
+        .route("/api/gdpr/consents/batch", put(gdpr_handlers::batch_update_consents))
+        .route("/api/gdpr/export", get(gdpr_handlers::get_export_requests))
+        .route("/api/gdpr/export", post(gdpr_handlers::create_export_request))
+        .route("/api/gdpr/export/:id", get(gdpr_handlers::get_export_request))
+        .route("/api/gdpr/export-types", get(gdpr_handlers::get_exportable_types))
+        .route("/api/gdpr/deletion", get(gdpr_handlers::get_deletion_requests))
+        .route("/api/gdpr/deletion", post(gdpr_handlers::create_deletion_request))
+        .route("/api/gdpr/deletion/:id", get(gdpr_handlers::get_deletion_request))
+        .route("/api/gdpr/deletion/:id/cancel", post(gdpr_handlers::cancel_deletion))
+        .route("/api/gdpr/deletion/confirm", post(gdpr_handlers::confirm_deletion))
+        .route("/api/gdpr/summary", get(gdpr_handlers::get_gdpr_summary))
+        .with_state(Arc::clone(&gdpr_service))
+        .layer(cors.clone());
+
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
@@ -907,6 +930,7 @@ async fn main() -> Result<()> {
         .merge(verification_routes)
         .merge(api_key_routes)
         .merge(ws_routes)
+        .merge(gdpr_routes)
         .layer(middleware::from_fn_with_state(
             db.clone(),
             stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
