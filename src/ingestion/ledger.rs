@@ -1,16 +1,19 @@
-// I'm creating the ledger ingestion service as specified in issue #2
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::rpc::{GetLedgersResult, RpcLedger, StellarRpcClient};
+use crate::services::account_merge_detector::AccountMergeDetector;
+use crate::services::fee_bump_tracker::FeeBumpTrackerService;
 
 /// Ledger ingestion service that fetches and persists ledgers sequentially
 pub struct LedgerIngestionService {
     rpc_client: Arc<StellarRpcClient>,
-    pool: PgPool,
+    fee_bump_tracker: Arc<FeeBumpTrackerService>,
+    account_merge_detector: Arc<AccountMergeDetector>,
+    pool: SqlitePool,
 }
 
 /// Represents a payment operation extracted from a ledger
@@ -27,14 +30,34 @@ pub struct ExtractedPayment {
 }
 
 impl LedgerIngestionService {
-    pub fn new(rpc_client: Arc<StellarRpcClient>, pool: PgPool) -> Self {
-        Self { rpc_client, pool }
+    pub fn new(
+        rpc_client: Arc<StellarRpcClient>,
+        fee_bump_tracker: Arc<FeeBumpTrackerService>,
+        account_merge_detector: Arc<AccountMergeDetector>,
+        pool: SqlitePool,
+    ) -> Self {
+        Self {
+            rpc_client,
+            fee_bump_tracker,
+            account_merge_detector,
+            pool,
+        }
     }
 
     /// I'm running the main ingestion loop - fetches ledgers and persists them
     pub async fn run_ingestion(&self, batch_size: u32) -> Result<u64> {
         let cursor = self.get_cursor().await?;
-        let start_ledger = self.get_last_ledger().await?.map(|l| l + 1);
+        let start_ledger = match self.get_last_ledger().await? {
+            Some(l) => Some(l + 1),
+            None => {
+                let health = self
+                    .rpc_client
+                    .check_health()
+                    .await
+                    .context("Failed to check health")?;
+                Some(health.oldest_ledger)
+            }
+        };
 
         info!(
             "Starting ingestion from ledger {:?}, cursor: {:?}",
@@ -68,12 +91,72 @@ impl LedgerIngestionService {
                 continue;
             }
 
-            // I'm extracting mock payments here - real XDR parsing would need stellar-xdr crate
-            let payments = self.extract_payments_from_ledger(ledger);
-            for payment in payments {
-                if let Err(e) = self.persist_payment(&payment).await {
-                    warn!("Failed to persist payment: {}", e);
+            // Fetch real payments from Horizon
+            match self
+                .rpc_client
+                .fetch_payments_for_ledger(ledger.sequence)
+                .await
+            {
+                Ok(payments) => {
+                    for payment in payments {
+                        // Convert RPC Payment to ExtractedPayment
+                        let extracted = ExtractedPayment {
+                            ledger_sequence: ledger.sequence,
+                            transaction_hash: payment.transaction_hash,
+                            operation_type: "payment".to_string(), // Horizon 'payments' endpoint returns payments
+                            source_account: payment.source_account,
+                            destination: payment.destination,
+                            asset_code: payment.asset_code,
+                            asset_issuer: payment.asset_issuer,
+                            amount: payment.amount,
+                        };
+
+                        if let Err(e) = self.persist_payment(&extracted).await {
+                            warn!("Failed to persist payment: {}", e);
+                        }
+                    }
                 }
+                Err(e) => {
+                    warn!(
+                        "Failed to fetch payments for ledger {}: {}",
+                        ledger.sequence, e
+                    );
+                    // Non-fatal, continue ingesting ledgers
+                }
+            }
+
+            // Fetch and process transactions for fee bumps
+            match self
+                .rpc_client
+                .fetch_transactions_for_ledger(ledger.sequence)
+                .await
+            {
+                Ok(transactions) => {
+                    if let Err(e) = self
+                        .fee_bump_tracker
+                        .process_transactions(&transactions)
+                        .await
+                    {
+                        warn!("Failed to process transactions for fee bumps: {}", e);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to fetch transactions for ledger {}: {}",
+                        ledger.sequence, e
+                    );
+                }
+            }
+
+            if let Err(e) = self
+                .account_merge_detector
+                .process_ledger_operations(ledger.sequence)
+                .await
+            {
+                warn!(
+                    "Failed to process account merge operations for ledger {}: {}",
+                    ledger.sequence, e
+                );
             }
 
             count += 1;
@@ -123,27 +206,11 @@ impl LedgerIngestionService {
         Ok(())
     }
 
-    /// I'm extracting payment operations from ledger - simplified without full XDR parsing
-    fn extract_payments_from_ledger(&self, ledger: &RpcLedger) -> Vec<ExtractedPayment> {
-        // Note: Full implementation would parse metadataXdr using stellar-xdr crate
-        // I'm returning mock data for testing purposes
-        vec![ExtractedPayment {
-            ledger_sequence: ledger.sequence,
-            transaction_hash: format!("tx_{}", ledger.sequence),
-            operation_type: "payment".to_string(),
-            source_account: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF".to_string(),
-            destination: "GBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF".to_string(),
-            asset_code: Some("XLM".to_string()),
-            asset_issuer: None,
-            amount: "100.0000000".to_string(),
-        }]
-    }
-
     /// I'm persisting an extracted payment to the database
     async fn persist_payment(&self, payment: &ExtractedPayment) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO payments (ledger_sequence, transaction_hash, operation_type, source_account, destination, asset_code, asset_issuer, amount)
+            INSERT INTO ledger_payments (ledger_sequence, transaction_hash, operation_type, source_account, destination, asset_code, asset_issuer, amount)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
         )
@@ -163,17 +230,19 @@ impl LedgerIngestionService {
 
     /// I'm getting the last ingested ledger sequence for resume
     async fn get_last_ledger(&self) -> Result<Option<u64>> {
-        let row: Option<(i64,)> = sqlx::query_as("SELECT last_ledger_sequence FROM ingestion_cursor WHERE id = 1")
-            .fetch_optional(&self.pool)
-            .await?;
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT last_ledger_sequence FROM ingestion_cursor WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|r| r.0 as u64))
     }
 
     /// I'm getting the saved cursor for pagination
     async fn get_cursor(&self) -> Result<Option<String>> {
-        let row: Option<(Option<String>,)> = sqlx::query_as("SELECT cursor FROM ingestion_cursor WHERE id = 1")
-            .fetch_optional(&self.pool)
-            .await?;
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT cursor FROM ingestion_cursor WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.and_then(|r| r.0))
     }
 
@@ -183,11 +252,11 @@ impl LedgerIngestionService {
         sqlx::query(
             r#"
             INSERT INTO ingestion_cursor (id, last_ledger_sequence, cursor, updated_at)
-            VALUES (1, $1, $2, NOW())
+            VALUES (1, $1, $2, CURRENT_TIMESTAMP)
             ON CONFLICT (id) DO UPDATE SET
                 last_ledger_sequence = EXCLUDED.last_ledger_sequence,
                 cursor = EXCLUDED.cursor,
-                updated_at = NOW()
+                updated_at = CURRENT_TIMESTAMP
             "#,
         )
         .bind(seq)

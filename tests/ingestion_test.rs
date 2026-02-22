@@ -1,7 +1,6 @@
 // I'm testing the ledger ingestion functionality as specified in issue #2
 
-use backend::rpc::StellarRpcClient;
-use std::sync::Arc;
+use stellar_insights_backend::rpc::StellarRpcClient;
 
 #[tokio::test]
 async fn test_mock_rpc_fetch_ledgers() {
@@ -32,16 +31,19 @@ async fn test_ledgers_have_correct_format() {
 async fn test_cursor_pagination() {
     // I'm verifying cursor-based pagination works
     let client = StellarRpcClient::new_with_defaults(true);
-    
+
     // First batch
     let result1 = client.fetch_ledgers(Some(100), 10, None).await.unwrap();
     let cursor = result1.cursor.clone();
-    
+
     // I expect cursor to be set for next page
     assert!(cursor.is_some());
-    
+
     // Second batch using cursor - should work without errors
-    let result2 = client.fetch_ledgers(None, 10, cursor.as_deref()).await.unwrap();
+    let result2 = client
+        .fetch_ledgers(None, 10, cursor.as_deref())
+        .await
+        .unwrap();
     assert!(!result2.ledgers.is_empty());
 }
 
@@ -59,8 +61,8 @@ async fn test_ledger_sequence_is_sequential() {
 #[test]
 fn test_latest_and_oldest_ledger_bounds() {
     // I'm testing that bounds are returned correctly (sync test using mock data)
-    use backend::rpc::GetLedgersResult;
-    
+    use stellar_insights_backend::rpc::GetLedgersResult;
+
     // Mock structure verification
     let mock_result = GetLedgersResult {
         ledgers: vec![],
@@ -68,7 +70,7 @@ fn test_latest_and_oldest_ledger_bounds() {
         oldest_ledger: 1000,
         cursor: Some("4999".to_string()),
     };
-    
+
     assert!(mock_result.latest_ledger > mock_result.oldest_ledger);
     assert!(mock_result.cursor.is_some());
 }

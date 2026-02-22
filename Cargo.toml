@@ -1,37 +1,39 @@
 [package]
-name = "backend"
+name = "stellar-insights-backend"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-path = "src/lib.rs"
+# Clippy linting configuration
+[lints.clippy]
+# Enable all clippy warnings
+all = "warn"
+# Enable pedantic lints for code quality
+pedantic = "warn"
+# Enable nursery lints (experimental but useful)
+nursery = "warn"
 
-[[bin]]
-name = "backend"
-path = "src/main.rs"
+# Allow some pedantic lints that are too strict for this codebase
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-axum = "0.7"
+axum = { version = "0.7", features = ["ws"] }
 tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.5", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "compression-gzip", "compression-br", "decompression-gzip", "decompression-br"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sqlx = { version = "0.7", features = [
-    "runtime-tokio-rustls",
-    "postgres",
-    "chrono",
-    "uuid",
-] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+reqwest = { version = "0.13", features = ["json"] }
 anyhow = "1.0"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-dotenv = "0.15"
-async-trait = "0.1"
-reqwest = { version = "0.12", features = ["json"] }
-thiserror = "1.0"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+tracing-logstash = "0.2"
+dotenvy = "0.15"
 sha2 = "0.10"
 hex = "0.4"
 sprometheus = "0.13"

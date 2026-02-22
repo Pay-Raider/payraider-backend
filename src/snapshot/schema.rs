@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Snapshot schema version for backward compatibility
@@ -80,14 +80,12 @@ impl AnalyticsSnapshot {
     /// Sort all arrays deterministically for consistent serialization
     pub fn normalize(&mut self) {
         // Sort anchor metrics by id for deterministic ordering
-        self.anchor_metrics.sort_by(|a, b| {
-            a.id.as_bytes().cmp(b.id.as_bytes())
-        });
+        self.anchor_metrics
+            .sort_by(|a, b| a.id.as_bytes().cmp(b.id.as_bytes()));
 
         // Sort corridor metrics by id for deterministic ordering
-        self.corridor_metrics.sort_by(|a, b| {
-            a.id.as_bytes().cmp(b.id.as_bytes())
-        });
+        self.corridor_metrics
+            .sort_by(|a, b| a.id.as_bytes().cmp(b.id.as_bytes()));
     }
 }
 
@@ -133,7 +131,7 @@ mod tests {
     #[test]
     fn test_normalize_sorts_deterministically() {
         let mut snapshot = AnalyticsSnapshot::new(1, Utc::now());
-        
+
         // Create metrics with specific UUIDs to control ordering
         let id1 = Uuid::from_u128(2);
         let id2 = Uuid::from_u128(1);

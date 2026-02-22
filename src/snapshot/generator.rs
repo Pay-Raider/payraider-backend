@@ -6,7 +6,7 @@ pub struct SnapshotGenerator;
 
 impl SnapshotGenerator {
     /// Generate a canonical JSON representation of the snapshot
-    /// 
+    ///
     /// This ensures deterministic serialization:
     /// 1. All arrays are sorted by object identifiers
     /// 2. JSON is serialized in canonical form (no extra whitespace, sorted keys)
@@ -24,7 +24,7 @@ impl SnapshotGenerator {
     }
 
     /// Generate SHA-256 hash of the snapshot
-    /// 
+    ///
     /// This hash represents the snapshot and can be submitted to the Soroban contract
     /// The same snapshot content will always produce the same hash, regardless of
     /// the original ordering of metrics in memory.
@@ -33,7 +33,7 @@ impl SnapshotGenerator {
         let mut hasher = Sha256::new();
         hasher.update(canonical_json.as_bytes());
         let result = hasher.finalize();
-        
+
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result[..]);
         Ok(hash)
@@ -49,9 +49,9 @@ impl SnapshotGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::snapshot::schema::{SnapshotAnchorMetrics, SnapshotCorridorMetrics};
     use chrono::Utc;
     use uuid::Uuid;
-    use crate::snapshot::schema::{SnapshotAnchorMetrics, SnapshotCorridorMetrics};
 
     fn create_test_anchor_metrics(id: Uuid, name: &str) -> SnapshotAnchorMetrics {
         SnapshotAnchorMetrics {
@@ -94,10 +94,10 @@ mod tests {
         let snapshot = AnalyticsSnapshot::new(1, now);
 
         let json = SnapshotGenerator::to_canonical_json(snapshot).unwrap();
-        
+
         // Should be valid JSON
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        
+
         // Should contain expected fields
         assert!(parsed.get("schema_version").is_some());
         assert!(parsed.get("epoch").is_some());
@@ -174,10 +174,10 @@ mod tests {
         let snapshot = AnalyticsSnapshot::new(1, now);
 
         let hex = SnapshotGenerator::generate_hash_hex(snapshot).unwrap();
-        
+
         // Should be 64 characters (32 bytes × 2 hex chars)
         assert_eq!(hex.len(), 64);
-        
+
         // Should only contain valid hex characters
         assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
     }
@@ -218,7 +218,7 @@ mod tests {
         let snapshot = AnalyticsSnapshot::new(1, now);
 
         let json = SnapshotGenerator::to_canonical_json(snapshot).unwrap();
-        
+
         // Should not contain unnecessary whitespace
         assert!(!json.contains("  ")); // No double spaces
         assert!(!json.starts_with(" "));
@@ -231,7 +231,7 @@ mod tests {
         let snapshot = AnalyticsSnapshot::new(1, now);
 
         let hash = SnapshotGenerator::generate_hash(snapshot).unwrap();
-        
+
         // Should be exactly 32 bytes
         assert_eq!(hash.len(), 32);
     }

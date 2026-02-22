@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use backend::snapshot::{AnalyticsSnapshot, SnapshotAnchorMetrics, SnapshotCorridorMetrics, SnapshotGenerator, SCHEMA_VERSION};
     use chrono::Utc;
+    use stellar_insights_backend::snapshot::{
+        AnalyticsSnapshot, SnapshotAnchorMetrics, SnapshotCorridorMetrics, SnapshotGenerator,
+        SCHEMA_VERSION,
+    };
     use uuid::Uuid;
 
     fn create_anchor_metrics(id: Uuid, name: &str, success_rate: f64) -> SnapshotAnchorMetrics {
@@ -17,7 +20,12 @@ mod tests {
             failed_transactions: ((100.0 - success_rate) * 10.0) as i64,
             avg_settlement_time_ms: Some(500),
             volume_usd: Some(10000.0),
-            status: if success_rate > 98.0 { "green" } else { "yellow" }.to_string(),
+            status: if success_rate > 98.0 {
+                "green"
+            } else {
+                "yellow"
+            }
+            .to_string(),
         }
     }
 
@@ -106,7 +114,10 @@ mod tests {
 
         let hash2 = SnapshotGenerator::generate_hash(snapshot2).unwrap();
 
-        assert_ne!(hash1, hash2, "Different metrics should produce different hash");
+        assert_ne!(
+            hash1, hash2,
+            "Different metrics should produce different hash"
+        );
     }
 
     #[test]
@@ -126,7 +137,10 @@ mod tests {
 
         let hash2 = SnapshotGenerator::generate_hash(snapshot2).unwrap();
 
-        assert_ne!(hash1, hash2, "Different schema versions should produce different hash");
+        assert_ne!(
+            hash1, hash2,
+            "Different schema versions should produce different hash"
+        );
     }
 
     #[test]
@@ -144,7 +158,10 @@ mod tests {
 
         let hash2 = SnapshotGenerator::generate_hash(snapshot2).unwrap();
 
-        assert_ne!(hash1, hash2, "Different epochs should produce different hash");
+        assert_ne!(
+            hash1, hash2,
+            "Different epochs should produce different hash"
+        );
     }
 
     #[test]
@@ -157,7 +174,10 @@ mod tests {
         let snapshot2 = AnalyticsSnapshot::new(1, now);
         let hash2 = SnapshotGenerator::generate_hash(snapshot2).unwrap();
 
-        assert_eq!(hash1, hash2, "Empty snapshots with same epoch should produce same hash");
+        assert_eq!(
+            hash1, hash2,
+            "Empty snapshots with same epoch should produce same hash"
+        );
     }
 
     #[test]
@@ -180,8 +200,15 @@ mod tests {
 
         let hex = SnapshotGenerator::generate_hash_hex(snapshot).unwrap();
 
-        assert_eq!(hex.len(), 64, "Hex hash should be 64 characters (32 bytes * 2)");
-        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()), "Hex should contain only valid hex characters");
+        assert_eq!(
+            hex.len(),
+            64,
+            "Hex hash should be 64 characters (32 bytes * 2)"
+        );
+        assert!(
+            hex.chars().all(|c: char| c.is_ascii_hexdigit()),
+            "Hex should contain only valid hex characters"
+        );
     }
 
     #[test]
@@ -192,11 +219,19 @@ mod tests {
         let mut snapshot1 = AnalyticsSnapshot::new(1000, now);
         for i in 0..50 {
             let id = Uuid::from_u128(i as u128);
-            snapshot1.add_anchor_metrics(create_anchor_metrics(id, &format!("Anchor{}", i), 95.0 + (i as f64 * 0.1)));
+            snapshot1.add_anchor_metrics(create_anchor_metrics(
+                id,
+                &format!("Anchor{}", i),
+                95.0 + (i as f64 * 0.1),
+            ));
         }
         for i in 0..50 {
             let id = Uuid::from_u128((100 + i) as u128);
-            snapshot1.add_corridor_metrics(create_corridor_metrics(id, &format!("corridor{}", i), 90.0 + (i as f64 * 0.2)));
+            snapshot1.add_corridor_metrics(create_corridor_metrics(
+                id,
+                &format!("corridor{}", i),
+                90.0 + (i as f64 * 0.2),
+            ));
         }
 
         let hash1 = SnapshotGenerator::generate_hash(snapshot1).unwrap();
@@ -205,16 +240,27 @@ mod tests {
         let mut snapshot2 = AnalyticsSnapshot::new(1000, now);
         for i in (0..50).rev() {
             let id = Uuid::from_u128((100 + i) as u128);
-            snapshot2.add_corridor_metrics(create_corridor_metrics(id, &format!("corridor{}", i), 90.0 + (i as f64 * 0.2)));
+            snapshot2.add_corridor_metrics(create_corridor_metrics(
+                id,
+                &format!("corridor{}", i),
+                90.0 + (i as f64 * 0.2),
+            ));
         }
         for i in (0..50).rev() {
             let id = Uuid::from_u128(i as u128);
-            snapshot2.add_anchor_metrics(create_anchor_metrics(id, &format!("Anchor{}", i), 95.0 + (i as f64 * 0.1)));
+            snapshot2.add_anchor_metrics(create_anchor_metrics(
+                id,
+                &format!("Anchor{}", i),
+                95.0 + (i as f64 * 0.1),
+            ));
         }
 
         let hash2 = SnapshotGenerator::generate_hash(snapshot2).unwrap();
 
-        assert_eq!(hash1, hash2, "Large snapshots should produce same hash regardless of insertion order");
+        assert_eq!(
+            hash1, hash2,
+            "Large snapshots should produce same hash regardless of insertion order"
+        );
     }
 
     #[test]
@@ -321,7 +367,7 @@ mod tests {
         let anchor_id = Uuid::from_u128(1);
 
         let mut snapshot = AnalyticsSnapshot::new(1, now);
-        
+
         // Create anchor with None for optional fields
         let anchor = SnapshotAnchorMetrics {
             id: anchor_id,
@@ -350,7 +396,7 @@ mod tests {
         let anchor_id = Uuid::from_u128(1);
 
         let mut snapshot = AnalyticsSnapshot::new(1, now);
-        
+
         let anchor = SnapshotAnchorMetrics {
             id: anchor_id,
             name: "Empty".to_string(),

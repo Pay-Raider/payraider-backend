@@ -1,50 +1,19 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::database::Database;
-use crate::models::{AnchorDetailResponse, CreateAnchorRequest, CreateCorridorRequest};
+use crate::broadcast::{broadcast_anchor_update, broadcast_corridor_update};
+use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
+use crate::models::{AnchorDetailResponse, CreateAnchorRequest, CreateCorridorRequest};
 use crate::services::analytics::{compute_corridor_metrics, CorridorTransaction};
+use crate::state::AppState;
 
-pub type ApiResult<T> = Result<T, ApiError>;
-
-#[derive(Debug)]
-pub enum ApiError {
-    NotFound(String),
-    BadRequest(String),
-    InternalError(String),
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> axum::response::Response {
-        let (status, message) = match self {
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-        };
-
-        (status, Json(serde_json::json!({ "error": message }))).into_response()
-    }
-}
-
-impl From<anyhow::Error> for ApiError {
-    fn from(err: anyhow::Error) -> Self {
-        ApiError::InternalError(err.to_string())
-    }
-}
-
-impl From<sqlx::Error> for ApiError {
-    fn from(err: sqlx::Error) -> Self {
-        ApiError::InternalError(err.to_string())
-    }
-}
 
 #[derive(Debug, Deserialize)]
 pub struct ListAnchorsQuery {
@@ -80,10 +49,13 @@ pub struct ListCorridorsResponse {
 
 /// GET /api/anchors - List all anchors with their metrics
 pub async fn list_anchors(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Query(params): Query<ListAnchorsQuery>,
 ) -> ApiResult<Json<ListAnchorsResponse>> {
-    let anchors = db.list_anchors(params.limit, params.offset).await?;
+    let anchors = app_state
+        .db
+        .list_anchors(params.limit, params.offset)
+        .await?;
     let total = anchors.len();
 
     Ok(Json(ListAnchorsResponse { anchors, total }))
@@ -91,51 +63,98 @@ pub async fn list_anchors(
 
 /// GET /api/anchors/:id - Get detailed anchor information
 pub async fn get_anchor(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<AnchorDetailResponse>> {
-    let anchor_detail = db
-        .get_anchor_detail(id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Anchor with id {} not found", id)))?;
+    let anchor_detail = app_state.db.get_anchor_detail(id).await?.ok_or_else(|| {
+        let mut details = HashMap::new();
+        details.insert("anchor_id".to_string(), serde_json::json!(id.to_string()));
+        ApiError::not_found_with_details(
+            "ANCHOR_NOT_FOUND",
+            format!("Anchor with id {} not found", id),
+            details,
+        )
+    })?;
 
     Ok(Json(anchor_detail))
 }
 
-/// GET /api/anchors/account/:stellar_account - Get anchor by Stellar account
+/// GET /api/anchors/account/:stellar_account - Get anchor by Stellar account (G- or M-address)
 pub async fn get_anchor_by_account(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Path(stellar_account): Path<String>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
-    let anchor = db
-        .get_anchor_by_stellar_account(&stellar_account)
+    let account_lookup = stellar_account.trim();
+    // If M-address, resolve to base account for anchor lookup (anchors are keyed by G-address)
+    let lookup_key = if crate::muxed::is_muxed_address(account_lookup) {
+        crate::muxed::parse_muxed_address(account_lookup)
+            .and_then(|i| i.base_account)
+            .unwrap_or_else(|| account_lookup.to_string())
+    } else {
+        account_lookup.to_string()
+    };
+    let anchor = app_state
+        .db
+        .get_anchor_by_stellar_account(&lookup_key)
         .await?
         .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "Anchor with stellar account {} not found",
-                stellar_account
-            ))
+            let mut details = HashMap::new();
+            details.insert(
+                "stellar_account".to_string(),
+                serde_json::json!(account_lookup),
+            );
+            ApiError::not_found_with_details(
+                "ANCHOR_NOT_FOUND",
+                format!("Anchor with stellar account {} not found", account_lookup),
+                details,
+            )
         })?;
 
     Ok(Json(anchor))
 }
 
+/// GET /api/analytics/muxed - Muxed account usage analytics
+#[derive(Debug, Deserialize)]
+pub struct MuxedAnalyticsQuery {
+    #[serde(default = "default_muxed_limit")]
+    pub limit: i64,
+}
+fn default_muxed_limit() -> i64 {
+    20
+}
+
+pub async fn get_muxed_analytics(
+    State(app_state): State<AppState>,
+    Query(params): Query<MuxedAnalyticsQuery>,
+) -> ApiResult<Json<crate::models::MuxedAccountAnalytics>> {
+    let limit = params.limit.clamp(1, 100);
+    let analytics = app_state.db.get_muxed_analytics(limit).await?;
+    Ok(Json(analytics))
+}
+
 /// POST /api/anchors - Create a new anchor
 pub async fn create_anchor(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Json(req): Json<CreateAnchorRequest>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
     if req.name.is_empty() {
-        return Err(ApiError::BadRequest("Name cannot be empty".to_string()));
-    }
-
-    if req.stellar_account.is_empty() {
-        return Err(ApiError::BadRequest(
-            "Stellar account cannot be empty".to_string(),
+        return Err(ApiError::bad_request(
+            "INVALID_INPUT",
+            "Name cannot be empty",
         ));
     }
 
-    let anchor = db.create_anchor(req).await?;
+    if req.stellar_account.is_empty() {
+        return Err(ApiError::bad_request(
+            "INVALID_INPUT",
+            "Stellar account cannot be empty",
+        ));
+    }
+
+    let anchor = app_state.db.create_anchor(req).await?;
+
+    // Broadcast the new anchor to WebSocket clients
+    broadcast_anchor_update(&app_state.ws_state, &anchor);
 
     Ok(Json(anchor))
 }
@@ -151,19 +170,23 @@ pub struct UpdateMetricsRequest {
 }
 
 pub async fn update_anchor_metrics(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateMetricsRequest>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
     // Verify anchor exists
-    if db.get_anchor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!(
-            "Anchor with id {} not found",
-            id
-        )));
+    if app_state.db.get_anchor_by_id(id).await?.is_none() {
+        let mut details = HashMap::new();
+        details.insert("anchor_id".to_string(), serde_json::json!(id.to_string()));
+        return Err(ApiError::not_found_with_details(
+            "ANCHOR_NOT_FOUND",
+            format!("Anchor with id {} not found", id),
+            details,
+        ));
     }
 
-    let anchor = db
+    let anchor = app_state
+        .db
         .update_anchor_metrics(
             id,
             req.total_transactions,
@@ -174,23 +197,29 @@ pub async fn update_anchor_metrics(
         )
         .await?;
 
+    // Broadcast the anchor update to WebSocket clients
+    broadcast_anchor_update(&app_state.ws_state, &anchor);
+
     Ok(Json(anchor))
 }
 
-/// GET /api/anchors/:id/assets - Get assets issued by anchor
+/// GET /api/anchors/:id/assets - Get assets for an anchor
 pub async fn get_anchor_assets(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<crate::models::Asset>>> {
     // Verify anchor exists
-    if db.get_anchor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!(
-            "Anchor with id {} not found",
-            id
-        )));
+    if app_state.db.get_anchor_by_id(id).await?.is_none() {
+        let mut details = HashMap::new();
+        details.insert("anchor_id".to_string(), serde_json::json!(id.to_string()));
+        return Err(ApiError::not_found_with_details(
+            "ANCHOR_NOT_FOUND",
+            format!("Anchor with id {} not found", id),
+            details,
+        ));
     }
 
-    let assets = db.get_assets_by_anchor(id).await?;
+    let assets = app_state.db.get_assets_by_anchor(id).await?;
 
     Ok(Json(assets))
 }
@@ -203,19 +232,23 @@ pub struct CreateAssetRequest {
 }
 
 pub async fn create_anchor_asset(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<CreateAssetRequest>,
 ) -> ApiResult<Json<crate::models::Asset>> {
     // Verify anchor exists
-    if db.get_anchor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!(
-            "Anchor with id {} not found",
-            id
-        )));
+    if app_state.db.get_anchor_by_id(id).await?.is_none() {
+        let mut details = HashMap::new();
+        details.insert("anchor_id".to_string(), serde_json::json!(id.to_string()));
+        return Err(ApiError::not_found_with_details(
+            "ANCHOR_NOT_FOUND",
+            format!("Anchor with id {} not found", id),
+            details,
+        ));
     }
 
-    let asset = db
+    let asset = app_state
+        .db
         .create_asset(id, req.asset_code, req.asset_issuer)
         .await?;
 
@@ -227,36 +260,57 @@ pub async fn health_check() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "healthy",
         "service": "stellar-insights-backend",
-        "version": env!("CARGO_PKG_VERSION")
+        "version": env!("CARGO_PKG_VERSION"),
+        "api": {
+            "current_version": "v1",
+            "supported_versions": ["v1"],
+            "status": "active"
+        }
     }))
 }
 
-/// GET /api/corridors - List corridors with metrics
+
+/// Database pool metrics endpoint
+pub async fn pool_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let metrics = state.db.pool_metrics();
+    Json(metrics)
+}
+
+/// GET /api/corridors - List all corridors
 pub async fn list_corridors(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Query(params): Query<ListCorridorsQuery>,
 ) -> ApiResult<Json<ListCorridorsResponse>> {
-    let corridors = db.list_corridors(params.limit, params.offset).await?;
+    let corridors = app_state
+        .db
+        .list_corridors(params.limit, params.offset)
+        .await?;
     let total = corridors.len();
     Ok(Json(ListCorridorsResponse { corridors, total }))
 }
 
-/// POST /api/corridors - Create a corridor (idempotent on asset pair)
+/// POST /api/corridors - Create a new corridor
 pub async fn create_corridor(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Json(req): Json<CreateCorridorRequest>,
 ) -> ApiResult<Json<Corridor>> {
     if req.source_asset_code.is_empty() || req.dest_asset_code.is_empty() {
-        return Err(ApiError::BadRequest(
-            "Asset codes cannot be empty".to_string(),
+        return Err(ApiError::bad_request(
+            "INVALID_INPUT",
+            "Asset codes cannot be empty",
         ));
     }
     if req.source_asset_issuer.is_empty() || req.dest_asset_issuer.is_empty() {
-        return Err(ApiError::BadRequest(
-            "Asset issuers cannot be empty".to_string(),
+        return Err(ApiError::bad_request(
+            "INVALID_INPUT",
+            "Asset issuers cannot be empty",
         ));
     }
-    let corridor = db.create_corridor(req).await?;
+    let corridor = app_state.db.create_corridor(req).await?;
+
+    // Broadcast the new corridor to WebSocket clients
+    broadcast_corridor_update(&app_state.ws_state, &corridor);
+
     Ok(Json(corridor))
 }
 
@@ -274,15 +328,18 @@ pub struct CorridorTransactionDto {
 }
 
 pub async fn update_corridor_metrics_from_transactions(
-    State(db): State<Arc<Database>>,
+    State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateCorridorMetricsFromTxns>,
 ) -> ApiResult<Json<Corridor>> {
-    if db.get_corridor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!(
-            "Corridor with id {} not found",
-            id
-        )));
+    if app_state.db.get_corridor_by_id(id).await?.is_none() {
+        let mut details = HashMap::new();
+        details.insert("corridor_id".to_string(), serde_json::json!(id.to_string()));
+        return Err(ApiError::not_found_with_details(
+            "CORRIDOR_NOT_FOUND",
+            format!("Corridor with id {} not found", id),
+            details,
+        ));
     }
 
     let txs: Vec<CorridorTransaction> = req
@@ -295,7 +352,18 @@ pub async fn update_corridor_metrics_from_transactions(
         })
         .collect();
 
-    let metrics = compute_corridor_metrics(&txs);
-    let corridor = db.update_corridor_metrics(id, metrics).await?;
+    let metrics = compute_corridor_metrics(&txs, None, 1.0);
+    let corridor = app_state.db.update_corridor_metrics(id, metrics).await?;
+
+    // Broadcast the corridor update to WebSocket clients
+    broadcast_corridor_update(&app_state.ws_state, &corridor);
+
     Ok(Json(corridor))
+}
+
+pub async fn ingestion_status(
+    State(app_state): State<AppState>,
+) -> ApiResult<Json<crate::ingestion::IngestionStatus>> {
+    let status = app_state.ingestion.get_ingestion_status().await?;
+    Ok(Json(status))
 }

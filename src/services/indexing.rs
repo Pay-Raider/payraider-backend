@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::DateTime;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::database::Database;
 use crate::models::PaymentRecord;
@@ -21,7 +21,7 @@ impl IndexingService {
     pub async fn run_payment_ingestion(&self) -> Result<()> {
         let task_name = "payment_ingestion";
         let last_cursor = self.db.get_ingestion_cursor(task_name).await?;
-        
+
         info!(
             "Starting payment ingestion. Last cursor: {:?}",
             last_cursor.as_deref().unwrap_or("none")
@@ -40,7 +40,7 @@ impl IndexingService {
         }
 
         let last_paging_token = payments.last().map(|p| p.paging_token.clone());
-        
+
         // Normalize payments
         let records: Vec<PaymentRecord> = payments
             .into_iter()
@@ -55,23 +55,37 @@ impl IndexingService {
                     transaction_hash: p.transaction_hash,
                     source_account: p.source_account,
                     destination_account: p.destination,
-                    asset_type: p.asset_type,
-                    asset_code: p.asset_code,
-                    asset_issuer: p.asset_issuer,
+                    asset_type: p.asset_type.clone(),
+                    asset_code: p.asset_code.clone(),
+                    asset_issuer: p.asset_issuer.clone(),
+                    source_asset_code: p.asset_code.clone().unwrap_or_default(),
+                    source_asset_issuer: p.asset_issuer.clone().unwrap_or_default(),
+                    destination_asset_code: p.asset_code.unwrap_or_default(),
+                    destination_asset_issuer: p.asset_issuer.unwrap_or_default(),
                     amount,
+                    successful: true,
+                    timestamp: Some(created_at),
+                    submission_time: None,
+                    confirmation_time: None,
                     created_at,
                 })
             })
             .collect();
 
         let count = records.len();
-        
+
         // Persist idempotently
-        self.db.save_payments(records).await.context("Failed to save payments to database")?;
+        self.db
+            .save_payments(records)
+            .await
+            .context("Failed to save payments to database")?;
 
         // Update cursor
         if let Some(cursor) = last_paging_token {
-            self.db.update_ingestion_cursor(task_name, &cursor).await.context("Failed to update ingestion cursor")?;
+            self.db
+                .update_ingestion_cursor(task_name, &cursor)
+                .await
+                .context("Failed to update ingestion cursor")?;
             info!("Ingested {} payments. New cursor: {}", count, cursor);
         }
 

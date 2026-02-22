@@ -1,4 +1,6 @@
-use backend::{analytics::*, models::AnchorStatus};
+use stellar_insights_backend::{
+    analytics::compute_anchor_metrics, analytics::count_assets_per_anchor, models::AnchorStatus,
+};
 
 #[test]
 fn test_compute_metrics_green_status() {
@@ -10,8 +12,8 @@ fn test_compute_metrics_green_status() {
     assert_eq!(metrics.success_rate, 99.0);
     assert_eq!(metrics.failure_rate, 1.0);
     assert!(metrics.reliability_score > 90.0);
-    // 1% failures means Yellow (Green requires <1% failures)
-    assert_eq!(metrics.status, AnchorStatus::Yellow);
+    // 99% success and 1% failure should be Green (>98% success AND <=1% failure)
+    assert_eq!(metrics.status, AnchorStatus::Green);
 }
 
 #[test]
