@@ -16,6 +16,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use stellar_insights_backend::api::account_merges;
 use stellar_insights_backend::api::anchors_cached::get_anchors;
+use stellar_insights_backend::api::api_keys;
 use stellar_insights_backend::api::cache_stats;
 use stellar_insights_backend::api::corridors_cached::{get_corridor_detail, list_corridors};
 use stellar_insights_backend::api::cost_calculator;
@@ -301,6 +302,14 @@ async fn main() -> Result<()> {
         ),
     );
     tracing::info!("Verification rewards service initialized");
+
+    // Initialize Governance Service
+    let governance_service = Arc::new(
+        stellar_insights_backend::services::governance::GovernanceService::new(
+            Arc::clone(&db),
+        ),
+    );
+    tracing::info!("Governance service initialized");
 
     // ML Retraining task (commented out)
     /*
@@ -840,6 +849,28 @@ async fn main() -> Result<()> {
 
     // Build API analytics routes
     let api_analytics_routes = api_analytics::routes(db.clone())
+    // Build governance routes
+    let governance_routes = Router::new()
+        .nest(
+            "/api/governance",
+            stellar_insights_backend::api::governance::routes(
+                governance_service,
+                Arc::clone(&sep10_service),
+            ),
+        )
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+        .layer(cors.clone());
+
+    // Build API key management routes
+    let api_key_routes = Router::new()
+        .nest("/api/keys", api_keys::routes(Arc::clone(&db)))
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
         .layer(cors.clone());
 
     // Merge routers
@@ -868,10 +899,13 @@ async fn main() -> Result<()> {
         .merge(cost_calculator_routes)
         .merge(trustline_routes)
         .merge(achievements_routes)
+        .merge(governance_routes)
         .merge(network_routes)
         .merge(api_analytics_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
+        .merge(verification_routes)
+        .merge(api_key_routes)
         .merge(ws_routes)
         .layer(middleware::from_fn_with_state(
             db.clone(),
