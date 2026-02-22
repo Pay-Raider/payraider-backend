@@ -34,6 +34,12 @@ reqwest = { version = "0.12", features = ["json"] }
 thiserror = "1.0"
 sha2 = "0.10"
 hex = "0.4"
+sprometheus = "0.13"
+md5 = "0.7"
+
+[dependencies.stellar-insights-apm]
+path = "apm"
 
 [dev-dependencies]
 urlencoding = "2.1"
+tempfile = "3.0"
