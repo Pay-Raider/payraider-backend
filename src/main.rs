@@ -94,7 +94,19 @@ async fn main() -> Result<()> {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:./stellar_insights.db".to_string());
 
-    tracing::info!("Connecting to database: {}", database_url);
+    // Log sanitized database URL to prevent credential leakage (SEC-016)
+    let sanitized_db_url = if database_url.starts_with("sqlite:") {
+        database_url.clone()
+    } else if let Some(at_pos) = database_url.rfind('@') {
+        if let Some(scheme_end) = database_url.find("://") {
+            format!("{}****@{}", &database_url[..scheme_end + 3], &database_url[at_pos + 1..])
+        } else {
+            "[REDACTED]".to_string()
+        }
+    } else {
+        database_url.clone()
+    };
+    tracing::info!("Connecting to database: {}", sanitized_db_url);
 
     // Load pool configuration from environment
     let pool_config = stellar_insights_backend::database::PoolConfig::from_env();
@@ -710,11 +722,11 @@ async fn main() -> Result<()> {
                 .collect();
 
             if origins.is_empty() {
-                tracing::warn!(
-                    "No valid CORS origins parsed from CORS_ALLOWED_ORIGINS; \
-                     falling back to allow-all. Check your configuration."
+                panic!(
+                    "CORS_ALLOWED_ORIGINS contains no valid origins. \
+                     Set valid origins or use '*' explicitly for development. \
+                     Refusing to fall back to allow-all. (SEC-011)"
                 );
-                base.allow_origin(Any)
             } else {
                 tracing::info!("CORS restricted to {} specific origin(s)", origins.len());
                 base.allow_origin(origins)

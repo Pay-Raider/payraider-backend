@@ -8,7 +8,7 @@ use anyhow::Result;
 use std::env;
 
 /// Required environment variables that must be set
-const REQUIRED_VARS: &[&str] = &["DATABASE_URL", "ENCRYPTION_KEY"];
+const REQUIRED_VARS: &[&str] = &["DATABASE_URL", "ENCRYPTION_KEY", "JWT_SECRET"];
 
 /// Environment variables that should be validated if present
 const VALIDATED_VARS: &[(&str, fn(&str) -> bool)] = &[
