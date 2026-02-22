@@ -1,12 +1,11 @@
 use axum::{
-    body::Body,
     extract::Request,
     http::HeaderValue,
     middleware::Next,
     response::Response,
 };
 
-pub async fn version_middleware(request: Request<Body>, next: Next) -> Response {
+pub async fn version_middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     
     let headers = response.headers_mut();
