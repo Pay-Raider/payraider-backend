@@ -8,13 +8,14 @@ use anyhow::{Context, Result};
 use std::env;
 
 /// Required environment variables that must be set
-const REQUIRED_VARS: &[&str] = &["DATABASE_URL"];
+const REQUIRED_VARS: &[&str] = &["DATABASE_URL", "SEP10_SERVER_PUBLIC_KEY"];
 
 /// Environment variables that should be validated if present
 const VALIDATED_VARS: &[(&str, fn(&str) -> bool)] = &[
     ("SERVER_PORT", validate_port),
     ("DB_POOL_MAX_CONNECTIONS", validate_positive_number),
     ("DB_POOL_MIN_CONNECTIONS", validate_positive_number),
+    ("SEP10_SERVER_PUBLIC_KEY", validate_stellar_public_key),
 ];
 
 /// Validates all required environment variables are set
@@ -90,6 +91,14 @@ pub fn log_env_config() {
     if env::var("PRICE_FEED_API_KEY").is_ok() {
         tracing::info!("  PRICE_FEED_API_KEY: [REDACTED]");
     }
+    
+    // SEP-10 (log only first 8 chars for security)
+    if let Ok(key) = env::var("SEP10_SERVER_PUBLIC_KEY") {
+        if key.len() >= 8 {
+            tracing::info!("  SEP10_SERVER_PUBLIC_KEY: {}...", &key[..8]);
+        }
+    }
+    log_var("SEP10_HOME_DOMAIN");
 }
 
 /// Helper to log a single environment variable
@@ -142,6 +151,22 @@ fn validate_positive_number(value: &str) -> bool {
     value.parse::<u32>().map(|n| n > 0).unwrap_or(false)
 }
 
+/// Validate Stellar public key format
+/// Must start with 'G' and be exactly 56 characters (Ed25519 public key in base32)
+fn validate_stellar_public_key(value: &str) -> bool {
+    if !value.starts_with('G') || value.len() != 56 {
+        return false;
+    }
+    
+    // Check if it's not the placeholder value
+    if value == "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" {
+        return false;
+    }
+    
+    // Validate base32 characters (A-Z, 2-7)
+    value.chars().all(|c| c.is_ascii_uppercase() || ('2'..='7').contains(&c))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +211,26 @@ mod tests {
         assert!(!validate_positive_number("0"));
         assert!(!validate_positive_number("-1"));
         assert!(!validate_positive_number("abc"));
+    }
+
+    #[test]
+    fn test_validate_stellar_public_key() {
+        // Valid Stellar public key format
+        assert!(validate_stellar_public_key("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"));
+        
+        // Invalid: doesn't start with G
+        assert!(!validate_stellar_public_key("ABRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"));
+        
+        // Invalid: wrong length
+        assert!(!validate_stellar_public_key("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX"));
+        
+        // Invalid: placeholder value
+        assert!(!validate_stellar_public_key("GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"));
+        
+        // Invalid: contains invalid base32 characters
+        assert!(!validate_stellar_public_key("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2!"));
+        
+        // Invalid: lowercase
+        assert!(!validate_stellar_public_key("gbrpyhil2ci3fnq4bxlfmndlfjunpu2hy3zmfshonuceoasw7qc7ox2h"));
     }
 }
