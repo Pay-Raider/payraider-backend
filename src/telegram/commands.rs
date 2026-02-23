@@ -92,10 +92,10 @@ impl CommandHandler {
         for payment in &payments {
             let key = format!(
                 "{}:{}->XLM:native",
-                payment.asset_code.as_deref().unwrap_or("XLM"),
-                payment.asset_issuer.as_deref().unwrap_or("native")
+                payment.get_asset_code().as_deref().unwrap_or("XLM"),
+                payment.get_asset_issuer().as_deref().unwrap_or("native")
             );
-            let amount: f64 = payment.amount.parse().unwrap_or(0.0);
+            let amount: f64 = payment.get_amount().parse().unwrap_or(0.0);
             let entry = corridor_map.entry(key).or_insert((0, 0.0));
             entry.0 += 1;
             entry.1 += amount;
@@ -138,12 +138,12 @@ impl CommandHandler {
         for payment in &payments {
             let corridor_key = format!(
                 "{}:{}->XLM:native",
-                payment.asset_code.as_deref().unwrap_or("XLM"),
-                payment.asset_issuer.as_deref().unwrap_or("native")
+                payment.get_asset_code().as_deref().unwrap_or("XLM"),
+                payment.get_asset_issuer().as_deref().unwrap_or("native")
             );
             if corridor_key == key {
                 count += 1;
-                volume += payment.amount.parse::<f64>().unwrap_or(0.0);
+                volume += payment.get_amount().parse::<f64>().unwrap_or(0.0);
             }
         }
 
