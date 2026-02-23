@@ -1119,6 +1119,20 @@ async fn main() -> Result<()> {
 
 
 
+    // Build alerts routes (require authentication)
+    let alerts_routes = Router::new()
+        .nest("/api/alerts", stellar_insights_backend::api::alerts::router())
+        .with_state(app_state.clone())
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn(auth_middleware))
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                )),
+        )
+        .layer(cors.clone());
+
     let app = Router::new()
         .route("/metrics", get(obs_metrics::metrics_handler))
         .merge(swagger_routes)
@@ -1147,6 +1161,7 @@ async fn main() -> Result<()> {
         .merge(api_key_routes)
         .merge(ws_routes)
         .merge(alert_ws_routes)
+        .merge(alerts_routes)
 
         .layer(middleware::from_fn_with_state(
             db.clone(),

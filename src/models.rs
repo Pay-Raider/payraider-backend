@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 pub mod api_key;
 pub mod corridor;
+pub mod alerts;
+
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]

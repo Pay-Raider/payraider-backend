@@ -44,7 +44,7 @@ tracing-opentelemetry = "0.21"
 dotenvy = "0.15"
 sha2 = "0.10"
 hex = "0.4"
-sprometheus = "0.13"
+prometheus = "0.13"
 md5 = "0.7"
 ipnetwork = "0.20"
 
