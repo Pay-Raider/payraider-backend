@@ -59,8 +59,8 @@ fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<Asse
             } else {
                 format!(
                     "{}:{}",
-                    payment.asset_code.as_deref().unwrap_or("UNKNOWN"),
-                    payment.asset_issuer.as_deref().unwrap_or("unknown")
+                    payment.get_asset_code().as_deref().unwrap_or("UNKNOWN"),
+                    payment.get_asset_issuer().as_deref().unwrap_or("unknown")
                 )
             };
 
@@ -76,8 +76,8 @@ fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<Asse
             } else {
                 format!(
                     "{}:{}",
-                    payment.asset_code.as_deref().unwrap_or("UNKNOWN"),
-                    payment.asset_issuer.as_deref().unwrap_or("unknown")
+                    payment.get_asset_code().as_deref().unwrap_or("UNKNOWN"),
+                    payment.get_asset_issuer().as_deref().unwrap_or("unknown")
                 )
             };
 
@@ -424,7 +424,7 @@ pub async fn list_corridors(
                 // Get price for source asset
                 if let Ok(price) = price_feed.get_price(source_asset_key).await {
                     for payment in corridor_payments.iter() {
-                        if let Ok(amount) = payment.amount.parse::<f64>() {
+                        if let Ok(amount) = payment.get_amount().parse::<f64>() {
                             volume_usd += amount * price;
                         }
                     }
@@ -436,7 +436,7 @@ pub async fn list_corridors(
                     );
                     volume_usd = corridor_payments
                         .iter()
-                        .filter_map(|p| p.amount.parse::<f64>().ok())
+                        .filter_map(|p| p.get_amount().parse::<f64>().ok())
                         .sum();
                 }
 
