@@ -57,8 +57,8 @@ impl CorridorMonitor {
         for payment in &payments {
             let key = format!(
                 "{}:{}->XLM:native",
-                payment.asset_code.as_deref().unwrap_or("XLM"),
-                payment.asset_issuer.as_deref().unwrap_or("native")
+                payment.get_asset_code().as_deref().unwrap_or("XLM"),
+                payment.get_asset_issuer().as_deref().unwrap_or("native")
             );
             corridor_map.entry(key).or_insert_with(Vec::new).push(payment);
         }
@@ -69,7 +69,7 @@ impl CorridorMonitor {
             let success_rate = 100.0;
             let latency = 400.0 + (success_rate * 2.0);
             let liquidity: f64 = payments.iter()
-                .filter_map(|p| p.amount.parse::<f64>().ok())
+                .filter_map(|p| p.get_amount().parse::<f64>().ok())
                 .sum();
 
             if let Some(old_state) = prev_state.get(&corridor_id) {
