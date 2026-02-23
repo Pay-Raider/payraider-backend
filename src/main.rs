@@ -18,6 +18,7 @@ use stellar_insights_backend::api::account_merges;
 use stellar_insights_backend::api::anchors_cached::get_anchors;
 use stellar_insights_backend::api::api_analytics;
 use stellar_insights_backend::api::api_keys;
+use stellar_insights_backend::api::asset_verification;
 use stellar_insights_backend::api::cache_stats;
 use stellar_insights_backend::api::corridors_cached::{get_corridor_detail, list_corridors};
 use stellar_insights_backend::api::cost_calculator;
@@ -1015,6 +1016,16 @@ async fn main() -> Result<()> {
             rate_limiter.clone(),
             rate_limit_middleware,
         )))
+        .layer(cors.clone());
+
+    // Build asset verification routes
+    let asset_verification_routes = Router::new()
+        .nest("/api/assets", asset_verification::routes(pool.clone()))
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+        .layer(cors.clone());
 
     // Build GDPR routes
     let gdpr_routes = Router::new()
@@ -1074,6 +1085,7 @@ async fn main() -> Result<()> {
         .merge(cache_routes)
         .merge(metrics_routes)
         .merge(verification_routes)
+        .merge(asset_verification_routes)
         .merge(gdpr_routes)
         .merge(api_key_routes)
         .merge(ws_routes)
