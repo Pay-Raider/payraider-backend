@@ -29,7 +29,10 @@ async fn test_client_identifier_as_key() {
 #[tokio::test]
 async fn test_rate_limiter_initialization() {
     let limiter = RateLimiter::new().await;
-    assert!(limiter.is_ok(), "Rate limiter should initialize successfully");
+    assert!(
+        limiter.is_ok(),
+        "Rate limiter should initialize successfully"
+    );
 }
 
 #[tokio::test]
@@ -257,10 +260,7 @@ async fn test_rate_limit_info_includes_client_id() {
     let limiter = RateLimiter::new().await.unwrap();
 
     limiter
-        .register_endpoint(
-            "/test/endpoint".to_string(),
-            RateLimitConfig::default(),
-        )
+        .register_endpoint("/test/endpoint".to_string(), RateLimitConfig::default())
         .await;
 
     let client = ClientIdentifier::ApiKey("test_key_123".to_string());

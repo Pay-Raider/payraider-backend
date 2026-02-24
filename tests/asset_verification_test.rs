@@ -204,7 +204,10 @@ async fn test_save_and_retrieve_verification() -> Result<()> {
     assert!(retrieved_asset.is_some());
     let retrieved_asset = retrieved_asset.unwrap();
     assert_eq!(retrieved_asset.asset_code, asset_code);
-    assert_eq!(retrieved_asset.toml_home_domain, Some("centre.io".to_string()));
+    assert_eq!(
+        retrieved_asset.toml_home_domain,
+        Some("centre.io".to_string())
+    );
 
     Ok(())
 }
@@ -245,7 +248,9 @@ async fn test_list_verified_assets() -> Result<()> {
     assert!(assets.len() >= 2); // At least assets 0, 2, 4
 
     // List with minimum reputation
-    let assets = verifier.list_verified_assets(None, Some(50.0), 10, 0).await?;
+    let assets = verifier
+        .list_verified_assets(None, Some(50.0), 10, 0)
+        .await?;
     assert!(!assets.is_empty());
 
     Ok(())
@@ -349,9 +354,18 @@ async fn test_similar_asset_codes() -> Result<()> {
 
     // Create assets with similar codes but different issuers
     let assets = vec![
-        ("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"),
-        ("USDC", "GB5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"),
-        ("USD", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"),
+        (
+            "USDC",
+            "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        ),
+        (
+            "USDC",
+            "GB5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        ),
+        (
+            "USD",
+            "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        ),
     ];
 
     for (code, issuer) in &assets {
