@@ -5,10 +5,10 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use utoipa::{IntoParams, ToSchema};
 
-use anyhow::anyhow;
 use crate::cache::{keys, CacheManager};
 use crate::cache_middleware::CacheAware;
 use crate::database::Database;
@@ -18,6 +18,8 @@ use crate::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::StellarRpcClient;
 use crate::services::price_feed::PriceFeedClient;
+use crate::validation;
+use anyhow::anyhow;
 
 /// Represents an asset pair (source -> destination) for a corridor
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -194,7 +196,9 @@ pub struct CorridorDetailResponse {
     pub related_corridors: Option<Vec<CorridorResponse>>,
 }
 
-#[derive(Debug, Deserialize, IntoParams)]
+/// Query parameters for listing corridors with filtering and pagination.
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[serde(default)]
 #[into_params(parameter_in = Query)]
 pub struct ListCorridorsQuery {
     /// Maximum number of results to return (default: 50)
@@ -321,6 +325,13 @@ pub async fn list_corridors(
     Query(params): Query<ListCorridorsQuery>,
     headers: HeaderMap,
 ) -> ApiResult<Response> {
+    validation::validate_corridor_filters(
+        params.success_rate_min,
+        params.success_rate_max,
+        params.volume_min,
+        params.volume_max,
+    )?;
+
     let cache_key = generate_corridor_list_cache_key(&params);
 
     let corridors = <()>::get_or_fetch(
@@ -523,7 +534,7 @@ fn calculate_historical_success_rate(
     corridor_payments: &[&crate::rpc::Payment],
 ) -> Vec<SuccessRateDataPoint> {
     use std::collections::HashMap;
-    
+
     if corridor_payments.is_empty() {
         return vec![];
     }
@@ -615,7 +626,7 @@ fn calculate_liquidity_trends(
     volume_usd: f64,
 ) -> Vec<LiquidityDataPoint> {
     use std::collections::HashMap;
-    
+
     if corridor_payments.is_empty() {
         return vec![];
     }
@@ -665,9 +676,9 @@ fn find_related_corridors(
         .iter()
         .filter(|c| {
             // Include corridors with same source or destination asset (excluding the target itself)
-            (c.id == target_corridor_key) || 
-            c.id.starts_with(&format!("{}->", target_source)) ||
-            c.id.ends_with(&format!("->{}", target_dest))
+            (c.id == target_corridor_key)
+                || c.id.starts_with(&format!("{}->", target_source))
+                || c.id.ends_with(&format!("->{}", target_dest))
         })
         .cloned()
         .collect();
@@ -759,10 +770,7 @@ pub async fn get_corridor_detail(
     .await
     .map_err(|e| {
         tracing::error!("Failed to fetch payments from RPC: {}", e);
-        ApiError::internal_server_error(
-            "RPC_FETCH_ERROR",
-            "Failed to fetch payment data from RPC",
-        )
+        ApiError::internal("RPC_FETCH_ERROR", "Failed to fetch payment data from RPC")
     })?;
 
     // Filter payments for this specific corridor
@@ -912,9 +920,7 @@ pub async fn get_corridor_detail(
     // Cache the response with 5-minute TTL
     let _ = cache
         .set(
-            &cache_key,
-            &response,
-            std::time::Duration::from_secs(300), // 5 minutes
+            &cache_key, &response, 300, // 5 minutes
         )
         .await;
 
@@ -958,6 +964,7 @@ mod tests {
             source_amount: None,
             from: Some("GTEST".to_string()),
             to: Some("GDEST".to_string()),
+            asset_balance_changes: None,
         };
 
         let pair = extract_asset_pair_from_payment(&payment).unwrap();
@@ -986,6 +993,7 @@ mod tests {
             source_amount: None,
             from: Some("GTEST".to_string()),
             to: Some("GDEST".to_string()),
+            asset_balance_changes: None,
         };
 
         let pair = extract_asset_pair_from_payment(&payment).unwrap();
@@ -1014,6 +1022,7 @@ mod tests {
             source_amount: Some("105.0".to_string()),
             from: Some("GTEST".to_string()),
             to: Some("GDEST".to_string()),
+            asset_balance_changes: None,
         };
 
         let pair = extract_asset_pair_from_payment(&payment).unwrap();
@@ -1042,6 +1051,7 @@ mod tests {
             source_amount: Some("150.0".to_string()),
             from: Some("GTEST".to_string()),
             to: Some("GDEST".to_string()),
+            asset_balance_changes: None,
         };
 
         let pair = extract_asset_pair_from_payment(&payment).unwrap();
@@ -1070,6 +1080,7 @@ mod tests {
             source_amount: Some("500.0".to_string()),
             from: Some("GTEST".to_string()),
             to: Some("GDEST".to_string()),
+            asset_balance_changes: None,
         };
 
         let pair = extract_asset_pair_from_payment(&payment).unwrap();
@@ -1099,6 +1110,7 @@ mod tests {
             source_amount: None,
             from: Some("GTEST".to_string()),
             to: Some("GDEST".to_string()),
+            asset_balance_changes: None,
         };
 
         let pair = extract_asset_pair_from_payment(&payment).unwrap();
@@ -1138,7 +1150,7 @@ mod tests {
 
         let payments = vec![&payment];
         let result = calculate_historical_success_rate(&payments);
-        
+
         assert!(!result.is_empty());
         assert!(result[0].success_rate == 100.0);
         assert_eq!(result[0].attempts, 1);
@@ -1170,10 +1182,10 @@ mod tests {
 
         let payments = vec![&payment; 100];
         let result = calculate_latency_distribution(&payments, 100);
-        
+
         // Should have 5 latency buckets
         assert_eq!(result.len(), 5);
-        
+
         // Percentages should sum to ~100%
         let total_percentage: f64 = result.iter().map(|d| d.percentage).sum();
         assert!((total_percentage - 100.0).abs() < 0.1);

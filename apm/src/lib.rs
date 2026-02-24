@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 use std::env;
-use std::time::Duration;
 
 use anyhow::Result;
 use opentelemetry::global;
-use opentelemetry::metrics::{Meter, Counter, Histogram, Gauge};
-use opentelemetry::trace::{Tracer, Span};
-use opentelemetry::{KeyValue, Context};
-use tracing::{info, warn, error};
+use opentelemetry::metrics::Meter;
+use opentelemetry::trace::{Span, Tracer};
+use opentelemetry::KeyValue;
+use tracing::{info, warn};
 
 /// APM configuration
 #[derive(Debug, Clone)]
@@ -37,8 +36,7 @@ impl Default for ApmConfig {
                 .unwrap_or_else(|_| "stellar-insights".to_string()),
             service_version: env::var("OTEL_SERVICE_VERSION")
                 .unwrap_or_else(|_| "1.0.0".to_string()),
-            environment: env::var("OTEL_ENVIRONMENT")
-                .unwrap_or_else(|_| "development".to_string()),
+            environment: env::var("OTEL_ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
             enabled: env::var("APM_ENABLED")
                 .unwrap_or_else(|_| "true".to_string())
                 .parse()
@@ -82,17 +80,17 @@ pub struct ApmMetrics {
     pub http_request_duration: Histogram<f64>,
     pub http_request_size: Histogram<u64>,
     pub http_response_size: Histogram<u64>,
-    
+
     // Database metrics
     pub db_connections_active: Gauge<u64>,
     pub db_query_duration: Histogram<f64>,
     pub db_queries_total: Counter<u64>,
-    
+
     // Business metrics
     pub stellar_requests_total: Counter<u64>,
     pub active_users: Gauge<u64>,
     pub data_ingestion_rate: Counter<u64>,
-    
+
     // Error metrics
     pub error_total: Counter<u64>,
     pub panic_total: Counter<u64>,
@@ -110,7 +108,7 @@ impl ApmManager {
 
         // Initialize OpenTelemetry
         Self::init_tracing(&config)?;
-        
+
         let meter = global::meter("stellar-insights");
         let metrics = ApmMetrics::new(&meter);
 
@@ -135,13 +133,15 @@ impl ApmManager {
         use opentelemetry_otlp::WithExportConfig;
         use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
         use opentelemetry_sdk::Resource;
-        use tracing_opentelemetry::OpenTelemetrySpanExt;
         use tracing_subscriber::layer::SubscriberExt;
         use tracing_subscriber::util::SubscriberInitExt;
 
-        let exporter = opentelemetry_otlp::new_exporter()
-            .tonic()
-            .with_endpoint(config.otlp_endpoint.clone().unwrap_or_else(|| "http://localhost:4317".to_string()));
+        let exporter = opentelemetry_otlp::new_exporter().tonic().with_endpoint(
+            config
+                .otlp_endpoint
+                .clone()
+                .unwrap_or_else(|| "http://localhost:4317".to_string()),
+        );
 
         let tracer = opentelemetry_otlp::new_pipeline()
             .tracing()
@@ -154,7 +154,7 @@ impl ApmManager {
                         KeyValue::new("service.name", config.service_name.clone()),
                         KeyValue::new("service.version", config.service_version.clone()),
                         KeyValue::new("deployment.environment", config.environment.clone()),
-                    ]))
+                    ])),
             )
             .install_batch(opentelemetry_sdk::runtime::Tokio)?;
 
@@ -174,23 +174,25 @@ impl ApmManager {
 
     fn init_new_relic(config: &ApmConfig) -> Result<()> {
         // New Relic integration via OTLP endpoint
-        if let (Some(license_key), Some(endpoint)) = (&config.new_relic_license_key, &config.otlp_endpoint) {
+        if let (Some(license_key), Some(endpoint)) =
+            (&config.new_relic_license_key, &config.otlp_endpoint)
+        {
             info!("Initializing New Relic APM");
-            
+
             // Use New Relic's OTLP endpoint
             let nr_endpoint = format!("{}/v1/traces", endpoint.trim_end_matches('/'));
-            
+
             // Set environment variables for New Relic
             env::set_var("NEW_RELIC_LICENSE_KEY", license_key);
             env::set_var("NEW_RELIC_OTLP_ENDPOINT", &nr_endpoint);
-            
+
             // Initialize with OpenTelemetry exporter pointing to New Relic
             Self::init_opentelemetry(config)?;
         } else {
             warn!("New Relic configuration incomplete, falling back to OpenTelemetry");
             Self::init_opentelemetry(config)?;
         }
-        
+
         Ok(())
     }
 
@@ -198,21 +200,21 @@ impl ApmManager {
         // Datadog integration via OTLP endpoint
         if let (Some(api_key), Some(endpoint)) = (&config.datadog_api_key, &config.otlp_endpoint) {
             info!("Initializing Datadog APM");
-            
+
             // Use Datadog's OTLP endpoint
             let dd_endpoint = format!("{}/v1/traces", endpoint.trim_end_matches('/'));
-            
+
             // Set environment variables for Datadog
             env::set_var("DD_API_KEY", api_key);
             env::set_var("DD_OTLP_ENDPOINT", &dd_endpoint);
-            
+
             // Initialize with OpenTelemetry exporter pointing to Datadog
             Self::init_opentelemetry(config)?;
         } else {
             warn!("Datadog configuration incomplete, falling back to OpenTelemetry");
             Self::init_opentelemetry(config)?;
         }
-        
+
         Ok(())
     }
 
@@ -223,17 +225,16 @@ impl ApmManager {
 
     /// Create a custom span with attributes
     pub fn create_span(&self, name: &str, attributes: Vec<(String, String)>) -> Span {
-        use opentelemetry::trace::{Tracer, SpanKind};
-        use tracing_opentelemetry::OpenTelemetrySpanExt;
+        use opentelemetry::trace::Tracer;
 
         let tracer = global::tracer("stellar-insights");
         let mut span = tracer.start(name);
-        
+
         // Add attributes
         for (key, value) in attributes {
             span = span.with_attributes(vec![KeyValue::new(key, value)]);
         }
-        
+
         span
     }
 
@@ -244,22 +245,20 @@ impl ApmManager {
             .into_iter()
             .map(|(k, v)| KeyValue::new(k, v))
             .collect();
-        
+
         counter.add(value as u64, &attrs);
     }
 
     /// Record an error with context
     pub fn record_error(&self, error: &anyhow::Error, context: HashMap<String, String>) {
-        use opentelemetry::trace::{Status, Code};
-        
         let current_span = tracing::Span::current();
         current_span.record("error.message", error.to_string());
         current_span.record("error.type", std::any::type_name::<anyhow::Error>());
-        
+
         for (key, value) in context {
             current_span.record(&key, value);
         }
-        
+
         self.metrics.error_total.add(
             1,
             &[
@@ -287,17 +286,17 @@ impl ApmMetrics {
             http_request_duration: meter.f64_histogram("http_request_duration_seconds").init(),
             http_request_size: meter.u64_histogram("http_request_size_bytes").init(),
             http_response_size: meter.u64_histogram("http_response_size_bytes").init(),
-            
+
             // Database metrics
             db_connections_active: meter.u64_gauge("db_connections_active").init(),
             db_query_duration: meter.f64_histogram("db_query_duration_seconds").init(),
             db_queries_total: meter.u64_counter("db_queries_total").init(),
-            
+
             // Business metrics
             stellar_requests_total: meter.u64_counter("stellar_requests_total").init(),
             active_users: meter.u64_gauge("active_users").init(),
             data_ingestion_rate: meter.u64_counter("data_ingestion_rate").init(),
-            
+
             // Error metrics
             error_total: meter.u64_counter("error_total").init(),
             panic_total: meter.u64_counter("panic_total").init(),
@@ -332,7 +331,7 @@ impl NoOpCounter {
     fn new() -> Self {
         Self
     }
-    
+
     fn add(&self, _value: u64, _attributes: &[KeyValue]) {
         // No-op
     }
@@ -342,7 +341,7 @@ impl NoOpHistogram {
     fn new() -> Self {
         Self
     }
-    
+
     fn record(&self, _value: f64, _attributes: &[KeyValue]) {
         // No-op
     }
@@ -352,28 +351,9 @@ impl NoOpGauge {
     fn new() -> Self {
         Self
     }
-    
+
     fn record(&self, _value: u64, _attributes: &[KeyValue]) {
         // No-op
-    }
-}
-
-// Trait implementations for no-op metrics
-impl Counter<u64> for NoOpCounter {
-    fn add(&self, value: u64, attributes: &[KeyValue]) {
-        self.add(value, attributes);
-    }
-}
-
-impl Histogram<f64> for NoOpHistogram {
-    fn record(&self, value: f64, attributes: &[KeyValue]) {
-        self.record(value, attributes);
-    }
-}
-
-impl Gauge<u64> for NoOpGauge {
-    fn record(&self, value: u64, attributes: &[KeyValue]) {
-        self.record(value, attributes);
     }
 }
 
@@ -415,8 +395,17 @@ mod tests {
 
     #[test]
     fn test_apm_platform_from_string() {
-        assert!(matches!(ApmPlatform::from("newrelic".to_string()), ApmPlatform::NewRelic));
-        assert!(matches!(ApmPlatform::from("datadog".to_string()), ApmPlatform::Datadog));
-        assert!(matches!(ApmPlatform::from("opentelemetry".to_string()), ApmPlatform::OpenTelemetry));
+        assert!(matches!(
+            ApmPlatform::from("newrelic".to_string()),
+            ApmPlatform::NewRelic
+        ));
+        assert!(matches!(
+            ApmPlatform::from("datadog".to_string()),
+            ApmPlatform::Datadog
+        ));
+        assert!(matches!(
+            ApmPlatform::from("opentelemetry".to_string()),
+            ApmPlatform::OpenTelemetry
+        ));
     }
 }

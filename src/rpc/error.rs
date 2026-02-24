@@ -37,13 +37,8 @@ impl std::error::Error for RpcError {}
 
 impl RpcError {
     pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            RpcError::NetworkError(_)
-                | RpcError::TimeoutError(_)
-                | RpcError::RateLimitError { .. }
-                | RpcError::ServerError { status: 500..=599, .. }
-        )
+        self.is_transient()
+            || matches!(self, RpcError::ServerError { status, .. } if *status >= 500)
     }
 
     pub fn is_transient(&self) -> bool {
@@ -52,11 +47,6 @@ impl RpcError {
             RpcError::NetworkError(_) | RpcError::TimeoutError(_) | RpcError::RateLimitError { .. }
         )
     }
-
-    pub fn is_retryable(&self) -> bool {
-        self.is_transient() || matches!(self, RpcError::ServerError { status, .. } if *status >= 500)
-    }
-
 
     pub fn categorize(err: &str) -> Self {
         let lowered = err.to_ascii_lowercase();
@@ -123,7 +113,7 @@ where
 
     loop {
         attempt += 1;
-        
+
         let result = circuit_breaker.call(|| operation()).await;
 
         match result {
@@ -139,7 +129,7 @@ where
                         .saturating_mul(2u64.saturating_pow(attempt.saturating_sub(1))),
                     config.max_delay_ms,
                 );
-                
+
                 tokio::time::sleep(Duration::from_millis(delay)).await;
             }
         }
