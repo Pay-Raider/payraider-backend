@@ -1,6 +1,6 @@
 // GDPR API Handlers - HTTP endpoints for GDPR compliance
 
-use crate::error::AppError;
+use crate::error::ApiError;
 use crate::gdpr::models::*;
 use crate::gdpr::service::GdprService;
 use actix_web::{web, HttpRequest, Responder};
@@ -180,9 +180,7 @@ pub async fn cancel_deletion(
         .unwrap_or("demo-user-id-123");
 
     let request_id = path.into_inner();
-    let response = gdpr_service
-        .cancel_deletion(user_id, &request_id)
-        .await?;
+    let response = gdpr_service.cancel_deletion(user_id, &request_id).await?;
 
     Ok(web::Json(response))
 }

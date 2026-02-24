@@ -11,6 +11,7 @@ pub mod corridors;
 pub mod corridors_cached;
 pub mod cost_calculator;
 // pub mod digest;  // Commented out - depends on email module
+pub mod api_analytics;
 pub mod fee_bump;
 pub mod governance;
 pub mod liquidity_pools;
@@ -26,7 +27,6 @@ pub mod sep24_proxy;
 pub mod sep31_proxy;
 pub mod transactions;
 pub mod trustlines;
+pub mod v1;
 pub mod verification_rewards;
 pub mod webhooks;
-pub mod api_analytics;
-pub mod v1;
