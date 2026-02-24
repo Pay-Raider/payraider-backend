@@ -4,7 +4,7 @@ use axum::{
     routing::{get, put},
     Router,
 };
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -1100,7 +1100,7 @@ async fn main() -> Result<()> {
         .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
             rate_limiter.clone(),
             rate_limit_middleware,
-        )))
+        )));
 
     // Build GDPR routes (temporarily disabled)
     /*
