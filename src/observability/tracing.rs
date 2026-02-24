@@ -5,6 +5,8 @@ use opentelemetry_otlp::WithExportConfig;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{Rotation, RollingFileAppender};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use std::net::TcpStream;
+use std::io::Write;
 
 /// Default number of rotated log files to retain (e.g. 30 days when using daily rotation).
 const MAX_LOG_FILES: usize = 30;
@@ -191,11 +193,27 @@ pub fn init_tracing(service_name: &str) -> Result<Option<WorkerGuard>> {
         }
     }
 
-    if log_dir.is_some() {
-        tracing::info!(
-            "Log rotation enabled: daily rotation, max {} files retained",
-            MAX_LOG_FILES
-        );
+        tracing::info!("OpenTelemetry tracing enabled");
+    } else if log_format.eq_ignore_ascii_case("json") {
+        let subscriber = tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer().json());
+
+        if let Some(logstash) = logstash_layer {
+            subscriber.with(logstash).init();
+        } else {
+            subscriber.init();
+        }
+    } else {
+        let subscriber = tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer());
+
+        if let Some(logstash) = logstash_layer {
+            subscriber.with(logstash).init();
+        } else {
+            subscriber.init();
+        }
     }
 
     Ok(file_guard)
