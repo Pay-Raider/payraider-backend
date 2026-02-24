@@ -43,6 +43,7 @@ pub mod shutdown;
 pub mod snapshot;
 pub mod snapshot_handlers;
 pub mod state;
+pub mod validation;
 pub mod vault;
 pub mod webhooks;
 pub mod websocket;

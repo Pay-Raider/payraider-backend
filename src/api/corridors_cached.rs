@@ -18,6 +18,7 @@ use crate::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::StellarRpcClient;
 use crate::services::price_feed::PriceFeedClient;
+use crate::validation;
 use anyhow::anyhow;
 
 /// Represents an asset pair (source -> destination) for a corridor
@@ -322,6 +323,13 @@ pub async fn list_corridors(
     Query(params): Query<ListCorridorsQuery>,
     headers: HeaderMap,
 ) -> ApiResult<Response> {
+    validation::validate_corridor_filters(
+        params.success_rate_min,
+        params.success_rate_max,
+        params.volume_min,
+        params.volume_max,
+    )?;
+
     let cache_key = generate_corridor_list_cache_key(&params);
 
     let corridors = <()>::get_or_fetch(
