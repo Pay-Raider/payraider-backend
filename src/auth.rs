@@ -4,12 +4,12 @@ pub mod sep10_middleware;
 pub mod sep10_simple;
 
 use anyhow::{anyhow, Result};
+use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use redis::aio::MultiplexedConnection;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -80,7 +80,10 @@ pub struct AuthService {
 }
 
 impl AuthService {
-    pub fn new(redis_connection: Arc<RwLock<Option<MultiplexedConnection>>>, db_pool: SqlitePool) -> Self {
+    pub fn new(
+        redis_connection: Arc<RwLock<Option<MultiplexedConnection>>>,
+        db_pool: SqlitePool,
+    ) -> Self {
         let jwt_secret = std::env::var("JWT_SECRET")
             .expect("JWT_SECRET environment variable is required. Generate a cryptographically secure random key of at least 32 bytes.");
 
@@ -106,7 +109,7 @@ impl AuthService {
         }
 
         let record = sqlx::query_as::<_, UserRecord>(
-            "SELECT id, username, password_hash FROM users WHERE username = $1"
+            "SELECT id, username, password_hash FROM users WHERE username = $1",
         )
         .bind(username)
         .fetch_optional(&self.db_pool)
@@ -267,7 +270,9 @@ impl AuthService {
     /// Login flow
     pub async fn login(&self, request: LoginRequest) -> Result<LoginResponse> {
         // Authenticate user
-        let user = self.authenticate(&request.username, &request.password).await?;
+        let user = self
+            .authenticate(&request.username, &request.password)
+            .await?;
 
         // Generate tokens
         let access_token = self.generate_access_token(&user)?;
