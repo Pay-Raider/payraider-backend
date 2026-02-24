@@ -620,25 +620,12 @@ async fn main() -> Result<()> {
     .await;
     tracing::info!("Background job scheduler started");
 
-    // Initialize rate limiter
-    let rate_limiter_result = RateLimiter::new().await;
-    let rate_limiter = match rate_limiter_result {
-        Ok(limiter) => {
-            tracing::info!("Rate limiter initialized successfully");
-            Arc::new(limiter)
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Failed to initialize Redis rate limiter, creating with memory fallback: {}",
-                e
-            );
-            Arc::new(
-                RateLimiter::new()
-                    .await
-                    .unwrap_or_else(|_| panic!("Failed to create rate limiter: critical error")),
-            )
-        }
-    };
+    // Initialize rate limiter (gracefully falls back to memory-only if Redis unavailable)
+    let rate_limiter = Arc::new(
+        RateLimiter::new()
+            .await
+            .expect("Rate limiter initialization should never fail - it has built-in fallback to memory-only mode")
+    );
 
     // Configure rate limits for endpoints
     rate_limiter
