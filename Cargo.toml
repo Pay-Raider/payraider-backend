@@ -17,6 +17,11 @@ module_name_repetitions = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 
+# Panic prevention lints - enforce proper error handling
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
 [features]
 legacy_sep10_tests = []
 
@@ -45,13 +50,18 @@ dotenvy = "0.15"
 sha2 = "0.10"
 hex = "0.4"
 toml = "0.8"
-sprometheus = "0.13"
+prometheus = "0.13"
 md5 = "0.7"
 ipnetwork = "0.20"
+rand = "0.8"
+utoipa = { version = "0.27", features = ["axum"] }
+utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 
-[dependencies.stellar-insights-apm]
-path = "apm"
+# [dependencies.stellar-insights-apm]
+# path = "apm"
+# Note: APM module has compatibility issues, disabling for now
 
 [dev-dependencies]
 urlencoding = "2.1"
 tempfile = "3.0"
+
