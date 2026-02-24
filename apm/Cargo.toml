@@ -7,10 +7,9 @@ authors = ["Stellar Insights Team"]
 
 [dependencies]
 # OpenTelemetry core
-opentelemetry = { version = "0.21", features = ["trace"] }
-opentelemetry_sdk = { version = "0.21", features = ["rt-tokio", "trace"] }
-opentelemetry-jaeger = { version = "0.20", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.14", features = ["trace", "metrics", "logs"] }
+opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio", "trace", "metrics"] }
+opentelemetry-otlp = { version = "0.14", features = ["trace", "metrics", "logs", "grpc-tonic"] }
 opentelemetry-semantic-conventions = "0.13"
 
 main
@@ -19,9 +18,9 @@ tracing = "0.1"
 tracing-opentelemetry = "0.22"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# Metrics
-opentelemetry-prometheus = "0.14"
-prometheus = "0.13"
+# Axum for middleware
+axum = "0.7"
+tower = "0.4"
 
 # HTTP client for APM endpoints
 reqwest = { version = "0.12", features = ["json"] }
@@ -36,6 +35,9 @@ thiserror = "1.0"
 # Configuration
 dotenvy = "0.15"
 uuid = { version = "1.0", features = ["v4"] }
+
+# Redis for distributed tracing context
+redis = { version = "0.25", features = ["aio", "tokio-comp"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
