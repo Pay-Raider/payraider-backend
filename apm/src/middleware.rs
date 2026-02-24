@@ -1,16 +1,16 @@
-use std::time::Instant;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::{
     extract::{Request, State},
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     middleware::Next,
     response::Response,
 };
 use opentelemetry::global;
-use opentelemetry::trace::{Span, Tracer, SpanKind, TraceContextExt};
-use opentelemetry::{KeyValue, Context};
-use tracing::{info, warn, error};
+use opentelemetry::trace::{Span, SpanKind, Tracer};
+use opentelemetry::{Context, KeyValue};
+use tracing::{error, info, warn};
 
 use crate::apm::ApmManager;
 
@@ -121,9 +121,14 @@ impl ApmMiddleware {
         }
 
         // Add attributes to span
-        span.set_attribute(KeyValue::new("http.status_code", status_code_value.to_string()));
-        span.set_attribute(KeyValue::new("http.status_text", status_code.canonical_reason().unwrap_or("unknown")));
-        span.set_attribute(KeyValue::new("http.response_time_ms", duration.as_millis() as i64));
+        span.set_attributes(vec![
+            KeyValue::new("http.status_code", status_code_value.to_string()),
+            KeyValue::new(
+                "http.status_text",
+                status_code.canonical_reason().unwrap_or("unknown"),
+            ),
+            KeyValue::new("http.response_time_ms", duration.as_millis() as i64),
+        ]);
 
         // Set span status based on HTTP status
         if status_code.is_server_error() {
@@ -234,10 +239,14 @@ impl ApmMiddleware {
                     error = %e,
                     "Database operation failed"
                 );
-                apm.record_error(e, std::collections::HashMap::from([
-                    ("operation".to_string(), operation.to_string()),
-                    ("table".to_string(), table.unwrap_or("unknown").to_string()),
-                ]));
+                span.set_status(opentelemetry::trace::Status::error(e.to_string()));
+                apm.record_error(
+                    e,
+                    std::collections::HashMap::from([
+                        ("operation".to_string(), operation.to_string()),
+                        ("table".to_string(), table.unwrap_or("unknown").to_string()),
+                    ]),
+                );
             }
         }
 
@@ -302,10 +311,14 @@ impl ApmMiddleware {
                     error = %e,
                     "Stellar RPC operation failed"
                 );
-                apm.record_error(e, std::collections::HashMap::from([
-                    ("operation".to_string(), operation.to_string()),
-                    ("endpoint".to_string(), endpoint.to_string()),
-                ]));
+                span.set_status(opentelemetry::trace::Status::error(e.to_string()));
+                apm.record_error(
+                    e,
+                    std::collections::HashMap::from([
+                        ("operation".to_string(), operation.to_string()),
+                        ("endpoint".to_string(), endpoint.to_string()),
+                    ]),
+                );
             }
         }
 
@@ -360,10 +373,14 @@ impl ApmMiddleware {
                     error = %e,
                     "Background job failed"
                 );
-                apm.record_error(e, std::collections::HashMap::from([
-                    ("job_name".to_string(), job_name.to_string()),
-                    ("job_type".to_string(), job_type.to_string()),
-                ]));
+                span.set_status(opentelemetry::trace::Status::error(e.to_string()));
+                apm.record_error(
+                    e,
+                    std::collections::HashMap::from([
+                        ("job_name".to_string(), job_name.to_string()),
+                        ("job_type".to_string(), job_type.to_string()),
+                    ]),
+                );
             }
         }
 
@@ -387,11 +404,9 @@ fn extract_trace_context(headers: &HeaderMap) -> Option<String> {
 
 /// Get host name for tracing
 fn get_host_name() -> String {
-    std::env::var("HOSTNAME")
-        .unwrap_or_else(|_| {
-            std::env::var("COMPUTERNAME")
-                .unwrap_or_else(|_| "localhost".to_string())
-        })
+    std::env::var("HOSTNAME").unwrap_or_else(|_| {
+        std::env::var("COMPUTERNAME").unwrap_or_else(|_| "localhost".to_string())
+    })
 }
 
 /// Helper trait for adding APM context to requests
@@ -457,10 +472,8 @@ mod tests {
     #[tokio::test]
     async fn test_http_request_tracking() {
         let config = crate::ApmConfig::default();
-        let apm = Arc::new(crate::ApmManager::new(config).unwrap_or_else(|_| {
-            panic!("Failed to create APM manager")
-        }));
-        
+        let apm = Arc::new(crate::ApmManager::new(config).unwrap());
+
         let app = Router::new()
             .layer(axum::middleware::from_fn_with_state(
                 apm.clone(),
