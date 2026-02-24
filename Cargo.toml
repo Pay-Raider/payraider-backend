@@ -17,6 +17,11 @@ module_name_repetitions = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 
+# Panic prevention lints - enforce proper error handling
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
 [features]
 legacy_sep10_tests = []
 
@@ -88,3 +93,4 @@ optional = true
 [dev-dependencies]
 urlencoding = "2.1"
 tempfile = "3.0"
+
