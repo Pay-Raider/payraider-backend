@@ -51,7 +51,7 @@ use stellar_insights_backend::monitor::CorridorMonitor;
 use stellar_insights_backend::network::NetworkConfig;
 use stellar_insights_backend::observability::{metrics as obs_metrics, tracing as obs_tracing};
 use stellar_insights_backend::openapi::ApiDoc;
-use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
+use stellar_insights_backend::rate_limit::{rate_limit_middleware, ClientRateLimits, RateLimitConfig, RateLimiter};
 use stellar_insights_backend::request_id::request_id_middleware;
 use stellar_insights_backend::rpc::StellarRpcClient;
 use stellar_insights_backend::rpc_handlers;
@@ -619,11 +619,11 @@ async fn main() -> Result<()> {
     .await;
     tracing::info!("Background job scheduler started");
 
-    // Initialize rate limiter
-    let rate_limiter_result = RateLimiter::new().await;
+    // Initialize rate limiter with database support for API key validation
+    let rate_limiter_result = RateLimiter::new_with_db(Some(pool.clone())).await;
     let rate_limiter = match rate_limiter_result {
         Ok(limiter) => {
-            tracing::info!("Rate limiter initialized successfully");
+            tracing::info!("Rate limiter initialized successfully with database support");
             Arc::new(limiter)
         }
         Err(e) => {
@@ -632,20 +632,25 @@ async fn main() -> Result<()> {
                 e
             );
             Arc::new(
-                RateLimiter::new()
+                RateLimiter::new_with_db(Some(pool.clone()))
                     .await
                     .unwrap_or_else(|_| panic!("Failed to create rate limiter: critical error")),
             )
         }
     };
 
-    // Configure rate limits for endpoints
+    // Configure rate limits for endpoints with per-client tiers
     rate_limiter
         .register_endpoint(
             "/health".to_string(),
             RateLimitConfig {
                 requests_per_minute: 1000,
                 whitelist_ips: vec!["127.0.0.1".to_string()],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 1000,
+                    premium: 5000,
+                    anonymous: 1000,
+                }),
             },
         )
         .await;
@@ -656,6 +661,11 @@ async fn main() -> Result<()> {
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 200,
+                    premium: 1000,
+                    anonymous: 60,
+                }),
             },
         )
         .await;
@@ -666,6 +676,11 @@ async fn main() -> Result<()> {
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 200,
+                    premium: 1000,
+                    anonymous: 60,
+                }),
             },
         )
         .await;
@@ -676,6 +691,11 @@ async fn main() -> Result<()> {
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 300,
+                    premium: 2000,
+                    anonymous: 50,
+                }),
             },
         )
         .await;
@@ -686,6 +706,11 @@ async fn main() -> Result<()> {
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 300,
+                    premium: 2000,
+                    anonymous: 50,
+                }),
             },
         )
         .await;
@@ -696,6 +721,11 @@ async fn main() -> Result<()> {
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 200,
+                    premium: 1000,
+                    anonymous: 60,
+                }),
             },
         )
         .await;
@@ -706,6 +736,11 @@ async fn main() -> Result<()> {
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 300,
+                    premium: 1500,
+                    anonymous: 60,
+                }),
             },
         )
         .await;
@@ -716,6 +751,11 @@ async fn main() -> Result<()> {
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 200,
+                    premium: 1000,
+                    anonymous: 60,
+                }),
             },
         )
         .await;
@@ -726,6 +766,11 @@ async fn main() -> Result<()> {
             RateLimitConfig {
                 requests_per_minute: 100,
                 whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 200,
+                    premium: 1000,
+                    anonymous: 60,
+                }),
             },
         )
         .await;
