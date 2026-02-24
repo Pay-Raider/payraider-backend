@@ -52,5 +52,7 @@ pub mod rpc;
 pub mod rpc_handlers;
 pub mod telegram;
 
+pub mod request_id;
+
 #[cfg(test)]
 mod ml_tests;

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use axum::{
+    routing::{get, post, put},
     http::Method,
     routing::{get, put},
     Router,
@@ -13,6 +14,10 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use async_graphql::http::{GraphiQLSource, playground_source};
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
+use axum::response::{Html, IntoResponse};
+use axum::extract::State;
 
 use stellar_insights_backend::alerts::AlertManager;
 use stellar_insights_backend::api::account_merges;
@@ -33,6 +38,8 @@ use stellar_insights_backend::auth_middleware::auth_middleware;
 use stellar_insights_backend::cache::{CacheConfig, CacheManager};
 use stellar_insights_backend::cache_invalidation::CacheInvalidationService;
 use stellar_insights_backend::database::Database;
+use stellar_insights_backend::graphql::{build_schema, AppSchema};
+use stellar_insights_backend::gdpr::{GdprService, handlers as gdpr_handlers};
 // use stellar_insights_backend::gdpr::{GdprService, handlers as gdpr_handlers};
 use stellar_insights_backend::handlers::*;
 use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
@@ -1008,6 +1015,30 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build GraphQL schema
+    let graphql_schema = build_schema(Arc::new(pool.clone()));
+    tracing::info!("GraphQL schema initialized");
+
+    // GraphQL handler
+    async fn graphql_handler(
+        State(schema): State<AppSchema>,
+        req: GraphQLRequest,
+    ) -> GraphQLResponse {
+        schema.execute(req.into_inner()).await.into()
+    }
+
+    // GraphQL Playground handler
+    async fn graphql_playground() -> impl IntoResponse {
+        Html(playground_source(
+            async_graphql::http::GraphQLPlaygroundConfig::new("/graphql"),
+        ))
+    }
+
+    // Build GraphQL routes
+    let graphql_routes = Router::new()
+        .route("/graphql", post(graphql_handler))
+        .route("/graphql/playground", get(graphql_playground))
+        .with_state(graphql_schema)
     // Build achievements / quests routes
     let achievements_routes = Router::new()
         .nest(
@@ -1193,6 +1224,8 @@ async fn main() -> Result<()> {
         .merge(network_routes)
         .merge(api_analytics_routes)
         .merge(cache_routes)
+        .merge(metrics_routes)
+        .merge(graphql_routes); // Add GraphQL routes
         .merge(admin_db_routes)
         .merge(metrics_routes)
         .merge(verification_routes)
@@ -1215,6 +1248,7 @@ async fn main() -> Result<()> {
     let addr = format!("{}:{}", host, port);
 
     tracing::info!("Server starting on {}", addr);
+    tracing::info!("GraphQL Playground available at http://{}/graphql/playground", addr);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     // Clone resources needed for shutdown
@@ -1242,6 +1276,22 @@ async fn main() -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
+    .await?;
+
+    Ok(())
+}
+
+// Build trustline routes
+let trustline_routes = Router::new()
+    .nest(
+        "/api/trustlines",
+        stellar_insights_backend::api::trustlines::routes(Arc::clone(&trustline_analyzer)),
+    )
+    .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+        rate_limiter.clone(),
+        rate_limit_middleware,
+    )))
+    .layer(cors.clone());
     .with_graceful_shutdown(shutdown_signal);
 
     tracing::info!("Server is ready to accept connections");
