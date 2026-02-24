@@ -2,6 +2,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 use tracing_logstash::Layer as LogstashLayer;
 use std::net::SocketAddr;
 
+/// Initializes logging to stdout only. No file output or rotation.
 /// Initialize logging with Logstash integration
 pub fn init_logging() -> anyhow::Result<()> {
     let env_filter = EnvFilter::try_from_default_env()
