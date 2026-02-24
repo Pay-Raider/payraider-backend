@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use axum::{
+    routing::{get, post, put},
     http::Method,
     routing::{get, put},
     Router,
@@ -13,7 +14,12 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use async_graphql::http::{GraphiQLSource, playground_source};
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
+use axum::response::{Html, IntoResponse};
+use axum::extract::State;
 
+use stellar_insights_backend::alerts::AlertManager;
 use stellar_insights_backend::api::account_merges;
 use stellar_insights_backend::api::anchors_cached::get_anchors;
 use stellar_insights_backend::api::api_analytics;
@@ -33,14 +39,20 @@ use stellar_insights_backend::auth_middleware::auth_middleware;
 use stellar_insights_backend::cache::{CacheConfig, CacheManager};
 use stellar_insights_backend::cache_invalidation::CacheInvalidationService;
 use stellar_insights_backend::database::Database;
+use stellar_insights_backend::graphql::{build_schema, AppSchema};
 use stellar_insights_backend::gdpr::{GdprService, handlers as gdpr_handlers};
+// use stellar_insights_backend::gdpr::{GdprService, handlers as gdpr_handlers};
 use stellar_insights_backend::handlers::*;
 use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
 use stellar_insights_backend::ingestion::DataIngestionService;
+use stellar_insights_backend::ip_whitelist_middleware::{
+    ip_whitelist_middleware, IpWhitelistConfig,
+};
 use stellar_insights_backend::jobs::JobScheduler;
+use stellar_insights_backend::monitor::CorridorMonitor;
 use stellar_insights_backend::network::NetworkConfig;
-use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::observability::{metrics as obs_metrics, tracing as obs_tracing};
+use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
 use stellar_insights_backend::request_id::request_id_middleware;
 use stellar_insights_backend::rpc::StellarRpcClient;
@@ -54,14 +66,12 @@ use stellar_insights_backend::services::price_feed::{
 use stellar_insights_backend::services::realtime_broadcaster::RealtimeBroadcaster;
 use stellar_insights_backend::services::trustline_analyzer::TrustlineAnalyzer;
 use stellar_insights_backend::services::webhook_dispatcher::WebhookDispatcher;
-use stellar_insights_backend::alerts::AlertManager;
-use stellar_insights_backend::monitor::CorridorMonitor;
-use stellar_insights_backend::telegram;
 use stellar_insights_backend::shutdown::{
     flush_cache, log_shutdown_summary, shutdown_background_tasks, shutdown_database,
     shutdown_websockets, wait_for_signal, ShutdownConfig, ShutdownCoordinator,
 };
 use stellar_insights_backend::state::AppState;
+use stellar_insights_backend::telegram;
 use stellar_insights_backend::vault;
 use stellar_insights_backend::websocket::WsState;
 
@@ -105,7 +115,11 @@ async fn main() -> Result<()> {
         database_url.clone()
     } else if let Some(at_pos) = database_url.rfind('@') {
         if let Some(scheme_end) = database_url.find("://") {
-            format!("{}****@{}", &database_url[..scheme_end + 3], &database_url[at_pos + 1..])
+            format!(
+                "{}****@{}",
+                &database_url[..scheme_end + 3],
+                &database_url[at_pos + 1..]
+            )
         } else {
             "[REDACTED]".to_string()
         }
@@ -319,6 +333,24 @@ async fn main() -> Result<()> {
 
     // Initialize SEP-10 Service for Stellar authentication
     let sep10_redis_connection = Arc::new(tokio::sync::RwLock::new(auth_redis_connection));
+    
+    // Get and validate SEP-10 server public key (required for security)
+    let sep10_server_key = std::env::var("SEP10_SERVER_PUBLIC_KEY")
+        .context("SEP10_SERVER_PUBLIC_KEY environment variable is required for authentication")?;
+    
+    // Additional validation: ensure it's not the placeholder value
+    if sep10_server_key == "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" {
+        anyhow::bail!(
+            "SEP10_SERVER_PUBLIC_KEY is set to placeholder value. \
+             Please generate a valid Stellar keypair using: stellar keys generate --network testnet"
+        );
+    }
+    
+    tracing::info!(
+        "SEP-10 authentication enabled with server key: {}...",
+        &sep10_server_key[..8]
+    );
+    
     let sep10_service = Arc::new(
         stellar_insights_backend::auth::sep10_simple::Sep10Service::new(
             std::env::var("SEP10_SERVER_PUBLIC_KEY").unwrap_or_else(|_| {
@@ -329,9 +361,9 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| "stellar-insights.local".to_string()),
             sep10_redis_connection,
         )
-        .expect("Failed to initialize SEP-10 service"),
+        .context("Failed to initialize SEP-10 service")?,
     );
-    tracing::info!("SEP-10 service initialized");
+    tracing::info!("SEP-10 service initialized successfully");
 
     // Initialize Verification Rewards Service
     let verification_rewards_service = Arc::new(
@@ -348,8 +380,8 @@ async fn main() -> Result<()> {
     tracing::info!("Governance service initialized");
 
     // Initialize GDPR Service
-    let gdpr_service = Arc::new(GdprService::new(pool.clone()));
-    tracing::info!("GDPR service initialized");
+    // let gdpr_service = Arc::new(GdprService::new(pool.clone()));
+    // tracing::info!("GDPR service initialized");
 
     // ML Retraining task (commented out)
     /*
@@ -521,7 +553,6 @@ async fn main() -> Result<()> {
     // Start Webhook Dispatcher background task
     let shutdown_rx6 = shutdown_coordinator.subscribe();
     let task = tokio::spawn(async move {
-
         let mut shutdown_rx = shutdown_rx6;
         tokio::select! {
             result = webhook_dispatcher.run() => {
@@ -701,6 +732,28 @@ async fn main() -> Result<()> {
         )
         .await;
 
+    // Initialize IP whitelist configuration for admin endpoints
+    let ip_whitelist_config = match IpWhitelistConfig::from_env() {
+        Ok(config) => {
+            tracing::info!(
+                "IP whitelist initialized: {} network(s) configured, trust_proxy={}",
+                config.allowed_networks.len(),
+                config.trust_proxy
+            );
+            Arc::new(config)
+        }
+        Err(e) => {
+            tracing::error!("Failed to initialize IP whitelist configuration: {}", e);
+            tracing::error!("Admin endpoints will be INACCESSIBLE until ADMIN_IP_WHITELIST is properly configured");
+            // Create a restrictive default that blocks everything
+            Arc::new(IpWhitelistConfig {
+                allowed_networks: Arc::new(vec![]),
+                trust_proxy: false,
+                max_forwarded_ips: 3,
+            })
+        }
+    };
+
     // CORS configuration
     // Read comma-separated allowed origins from env.
     // Use "*" to allow all origins (development only).
@@ -801,7 +854,6 @@ async fn main() -> Result<()> {
     // Build non-cached anchor routes with app state
     let anchor_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/api/db/pool-metrics", get(pool_metrics))
         .route("/api/anchors/:id", get(get_anchor))
         .route(
             "/api/anchors/account/:stellar_account",
@@ -856,8 +908,7 @@ async fn main() -> Result<()> {
         )
         .layer(cors.clone());
 
-    // Build cache stats and metrics routes
-    let cache_routes = cache_stats::routes(Arc::clone(&cache));
+    // Build metrics routes (public)
     let metrics_routes = metrics_cached::routes(Arc::clone(&cache));
 
     // Build RPC router
@@ -965,6 +1016,30 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build GraphQL schema
+    let graphql_schema = build_schema(Arc::new(pool.clone()));
+    tracing::info!("GraphQL schema initialized");
+
+    // GraphQL handler
+    async fn graphql_handler(
+        State(schema): State<AppSchema>,
+        req: GraphQLRequest,
+    ) -> GraphQLResponse {
+        schema.execute(req.into_inner()).await.into()
+    }
+
+    // GraphQL Playground handler
+    async fn graphql_playground() -> impl IntoResponse {
+        Html(playground_source(
+            async_graphql::http::GraphQLPlaygroundConfig::new("/graphql"),
+        ))
+    }
+
+    // Build GraphQL routes
+    let graphql_routes = Router::new()
+        .route("/graphql", post(graphql_handler))
+        .route("/graphql/playground", get(graphql_playground))
+        .with_state(graphql_schema)
     // Build achievements / quests routes
     let achievements_routes = Router::new()
         .nest(
@@ -977,8 +1052,55 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
-    // Build API analytics routes
-    let api_analytics_routes = api_analytics::routes(db.clone());
+    // Build API analytics routes (ADMIN - IP whitelisted)
+    let api_analytics_routes = Router::new()
+        .merge(api_analytics::routes(db.clone()))
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    ip_whitelist_config.clone(),
+                    ip_whitelist_middleware,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                )),
+        )
+        .layer(cors.clone());
+
+    // Build cache stats routes (ADMIN - IP whitelisted)
+    let cache_routes = Router::new()
+        .merge(cache_stats::routes(Arc::clone(&cache)))
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    ip_whitelist_config.clone(),
+                    ip_whitelist_middleware,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                )),
+        )
+        .layer(cors.clone());
+
+    // Build pool metrics route (ADMIN - IP whitelisted)
+    let admin_db_routes = Router::new()
+        .route("/api/db/pool-metrics", get(pool_metrics))
+        .with_state(app_state.clone())
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    ip_whitelist_config.clone(),
+                    ip_whitelist_middleware,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    rate_limiter.clone(),
+                    rate_limit_middleware,
+                )),
+        )
+        .layer(cors.clone());
+
     // Build governance routes
     let governance_routes = Router::new()
         .nest(
@@ -1027,23 +1149,52 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
-    // Build GDPR routes
+    // Build GDPR routes (temporarily disabled)
+    /*
     let gdpr_routes = Router::new()
         .route("/api/gdpr/consents", get(gdpr_handlers::get_consents))
         .route("/api/gdpr/consents", put(gdpr_handlers::update_consent))
-        .route("/api/gdpr/consents/batch", put(gdpr_handlers::batch_update_consents))
+        .route(
+            "/api/gdpr/consents/batch",
+            put(gdpr_handlers::batch_update_consents),
+        )
         .route("/api/gdpr/export", get(gdpr_handlers::get_export_requests))
-        .route("/api/gdpr/export", post(gdpr_handlers::create_export_request))
-        .route("/api/gdpr/export/:id", get(gdpr_handlers::get_export_request))
-        .route("/api/gdpr/export-types", get(gdpr_handlers::get_exportable_types))
-        .route("/api/gdpr/deletion", get(gdpr_handlers::get_deletion_requests))
-        .route("/api/gdpr/deletion", post(gdpr_handlers::create_deletion_request))
-        .route("/api/gdpr/deletion/:id", get(gdpr_handlers::get_deletion_request))
-        .route("/api/gdpr/deletion/:id/cancel", post(gdpr_handlers::cancel_deletion))
-        .route("/api/gdpr/deletion/confirm", post(gdpr_handlers::confirm_deletion))
+        .route(
+            "/api/gdpr/export",
+            post(gdpr_handlers::create_export_request),
+        )
+        .route(
+            "/api/gdpr/export/:id",
+            get(gdpr_handlers::get_export_request),
+        )
+        .route(
+            "/api/gdpr/export-types",
+            get(gdpr_handlers::get_exportable_types),
+        )
+        .route(
+            "/api/gdpr/deletion",
+            get(gdpr_handlers::get_deletion_requests),
+        )
+        .route(
+            "/api/gdpr/deletion",
+            post(gdpr_handlers::create_deletion_request),
+        )
+        .route(
+            "/api/gdpr/deletion/:id",
+            get(gdpr_handlers::get_deletion_request),
+        )
+        .route(
+            "/api/gdpr/deletion/:id/cancel",
+            post(gdpr_handlers::cancel_deletion),
+        )
+        .route(
+            "/api/gdpr/deletion/confirm",
+            post(gdpr_handlers::confirm_deletion),
+        )
         .route("/api/gdpr/summary", get(gdpr_handlers::get_gdpr_summary))
         .with_state(Arc::clone(&gdpr_service))
         .layer(cors.clone());
+    */
 
     // Merge routers
     let swagger_routes =
@@ -1056,11 +1207,12 @@ async fn main() -> Result<()> {
         .layer(cors.clone());
 
     let alert_ws_routes = Router::new()
-        .route("/ws/alerts", get(stellar_insights_backend::alert_handlers::alert_websocket_handler))
+        .route(
+            "/ws/alerts",
+            get(stellar_insights_backend::alert_handlers::alert_websocket_handler),
+        )
         .with_state(Arc::clone(&alert_manager))
         .layer(cors.clone());
-
-
 
     let app = Router::new()
         .route("/metrics", get(obs_metrics::metrics_handler))
@@ -1084,13 +1236,14 @@ async fn main() -> Result<()> {
         .merge(api_analytics_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
+        .merge(graphql_routes) // Add GraphQL routes
+        .merge(admin_db_routes)
         .merge(verification_routes)
         .merge(asset_verification_routes)
-        .merge(gdpr_routes)
+        // .merge(gdpr_routes)
         .merge(api_key_routes)
         .merge(ws_routes)
         .merge(alert_ws_routes)
-
         .layer(middleware::from_fn_with_state(
             db.clone(),
             stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
@@ -1106,6 +1259,7 @@ async fn main() -> Result<()> {
     let addr = format!("{}:{}", host, port);
 
     tracing::info!("Server starting on {}", addr);
+    tracing::info!("GraphQL Playground available at http://{}/graphql/playground", addr);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     // Clone resources needed for shutdown
@@ -1133,6 +1287,22 @@ async fn main() -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
+    .await?;
+
+    Ok(())
+}
+
+// Build trustline routes
+let trustline_routes = Router::new()
+    .nest(
+        "/api/trustlines",
+        stellar_insights_backend::api::trustlines::routes(Arc::clone(&trustline_analyzer)),
+    )
+    .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+        rate_limiter.clone(),
+        rate_limit_middleware,
+    )))
+    .layer(cors.clone());
     .with_graceful_shutdown(shutdown_signal);
 
     tracing::info!("Server is ready to accept connections");

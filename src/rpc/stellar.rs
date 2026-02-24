@@ -1,9 +1,9 @@
 use crate::network::{NetworkConfig, StellarNetwork};
+use crate::rpc::circuit_breaker::CircuitBreaker;
 use crate::rpc::config::{
     circuit_breaker_config_from_env, initial_backoff_from_env, max_backoff_from_env,
     max_retries_from_env,
 };
-use crate::rpc::circuit_breaker::CircuitBreaker;
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::metrics;
 use crate::rpc::rate_limiter::{RpcRateLimitConfig, RpcRateLimitMetrics, RpcRateLimiter};
@@ -72,7 +72,6 @@ pub struct StellarRpcClient {
     rate_limiter: RpcRateLimiter,
     circuit_breaker: Arc<CircuitBreaker>,
     /// Maximum records per single request (default: 200)
-
     max_records_per_request: u32,
     /// Maximum total records across all paginated requests (default: 10000)
     max_total_records: u32,
@@ -129,6 +128,43 @@ pub struct LedgerInfo {
     pub base_reserve: String,
 }
 
+/// Represents a single asset balance change from the new Horizon API format.
+///
+/// The new Horizon response for Soroban-compatible payments includes an
+/// `asset_balance_changes` array instead of top-level destination / amount /
+/// asset_code fields.  Each entry describes one leg of a transfer.
+///
+/// Example JSON:
+/// ```json
+/// {
+///   "asset_type": "credit_alphanum4",
+///   "asset_code": "USDC",
+///   "asset_issuer": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+///   "type": "transfer",
+///   "from": "GXXXXXXX...",
+///   "to": "GDYYYYYY...",
+///   "amount": "100.0000000"
+/// }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetBalanceChange {
+    /// The Stellar asset type (native, credit_alphanum4, credit_alphanum12)
+    pub asset_type: String,
+    /// Asset code – `None` for native XLM
+    pub asset_code: Option<String>,
+    /// Asset issuer – `None` for native XLM
+    pub asset_issuer: Option<String>,
+    /// The kind of balance change (e.g. "transfer")
+    #[serde(rename = "type")]
+    pub change_type: String,
+    /// Source account of this balance change
+    pub from: Option<String>,
+    /// Destination account of this balance change
+    pub to: Option<String>,
+    /// Amount transferred in stroops-string format (e.g. "100.0000000")
+    pub amount: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Payment {
     pub id: String,
@@ -154,6 +190,59 @@ pub struct Payment {
     pub from: Option<String>,
     // For regular payments, 'to' field
     pub to: Option<String>,
+    /// New Horizon API format: Soroban-compatible asset balance changes.
+    /// When present the traditional top-level fields may be empty; callers
+    /// should use the `get_*` helper methods which transparently check both.
+    #[serde(default)]
+    pub asset_balance_changes: Option<Vec<AssetBalanceChange>>,
+}
+
+impl Payment {
+    /// Returns the destination account, checking the new `asset_balance_changes`
+    /// format first, then falling back to the legacy `destination` / `to` fields.
+    pub fn get_destination(&self) -> Option<String> {
+        if let Some(ref changes) = self.asset_balance_changes {
+            if let Some(change) = changes.first() {
+                if let Some(ref to) = change.to {
+                    return Some(to.clone());
+                }
+            }
+        }
+        if !self.destination.is_empty() {
+            return Some(self.destination.clone());
+        }
+        self.to.clone()
+    }
+
+    /// Returns the transfer amount, preferring `asset_balance_changes`.
+    pub fn get_amount(&self) -> String {
+        if let Some(ref changes) = self.asset_balance_changes {
+            if let Some(change) = changes.first() {
+                return change.amount.clone();
+            }
+        }
+        self.amount.clone()
+    }
+
+    /// Returns the asset code, preferring `asset_balance_changes`.
+    pub fn get_asset_code(&self) -> Option<String> {
+        if let Some(ref changes) = self.asset_balance_changes {
+            if let Some(change) = changes.first() {
+                return change.asset_code.clone();
+            }
+        }
+        self.asset_code.clone()
+    }
+
+    /// Returns the asset issuer, preferring `asset_balance_changes`.
+    pub fn get_asset_issuer(&self) -> Option<String> {
+        if let Some(ref changes) = self.asset_balance_changes {
+            if let Some(change) = changes.first() {
+                return change.asset_issuer.clone();
+            }
+        }
+        self.asset_issuer.clone()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -356,7 +445,10 @@ async fn map_response_error(response: reqwest::Response) -> RpcError {
         .get("Retry-After")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok());
-    let body = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|_| "Unknown error".to_string());
     status_to_rpc_error(status, body, retry_after)
 }
 
@@ -377,7 +469,7 @@ impl StellarRpcClient {
             .build()
             .expect("Failed to build HTTP client");
         let rate_limiter = RpcRateLimiter::new(RpcRateLimitConfig::from_env());
-        
+
         // Determine network based on URLs
         let network = if horizon_url.contains("testnet") {
             StellarNetwork::Testnet
@@ -509,7 +601,6 @@ impl StellarRpcClient {
         };
 
         with_retry(operation, retry_config, self.circuit_breaker.clone()).await
-
     }
 
     /// Check the health of the RPC endpoint
@@ -520,7 +611,9 @@ impl StellarRpcClient {
 
         info!("Checking RPC health at {}", self.rpc_url);
 
-        let result = self.execute_with_retry(|| self.check_health_internal()).await;
+        let result = self
+            .execute_with_retry(|| self.check_health_internal())
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -570,7 +663,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_ledger_info());
         }
 
-        let result = self.execute_with_retry(|| self.fetch_latest_ledger_internal()).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_latest_ledger_internal())
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -580,7 +675,12 @@ impl StellarRpcClient {
 
     async fn fetch_latest_ledger_internal(&self) -> Result<LedgerInfo, RpcError> {
         let url = format!("{}/ledgers?order=desc&limit=1", self.horizon_url);
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -613,7 +713,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_get_ledgers(start, limit));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_ledgers_internal(start_ledger, limit, cursor)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_ledgers_internal(start_ledger, limit, cursor))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -671,14 +773,20 @@ impl StellarRpcClient {
     }
 
     /// Fetch recent payments
-    pub async fn fetch_payments(&self, limit: u32, cursor: Option<&str>) -> Result<Vec<Payment>, RpcError> {
+    pub async fn fetch_payments(
+        &self,
+        limit: u32,
+        cursor: Option<&str>,
+    ) -> Result<Vec<Payment>, RpcError> {
         if self.mock_mode {
             return Ok(Self::mock_payments(limit));
         }
 
         info!("Fetching {} payments from Horizon API", limit);
 
-        let result = self.execute_with_retry(|| self.fetch_payments_internal(limit, cursor)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_payments_internal(limit, cursor))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -695,7 +803,12 @@ impl StellarRpcClient {
         if let Some(c) = cursor {
             url.push_str(&format!("&cursor={}", c));
         }
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -710,12 +823,18 @@ impl StellarRpcClient {
     }
 
     /// Fetch recent trades
-    pub async fn fetch_trades(&self, limit: u32, cursor: Option<&str>) -> Result<Vec<Trade>, RpcError> {
+    pub async fn fetch_trades(
+        &self,
+        limit: u32,
+        cursor: Option<&str>,
+    ) -> Result<Vec<Trade>, RpcError> {
         if self.mock_mode {
             return Ok(Self::mock_trades(limit));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_trades_internal(limit, cursor)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_trades_internal(limit, cursor))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -732,7 +851,12 @@ impl StellarRpcClient {
         if let Some(c) = cursor {
             url.push_str(&format!("&cursor={}", c));
         }
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -757,7 +881,11 @@ impl StellarRpcClient {
             return Ok(Self::mock_order_book(selling_asset, buying_asset));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_order_book_internal(selling_asset, buying_asset, limit)).await;
+        let result = self
+            .execute_with_retry(|| {
+                self.fetch_order_book_internal(selling_asset, buying_asset, limit)
+            })
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -771,13 +899,20 @@ impl StellarRpcClient {
         buying_asset: &Asset,
         limit: u32,
     ) -> Result<OrderBook, RpcError> {
-        let selling_params = Self::asset_to_query_params("selling", selling_asset);
-        let buying_params = Self::asset_to_query_params("buying", buying_asset);
+        let selling_params = Self::asset_to_query_params("selling", selling_asset)
+            .map_err(|e| RpcError::ParseError(e.to_string()))?;
+        let buying_params = Self::asset_to_query_params("buying", buying_asset)
+            .map_err(|e| RpcError::ParseError(e.to_string()))?;
         let url = format!(
             "{}/order_book?{}&{}&limit={}",
             self.horizon_url, selling_params, buying_params, limit
         );
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -792,7 +927,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_payments(5));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_payments_for_ledger_internal(sequence)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_payments_for_ledger_internal(sequence))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -804,8 +941,16 @@ impl StellarRpcClient {
         &self,
         sequence: u64,
     ) -> Result<Vec<Payment>, RpcError> {
-        let url = format!("{}/ledgers/{}/payments?limit=200", self.horizon_url, sequence);
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let url = format!(
+            "{}/ledgers/{}/payments?limit=200",
+            self.horizon_url, sequence
+        );
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -828,7 +973,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_transactions(5, sequence));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_transactions_for_ledger_internal(sequence)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_transactions_for_ledger_internal(sequence))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -844,7 +991,12 @@ impl StellarRpcClient {
             "{}/ledgers/{}/transactions?limit=200&include_failed=true",
             self.horizon_url, sequence
         );
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -867,7 +1019,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_operations_for_ledger(sequence));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_operations_for_ledger_internal(sequence)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_operations_for_ledger_internal(sequence))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -879,8 +1033,16 @@ impl StellarRpcClient {
         &self,
         sequence: u64,
     ) -> Result<Vec<HorizonOperation>, RpcError> {
-        let url = format!("{}/ledgers/{}/operations?limit=200", self.horizon_url, sequence);
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let url = format!(
+            "{}/ledgers/{}/operations?limit=200",
+            self.horizon_url, sequence
+        );
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -903,7 +1065,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_effects_for_operation(operation_id));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_operation_effects_internal(operation_id)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_operation_effects_internal(operation_id))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -919,7 +1083,12 @@ impl StellarRpcClient {
             "{}/operations/{}/effects?limit=200",
             self.horizon_url, operation_id
         );
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -943,7 +1112,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_payments(limit));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_account_payments_internal(account_id, limit)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_account_payments_internal(account_id, limit))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -960,7 +1131,12 @@ impl StellarRpcClient {
             "{}/accounts/{}/payments?order=desc&limit={}",
             self.horizon_url, account_id, limit
         );
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -1214,19 +1390,23 @@ impl StellarRpcClient {
     // ============================================================================
 
     /// Convert asset to query parameters for Horizon API
-    fn asset_to_query_params(prefix: &str, asset: &Asset) -> String {
+    fn asset_to_query_params(prefix: &str, asset: &Asset) -> Result<String> {
         if asset.asset_type == "native" {
-            format!("{}_asset_type=native", prefix)
+            Ok(format!("{}_asset_type=native", prefix))
         } else {
-            format!(
+            let asset_code = asset.asset_code.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Asset code missing for non-native asset type: {}", asset.asset_type))?;
+            let asset_issuer = asset.asset_issuer.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Asset issuer missing for non-native asset type: {}", asset.asset_type))?;
+            Ok(format!(
                 "{}_asset_type={}&{}_asset_code={}&{}_asset_issuer={}",
                 prefix,
                 asset.asset_type,
                 prefix,
-                asset.asset_code.as_ref().unwrap(),
+                asset_code,
                 prefix,
-                asset.asset_issuer.as_ref().unwrap()
-            )
+                asset_issuer
+            ))
         }
     }
 
@@ -1244,9 +1424,11 @@ impl StellarRpcClient {
 
         with_retry(
             || async {
-                let queue_permit = self.rate_limiter.acquire().await.map_err(|_| {
-                    RpcError::RateLimitError { retry_after: None }
-                })?;
+                let queue_permit = self
+                    .rate_limiter
+                    .acquire()
+                    .await
+                    .map_err(|_| RpcError::RateLimitError { retry_after: None })?;
 
                 let start_time = Instant::now();
                 let response = request_fn()
@@ -1373,44 +1555,66 @@ impl StellarRpcClient {
                 let is_path_payment = i % 5 == 0;
                 let is_native_source = i % 3 == 0;
                 let is_native_dest = i % 4 == 0;
+                // Use the new Horizon format for even-indexed entries so
+                // tests exercise both the legacy and new code paths.
+                let use_new_format = i % 2 == 0;
+
+                let dest_account =
+                    format!("GDYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY{:03}", i);
+                let src_account =
+                    format!("GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX{:03}", i);
+                let asset_type_str = if is_native_dest {
+                    "native".to_string()
+                } else if i % 2 == 0 {
+                    "credit_alphanum4".to_string()
+                } else {
+                    "credit_alphanum12".to_string()
+                };
+                let asset_code_val = if is_native_dest {
+                    None
+                } else if i % 2 == 0 {
+                    Some(["USDC", "EURT", "BRL", "NGNT"][i as usize % 4].to_string())
+                } else {
+                    Some("LONGASSETCODE".to_string())
+                };
+                let asset_issuer_val = if is_native_dest {
+                    None
+                } else {
+                    Some(format!(
+                        "GISSUER{:02}XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+                        i % 10
+                    ))
+                };
+                let amount_str = format!("{}.0000000", 100 + i * 10);
 
                 Payment {
                     id: format!("payment_{}", i),
                     paging_token: format!("paging_{}", i),
                     transaction_hash: format!("txhash_{}", i),
-                    source_account: format!(
-                        "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX{:03}",
-                        i
-                    ),
-                    destination: format!(
-                        "GDYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY{:03}",
-                        i
-                    ),
-                    // For regular payments, asset_type/code/issuer represent the transferred asset
-                    // For path payments, they represent the destination asset
-                    asset_type: if is_native_dest {
-                        "native".to_string()
-                    } else if i % 2 == 0 {
-                        "credit_alphanum4".to_string()
+                    source_account: src_account.clone(),
+                    // When the new format is used the top-level destination may
+                    // be empty, just like the real Horizon response.
+                    destination: if use_new_format {
+                        String::new()
                     } else {
-                        "credit_alphanum12".to_string()
+                        dest_account.clone()
                     },
-                    asset_code: if is_native_dest {
-                        None
-                    } else if i % 2 == 0 {
-                        Some(["USDC", "EURT", "BRL", "NGNT"][i as usize % 4].to_string())
-                    } else {
-                        Some("LONGASSETCODE".to_string())
-                    },
-                    asset_issuer: if is_native_dest {
+                    asset_type: asset_type_str.clone(),
+                    asset_code: if use_new_format {
                         None
                     } else {
-                        Some(format!(
-                            "GISSUER{:02}XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-                            i % 10
-                        ))
+                        asset_code_val.clone()
                     },
-                    amount: format!("{}.0000000", 100 + i * 10),
+                    asset_issuer: if use_new_format {
+                        None
+                    } else {
+                        asset_issuer_val.clone()
+                    },
+                    amount: if use_new_format {
+                        String::new()
+                    } else {
+                        amount_str.clone()
+                    },
                     created_at: format!("2026-01-22T10:{:02}:00Z", i % 60),
                     operation_type: if is_path_payment {
                         Some(if i % 2 == 0 {
@@ -1449,14 +1653,25 @@ impl StellarRpcClient {
                     } else {
                         None
                     },
-                    from: Some(format!(
-                        "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX{:03}",
-                        i
-                    )),
-                    to: Some(format!(
-                        "GDYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY{:03}",
-                        i
-                    )),
+                    from: Some(src_account),
+                    to: Some(dest_account.clone()),
+                    // Populate the new Soroban-compatible field for even entries
+                    asset_balance_changes: if use_new_format {
+                        Some(vec![AssetBalanceChange {
+                            asset_type: asset_type_str,
+                            asset_code: asset_code_val,
+                            asset_issuer: asset_issuer_val,
+                            change_type: "transfer".to_string(),
+                            from: Some(format!(
+                                "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX{:03}",
+                                i
+                            )),
+                            to: Some(dest_account),
+                            amount: amount_str,
+                        }])
+                    } else {
+                        None
+                    },
                 }
             })
             .collect()
@@ -1671,7 +1886,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_liquidity_pools(limit));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_liquidity_pools_internal(limit, cursor)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_liquidity_pools_internal(limit, cursor))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -1691,7 +1908,12 @@ impl StellarRpcClient {
         if let Some(c) = cursor {
             url.push_str(&format!("&cursor={}", c));
         }
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -1717,7 +1939,9 @@ impl StellarRpcClient {
             return Ok(pool);
         }
 
-        let result = self.execute_with_retry(|| self.fetch_liquidity_pool_internal(pool_id)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_liquidity_pool_internal(pool_id))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -1730,7 +1954,12 @@ impl StellarRpcClient {
         pool_id: &str,
     ) -> Result<HorizonLiquidityPool, RpcError> {
         let url = format!("{}/liquidity_pools/{}", self.horizon_url, pool_id);
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -1750,7 +1979,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_trades(limit));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_pool_trades_internal(pool_id, limit)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_pool_trades_internal(pool_id, limit))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -1767,7 +1998,12 @@ impl StellarRpcClient {
             "{}/liquidity_pools/{}/trades?order=desc&limit={}",
             self.horizon_url, pool_id, limit
         );
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -1791,7 +2027,9 @@ impl StellarRpcClient {
             return Ok(Self::mock_assets(limit));
         }
 
-        let result = self.execute_with_retry(|| self.fetch_assets_internal(limit, rating_sort)).await;
+        let result = self
+            .execute_with_retry(|| self.fetch_assets_internal(limit, rating_sort))
+            .await;
 
         result.map_err(|e| {
             metrics::record_rpc_error(e.error_type_label(), "stellar");
@@ -1810,7 +2048,12 @@ impl StellarRpcClient {
         } else {
             url.push_str("&order=desc");
         }
-        let response = self.client.get(&url).send().await.map_err(|e| RpcError::NetworkError(e.to_string()))?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| RpcError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
@@ -2165,5 +2408,273 @@ mod tests {
 
         // In mock mode, we should get exactly what we asked for
         assert_eq!(payments.len(), 500);
+    }
+
+    // ============================================================================
+    // Issue #188 – AssetBalanceChange / new Horizon API format tests
+    // ============================================================================
+
+    #[test]
+    fn test_legacy_payment_format_returns_direct_fields() {
+        let payment = Payment {
+            id: "1".into(),
+            paging_token: "pt".into(),
+            transaction_hash: "tx".into(),
+            source_account: "GSRC".into(),
+            destination: "GDEST".into(),
+            asset_type: "credit_alphanum4".into(),
+            asset_code: Some("USDC".into()),
+            asset_issuer: Some("GISSUER".into()),
+            amount: "500.0000000".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            operation_type: Some("payment".into()),
+            source_asset_type: None,
+            source_asset_code: None,
+            source_asset_issuer: None,
+            source_amount: None,
+            from: Some("GSRC".into()),
+            to: Some("GDEST".into()),
+            asset_balance_changes: None,
+        };
+
+        assert_eq!(payment.get_destination(), Some("GDEST".to_string()));
+        assert_eq!(payment.get_amount(), "500.0000000");
+        assert_eq!(payment.get_asset_code(), Some("USDC".to_string()));
+        assert_eq!(payment.get_asset_issuer(), Some("GISSUER".to_string()));
+    }
+
+    #[test]
+    fn test_new_format_takes_priority_over_legacy() {
+        let payment = Payment {
+            id: "2".into(),
+            paging_token: "pt".into(),
+            transaction_hash: "tx".into(),
+            source_account: "GSRC".into(),
+            // Legacy fields are empty – just like the real new Horizon response.
+            destination: String::new(),
+            asset_type: "credit_alphanum4".into(),
+            asset_code: None,
+            asset_issuer: None,
+            amount: String::new(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            operation_type: Some("payment".into()),
+            source_asset_type: None,
+            source_asset_code: None,
+            source_asset_issuer: None,
+            source_amount: None,
+            from: None,
+            to: None,
+            asset_balance_changes: Some(vec![AssetBalanceChange {
+                asset_type: "credit_alphanum4".into(),
+                asset_code: Some("USDC".into()),
+                asset_issuer: Some(
+                    "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN".into(),
+                ),
+                change_type: "transfer".into(),
+                from: Some("GSRC".into()),
+                to: Some("GDEST_NEW".into()),
+                amount: "999.0000000".into(),
+            }]),
+        };
+
+        assert_eq!(payment.get_destination(), Some("GDEST_NEW".to_string()));
+        assert_eq!(payment.get_amount(), "999.0000000");
+        assert_eq!(payment.get_asset_code(), Some("USDC".to_string()));
+        assert_eq!(
+            payment.get_asset_issuer(),
+            Some("GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN".to_string())
+        );
+    }
+
+    #[test]
+    fn test_new_format_overrides_when_both_present() {
+        // When BOTH legacy and new fields are present, new format wins.
+        let payment = Payment {
+            id: "3".into(),
+            paging_token: "pt".into(),
+            transaction_hash: "tx".into(),
+            source_account: "GSRC".into(),
+            destination: "GDEST_LEGACY".into(),
+            asset_type: "credit_alphanum4".into(),
+            asset_code: Some("OLD_CODE".into()),
+            asset_issuer: Some("OLD_ISSUER".into()),
+            amount: "111.0000000".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            operation_type: Some("payment".into()),
+            source_asset_type: None,
+            source_asset_code: None,
+            source_asset_issuer: None,
+            source_amount: None,
+            from: Some("GSRC".into()),
+            to: Some("GDEST_LEGACY".into()),
+            asset_balance_changes: Some(vec![AssetBalanceChange {
+                asset_type: "credit_alphanum4".into(),
+                asset_code: Some("NEW_CODE".into()),
+                asset_issuer: Some("NEW_ISSUER".into()),
+                change_type: "transfer".into(),
+                from: Some("GSRC".into()),
+                to: Some("GDEST_NEW".into()),
+                amount: "222.0000000".into(),
+            }]),
+        };
+
+        // New format takes precedence
+        assert_eq!(payment.get_destination(), Some("GDEST_NEW".to_string()));
+        assert_eq!(payment.get_amount(), "222.0000000");
+        assert_eq!(payment.get_asset_code(), Some("NEW_CODE".to_string()));
+        assert_eq!(payment.get_asset_issuer(), Some("NEW_ISSUER".to_string()));
+    }
+
+    #[test]
+    fn test_native_asset_via_new_format() {
+        let payment = Payment {
+            id: "4".into(),
+            paging_token: "pt".into(),
+            transaction_hash: "tx".into(),
+            source_account: "GSRC".into(),
+            destination: String::new(),
+            asset_type: "native".into(),
+            asset_code: None,
+            asset_issuer: None,
+            amount: String::new(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            operation_type: Some("payment".into()),
+            source_asset_type: None,
+            source_asset_code: None,
+            source_asset_issuer: None,
+            source_amount: None,
+            from: None,
+            to: None,
+            asset_balance_changes: Some(vec![AssetBalanceChange {
+                asset_type: "native".into(),
+                asset_code: None,
+                asset_issuer: None,
+                change_type: "transfer".into(),
+                from: Some("GSRC".into()),
+                to: Some("GDEST".into()),
+                amount: "50.0000000".into(),
+            }]),
+        };
+
+        assert_eq!(payment.get_destination(), Some("GDEST".to_string()));
+        assert_eq!(payment.get_amount(), "50.0000000");
+        assert_eq!(payment.get_asset_code(), None);
+        assert_eq!(payment.get_asset_issuer(), None);
+    }
+
+    #[test]
+    fn test_fallback_to_to_field_when_destination_empty() {
+        // Legacy format where `destination` is empty but `to` is set.
+        let payment = Payment {
+            id: "5".into(),
+            paging_token: "pt".into(),
+            transaction_hash: "tx".into(),
+            source_account: "GSRC".into(),
+            destination: String::new(),
+            asset_type: "credit_alphanum4".into(),
+            asset_code: Some("USDC".into()),
+            asset_issuer: Some("GISSUER".into()),
+            amount: "100.0000000".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            operation_type: Some("payment".into()),
+            source_asset_type: None,
+            source_asset_code: None,
+            source_asset_issuer: None,
+            source_amount: None,
+            from: Some("GSRC".into()),
+            to: Some("GTO_FIELD".into()),
+            asset_balance_changes: None,
+        };
+
+        assert_eq!(payment.get_destination(), Some("GTO_FIELD".to_string()));
+    }
+
+    #[test]
+    fn test_deserialization_new_format() {
+        let json = r#"{
+            "id": "op_new",
+            "paging_token": "pt_new",
+            "transaction_hash": "txhash_new",
+            "source_account": "GSRC",
+            "asset_type": "credit_alphanum4",
+            "amount": "",
+            "created_at": "2026-01-22T10:00:00Z",
+            "asset_balance_changes": [
+                {
+                    "asset_type": "credit_alphanum4",
+                    "asset_code": "USDC",
+                    "asset_issuer": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+                    "type": "transfer",
+                    "from": "GSRC",
+                    "to": "GDEST",
+                    "amount": "250.0000000"
+                }
+            ]
+        }"#;
+
+        let payment: Payment = serde_json::from_str(json).unwrap();
+        assert_eq!(payment.get_destination(), Some("GDEST".to_string()));
+        assert_eq!(payment.get_amount(), "250.0000000");
+        assert_eq!(payment.get_asset_code(), Some("USDC".to_string()));
+        assert_eq!(
+            payment.get_asset_issuer(),
+            Some("GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN".to_string())
+        );
+    }
+
+    #[test]
+    fn test_deserialization_legacy_format() {
+        let json = r#"{
+            "id": "op_legacy",
+            "paging_token": "pt_legacy",
+            "transaction_hash": "txhash_legacy",
+            "source_account": "GSRC",
+            "destination": "GDEST_LEGACY",
+            "asset_type": "credit_alphanum4",
+            "asset_code": "USDC",
+            "asset_issuer": "GISSUER",
+            "amount": "100.0000000",
+            "created_at": "2026-01-22T10:00:00Z",
+            "type": "payment"
+        }"#;
+
+        let payment: Payment = serde_json::from_str(json).unwrap();
+        assert!(payment.asset_balance_changes.is_none());
+        assert_eq!(payment.get_destination(), Some("GDEST_LEGACY".to_string()));
+        assert_eq!(payment.get_amount(), "100.0000000");
+        assert_eq!(payment.get_asset_code(), Some("USDC".to_string()));
+        assert_eq!(payment.get_asset_issuer(), Some("GISSUER".to_string()));
+    }
+
+    #[test]
+    fn test_mock_payments_include_new_format() {
+        let payments = StellarRpcClient::mock_payments(10);
+        assert_eq!(payments.len(), 10);
+
+        // Even-indexed payments should have asset_balance_changes populated
+        for (i, p) in payments.iter().enumerate() {
+            if i % 2 == 0 {
+                assert!(
+                    p.asset_balance_changes.is_some(),
+                    "payment[{}] should have asset_balance_changes",
+                    i
+                );
+                let changes = p.asset_balance_changes.as_ref().unwrap();
+                assert_eq!(changes.len(), 1);
+                assert_eq!(changes[0].change_type, "transfer");
+                // Verify helper methods return the new-format values
+                assert!(!p.get_amount().is_empty());
+                assert!(p.get_destination().is_some());
+            } else {
+                assert!(
+                    p.asset_balance_changes.is_none(),
+                    "payment[{}] should NOT have asset_balance_changes",
+                    i
+                );
+                // Verify legacy fields still work
+                assert!(!p.get_amount().is_empty());
+                assert!(p.get_destination().is_some());
+            }
+        }
     }
 }

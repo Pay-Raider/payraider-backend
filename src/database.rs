@@ -119,7 +119,10 @@ pub struct Database {
 impl Database {
     pub fn new(pool: SqlitePool) -> Self {
         let admin_audit_logger = AdminAuditLogger::new(pool.clone());
-        Self { pool, admin_audit_logger }
+        Self {
+            pool,
+            admin_audit_logger,
+        }
     }
 
     pub fn pool(&self) -> &SqlitePool {
@@ -311,6 +314,34 @@ impl Database {
         .await?;
 
         Ok(assets)
+    }
+
+    pub async fn get_assets_by_anchors(
+        &self,
+        anchor_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<String, Vec<Asset>>> {
+        if anchor_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let anchor_id_strs: Vec<String> = anchor_ids.iter().map(|id| id.to_string()).collect();
+        let assets = sqlx::query_as::<_, Asset>(
+            r#"
+            SELECT * FROM assets 
+            WHERE anchor_id = ANY($1)
+            ORDER BY anchor_id, asset_code ASC
+            "#,
+        )
+        .bind(&anchor_id_strs)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<Asset>> = std::collections::HashMap::new();
+        for asset in assets {
+            result.entry(asset.anchor_id.clone()).or_insert_with(Vec::new).push(asset);
+        }
+
+        Ok(result)
     }
 
     pub async fn count_assets_by_anchor(&self, anchor_id: Uuid) -> Result<i64> {
