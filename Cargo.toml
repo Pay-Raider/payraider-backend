@@ -48,6 +48,7 @@ toml = "0.8"
 sprometheus = "0.13"
 md5 = "0.7"
 ipnetwork = "0.20"
+argon2 = "0.5.3"
 
 [dependencies.stellar-insights-apm]
 path = "apm"
