@@ -51,7 +51,9 @@ use stellar_insights_backend::monitor::CorridorMonitor;
 use stellar_insights_backend::network::NetworkConfig;
 use stellar_insights_backend::observability::{metrics as obs_metrics, tracing as obs_tracing};
 use stellar_insights_backend::openapi::ApiDoc;
-use stellar_insights_backend::rate_limit::{rate_limit_middleware, ClientRateLimits, RateLimitConfig, RateLimiter};
+use stellar_insights_backend::rate_limit::{
+    rate_limit_middleware, ClientRateLimits, RateLimitConfig, RateLimiter,
+};
 use stellar_insights_backend::request_id::request_id_middleware;
 use stellar_insights_backend::rpc::StellarRpcClient;
 use stellar_insights_backend::rpc_handlers;
