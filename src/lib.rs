@@ -1,31 +1,57 @@
+pub mod admin_audit_log;
+pub mod alert_handlers;
+pub mod alerts;
 pub mod analytics;
+pub mod monitor;
 pub mod api;
+pub mod api_analytics_middleware;
+pub mod api_v1_middleware;
+
 pub mod auth;
 pub mod auth_middleware;
 pub mod broadcast;
 pub mod cache;
 pub mod cache_invalidation;
 pub mod cache_middleware;
+pub mod crypto;
 pub mod database;
 pub mod db;
 pub mod graphql;
+pub mod request_signing_middleware;
+pub mod email;
+pub mod error;
+pub mod gdpr;
+pub mod env_config;
 pub mod handlers;
+pub mod logging;
+pub mod http_cache;
 pub mod ingestion;
+pub mod ip_whitelist_middleware;
+pub mod jobs;
 pub mod ml;
 pub mod ml_handlers;
 pub mod models;
+pub mod monitor;
 pub mod muxed;
+
+pub mod network;
 pub mod openapi;
+pub mod observability;
 pub mod rate_limit;
+pub mod replay;
+pub mod request_id;
 pub mod services;
 pub mod shutdown;
 pub mod snapshot;
 pub mod snapshot_handlers;
 pub mod state;
+pub mod vault;
+pub mod webhooks;
 pub mod websocket;
 
 pub mod rpc;
 pub mod rpc_handlers;
+pub mod telegram;
 
 pub mod request_id;
 

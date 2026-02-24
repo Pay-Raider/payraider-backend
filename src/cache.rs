@@ -102,6 +102,7 @@ impl CacheManager {
             {
                 Ok(Some(value)) => {
                     self.hits.fetch_add(1, Ordering::Relaxed);
+                    crate::observability::metrics::record_cache_lookup(true);
                     tracing::debug!("Cache hit for key: {}", key);
                     match serde_json::from_str::<T>(&value) {
                         Ok(data) => Ok(Some(data)),
@@ -113,17 +114,20 @@ impl CacheManager {
                 }
                 Ok(None) => {
                     self.misses.fetch_add(1, Ordering::Relaxed);
+                    crate::observability::metrics::record_cache_lookup(false);
                     tracing::debug!("Cache miss for key: {}", key);
                     Ok(None)
                 }
                 Err(e) => {
                     tracing::warn!("Redis GET error for {}: {}", key, e);
                     self.misses.fetch_add(1, Ordering::Relaxed);
+                    crate::observability::metrics::record_cache_lookup(false);
                     Ok(None)
                 }
             }
         } else {
             self.misses.fetch_add(1, Ordering::Relaxed);
+            crate::observability::metrics::record_cache_lookup(false);
             Ok(None)
         }
     }
@@ -220,6 +224,17 @@ impl CacheManager {
         }
     }
 
+    /// Invalidate cache keys matching a pattern (alias for delete_pattern)
+    pub async fn invalidate_pattern(&self, pattern: &str) -> anyhow::Result<()> {
+        self.delete_pattern(pattern).await
+    }
+
+    /// Clean up expired entries (Redis handles this automatically, but useful for monitoring)
+    pub async fn cleanup_expired(&self) -> anyhow::Result<()> {
+        tracing::debug!("Cache cleanup triggered (Redis auto-expires keys)");
+        Ok(())
+    }
+
     /// Get current cache statistics
     pub fn get_stats(&self) -> CacheStats {
         CacheStats {
@@ -234,6 +249,23 @@ impl CacheManager {
         self.hits.store(0, Ordering::Relaxed);
         self.misses.store(0, Ordering::Relaxed);
         self.invalidations.store(0, Ordering::Relaxed);
+    }
+
+    /// Close Redis connection gracefully
+    pub async fn close(&self) -> anyhow::Result<()> {
+        let mut conn_guard = self.redis_connection.write().await;
+        if let Some(mut conn) = conn_guard.take() {
+            // Ensure all pending operations are flushed
+            match redis::cmd("PING")
+                .query_async::<_, String>(&mut conn)
+                .await
+            {
+                Ok(_) => tracing::debug!("Redis connection verified before close"),
+                Err(e) => tracing::warn!("Redis PING failed before close: {}", e),
+            }
+            tracing::info!("Redis connection closed");
+        }
+        Ok(())
     }
 }
 

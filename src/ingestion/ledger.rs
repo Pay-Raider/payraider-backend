@@ -5,12 +5,14 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::rpc::{GetLedgersResult, RpcLedger, StellarRpcClient};
+use crate::services::account_merge_detector::AccountMergeDetector;
 use crate::services::fee_bump_tracker::FeeBumpTrackerService;
 
 /// Ledger ingestion service that fetches and persists ledgers sequentially
 pub struct LedgerIngestionService {
     rpc_client: Arc<StellarRpcClient>,
     fee_bump_tracker: Arc<FeeBumpTrackerService>,
+    account_merge_detector: Arc<AccountMergeDetector>,
     pool: SqlitePool,
 }
 
@@ -31,11 +33,13 @@ impl LedgerIngestionService {
     pub fn new(
         rpc_client: Arc<StellarRpcClient>,
         fee_bump_tracker: Arc<FeeBumpTrackerService>,
+        account_merge_detector: Arc<AccountMergeDetector>,
         pool: SqlitePool,
     ) -> Self {
         Self {
             rpc_client,
             fee_bump_tracker,
+            account_merge_detector,
             pool,
         }
     }
@@ -96,15 +100,16 @@ impl LedgerIngestionService {
                 Ok(payments) => {
                     for payment in payments {
                         // Convert RPC Payment to ExtractedPayment
+                        // Uses helper methods to support both old and new Horizon formats
                         let extracted = ExtractedPayment {
                             ledger_sequence: ledger.sequence,
                             transaction_hash: payment.transaction_hash,
                             operation_type: "payment".to_string(), // Horizon 'payments' endpoint returns payments
                             source_account: payment.source_account,
-                            destination: payment.destination,
-                            asset_code: payment.asset_code,
-                            asset_issuer: payment.asset_issuer,
-                            amount: payment.amount,
+                            destination: payment.get_destination().unwrap_or_default(),
+                            asset_code: payment.get_asset_code(),
+                            asset_issuer: payment.get_asset_issuer(),
+                            amount: payment.get_amount(),
                         };
 
                         if let Err(e) = self.persist_payment(&extracted).await {
@@ -142,6 +147,17 @@ impl LedgerIngestionService {
                         ledger.sequence, e
                     );
                 }
+            }
+
+            if let Err(e) = self
+                .account_merge_detector
+                .process_ledger_operations(ledger.sequence)
+                .await
+            {
+                warn!(
+                    "Failed to process account merge operations for ledger {}: {}",
+                    ledger.sequence, e
+                );
             }
 
             count += 1;
