@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::{
-    routing::{get, put},
+    routing::{get, post, put},
     Router,
 };
 use dotenv::dotenv;
@@ -9,6 +9,10 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use async_graphql::http::{GraphiQLSource, playground_source};
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
+use axum::response::{Html, IntoResponse};
+use axum::extract::State;
 
 use stellar_insights_backend::api::anchors_cached::get_anchors;
 use stellar_insights_backend::api::cache_stats;
@@ -21,6 +25,7 @@ use stellar_insights_backend::auth_middleware::auth_middleware;
 use stellar_insights_backend::cache::{CacheConfig, CacheManager};
 use stellar_insights_backend::cache_invalidation::CacheInvalidationService;
 use stellar_insights_backend::database::Database;
+use stellar_insights_backend::graphql::{build_schema, AppSchema};
 use stellar_insights_backend::handlers::*;
 use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
 use stellar_insights_backend::ingestion::DataIngestionService;
@@ -513,6 +518,36 @@ async fn main() -> Result<()> {
         )))
         .layer(cors.clone());
 
+    // Build GraphQL schema
+    let graphql_schema = build_schema(Arc::new(pool.clone()));
+    tracing::info!("GraphQL schema initialized");
+
+    // GraphQL handler
+    async fn graphql_handler(
+        State(schema): State<AppSchema>,
+        req: GraphQLRequest,
+    ) -> GraphQLResponse {
+        schema.execute(req.into_inner()).await.into()
+    }
+
+    // GraphQL Playground handler
+    async fn graphql_playground() -> impl IntoResponse {
+        Html(playground_source(
+            async_graphql::http::GraphQLPlaygroundConfig::new("/graphql"),
+        ))
+    }
+
+    // Build GraphQL routes
+    let graphql_routes = Router::new()
+        .route("/graphql", post(graphql_handler))
+        .route("/graphql/playground", get(graphql_playground))
+        .with_state(graphql_schema)
+        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit_middleware,
+        )))
+        .layer(cors.clone());
+
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
@@ -528,7 +563,8 @@ async fn main() -> Result<()> {
         .merge(price_routes)
         .merge(trustline_routes)
         .merge(cache_routes)
-        .merge(metrics_routes);
+        .merge(metrics_routes)
+        .merge(graphql_routes); // Add GraphQL routes
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -536,17 +572,16 @@ async fn main() -> Result<()> {
     let addr = format!("{}:{}", host, port);
 
     tracing::info!("Server starting on {}", addr);
+    tracing::info!("GraphQL Playground available at http://{}/graphql/playground", addr);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_state(app_state.clone())
-    .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-        rate_limiter.clone(),
-        rate_limit_middleware,
-    )))
-    .layer(cors.clone());
+    .await?;
+
+    Ok(())
+}
 
 // Build trustline routes
 let trustline_routes = Router::new()

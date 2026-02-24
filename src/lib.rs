@@ -8,6 +8,7 @@ pub mod cache_invalidation;
 pub mod cache_middleware;
 pub mod database;
 pub mod db;
+pub mod graphql;
 pub mod handlers;
 pub mod ingestion;
 pub mod ml;
@@ -25,6 +26,8 @@ pub mod websocket;
 
 pub mod rpc;
 pub mod rpc_handlers;
+
+pub mod request_id;
 
 #[cfg(test)]
 mod ml_tests;
