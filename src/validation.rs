@@ -51,8 +51,18 @@ pub fn validate_corridor_filters(
     // Allow large but finite volume to avoid DoS via huge numbers; 1e18 USD is a reasonable cap
     const VOLUME_MAX: f64 = 1e18;
 
-    validate_filter_f64(success_rate_min, SUCCESS_RATE_MIN, SUCCESS_RATE_MAX, "success_rate_min")?;
-    validate_filter_f64(success_rate_max, SUCCESS_RATE_MIN, SUCCESS_RATE_MAX, "success_rate_max")?;
+    validate_filter_f64(
+        success_rate_min,
+        SUCCESS_RATE_MIN,
+        SUCCESS_RATE_MAX,
+        "success_rate_min",
+    )?;
+    validate_filter_f64(
+        success_rate_max,
+        SUCCESS_RATE_MIN,
+        SUCCESS_RATE_MAX,
+        "success_rate_max",
+    )?;
     validate_filter_f64(volume_min, VOLUME_MIN, VOLUME_MAX, "volume_min")?;
     validate_filter_f64(volume_max, VOLUME_MIN, VOLUME_MAX, "volume_max")?;
 
