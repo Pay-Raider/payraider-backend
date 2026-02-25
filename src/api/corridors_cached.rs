@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use utoipa::{IntoParams, ToSchema};
 
+use crate::cache::helpers::cached_query;
 use crate::cache::{keys, CacheManager};
-use crate::cache_middleware::CacheAware;
 use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::SortBy;
@@ -334,11 +334,11 @@ pub async fn list_corridors(
 
     let cache_key = generate_corridor_list_cache_key(&params);
 
-    let corridors = <()>::get_or_fetch(
+    let corridors = cached_query(
         &cache,
         &cache_key,
         cache.config.get_ttl("corridor"),
-        async {
+        || async {
             let circuit_breaker = rpc_circuit_breaker();
 
             // **RPC DATA**: Fetch recent payments to identify active corridors
@@ -743,92 +743,127 @@ pub async fn get_corridor_detail(
         ));
     }
 
-    // Check cache first
     let cache_key = keys::corridor_detail(&corridor_key);
-    if let Some(cached) = cache
-        .get::<CorridorDetailResponse>(&cache_key)
+    let response = cached_query(&cache, &cache_key, 300, || async {
+        // Fetch payments from RPC
+        let circuit_breaker = rpc_circuit_breaker();
+
+        let payments = with_retry(
+            || async {
+                rpc_client
+                    .fetch_all_payments(Some(5000))
+                    .await
+                    .map_err(|e| RpcError::categorize(&e.to_string()))
+            },
+            RetryConfig::default(),
+            circuit_breaker.clone(),
+        )
         .await
-        .ok()
-        .flatten()
-    {
-        return Ok(Json(cached));
-    }
+        .map_err(|e| {
+            tracing::error!("Failed to fetch payments from RPC: {}", e);
+            anyhow::anyhow!("Failed to fetch payment data from RPC")
+        })?;
 
-    // Fetch payments from RPC
-    let circuit_breaker = rpc_circuit_breaker();
+        // Filter payments for this specific corridor
+        let mut corridor_payments = Vec::new();
+        let mut all_corridors = Vec::new();
+        let mut corridor_map: HashMap<String, Vec<&crate::rpc::Payment>> = HashMap::new();
 
-    let payments = with_retry(
-        || async {
-            rpc_client
-                .fetch_all_payments(Some(5000))
-                .await
-                .map_err(|e| RpcError::categorize(&e.to_string()))
-        },
-        RetryConfig::default(),
-        circuit_breaker.clone(),
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch payments from RPC: {}", e);
-        ApiError::internal("RPC_FETCH_ERROR", "Failed to fetch payment data from RPC")
-    })?;
+        for payment in &payments {
+            if let Some(asset_pair) = extract_asset_pair_from_payment(payment) {
+                let key = asset_pair.to_corridor_key();
+                corridor_map
+                    .entry(key.clone())
+                    .or_insert_with(Vec::new)
+                    .push(payment);
 
-    // Filter payments for this specific corridor
-    let mut corridor_payments = Vec::new();
-    let mut all_corridors = Vec::new();
-    let mut corridor_map: HashMap<String, Vec<&crate::rpc::Payment>> = HashMap::new();
-
-    for payment in &payments {
-        if let Some(asset_pair) = extract_asset_pair_from_payment(payment) {
-            let key = asset_pair.to_corridor_key();
-            corridor_map
-                .entry(key.clone())
-                .or_insert_with(Vec::new)
-                .push(payment);
-
-            if key == corridor_key {
-                corridor_payments.push(payment);
+                if key == corridor_key {
+                    corridor_payments.push(payment);
+                }
             }
         }
-    }
 
-    // If no payments found for this corridor, return 404
-    if corridor_payments.is_empty() {
-        return Err(ApiError::not_found(
-            "CORRIDOR_NOT_FOUND",
-            &format!("No payment data found for corridor: {}", corridor_key),
-        ));
-    }
+        // If no payments found for this corridor, return 404
+        if corridor_payments.is_empty() {
+            return Err(anyhow::anyhow!(
+                "No payment data found for corridor: {}",
+                corridor_key
+            ));
+        }
 
-    // Build all corridor responses for related corridors lookup
-    for (key, corr_payments) in corridor_map.iter() {
-        let total_attempts = corr_payments.len() as i64;
+        // Build all corridor responses for related corridors lookup
+        for (key, corr_payments) in corridor_map.iter() {
+            let total_attempts = corr_payments.len() as i64;
+            let successful_payments = total_attempts;
+            let failed_payments = 0;
+            let success_rate = 100.0; // All payments in Stellar stream are successful
+
+            let parts: Vec<&str> = key.split("->").collect();
+            if parts.len() != 2 {
+                continue;
+            }
+
+            let source_parts: Vec<&str> = parts[0].split(':').collect();
+            let dest_parts: Vec<&str> = parts[1].split(':').collect();
+
+            if source_parts.len() != 2 || dest_parts.len() != 2 {
+                continue;
+            }
+
+            // Calculate volume
+            let mut volume_usd = 0.0;
+            if let Ok(price) = price_feed.get_price(parts[0]).await {
+                for payment in corr_payments.iter() {
+                    if let Ok(amount) = payment.get_amount().parse::<f64>() {
+                        volume_usd += amount * price;
+                    }
+                }
+            } else {
+                volume_usd = corr_payments
+                    .iter()
+                    .filter_map(|p| p.get_amount().parse::<f64>().ok())
+                    .sum();
+            }
+
+            let health_score = calculate_health_score(success_rate, total_attempts, volume_usd);
+            let liquidity_trend = get_liquidity_trend(volume_usd);
+            let avg_latency = 400.0 + (success_rate * 2.0);
+
+            all_corridors.push(CorridorResponse {
+                id: key.clone(),
+                source_asset: source_parts[0].to_string(),
+                destination_asset: dest_parts[0].to_string(),
+                success_rate,
+                total_attempts,
+                successful_payments,
+                failed_payments,
+                average_latency_ms: avg_latency,
+                median_latency_ms: avg_latency * 0.75,
+                p95_latency_ms: avg_latency * 2.5,
+                p99_latency_ms: avg_latency * 4.0,
+                liquidity_depth_usd: volume_usd,
+                liquidity_volume_24h_usd: volume_usd * 0.1,
+                liquidity_trend,
+                health_score,
+                last_updated: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+
+        // Calculate volume for target corridor
+        let total_attempts = corridor_payments.len() as i64;
         let successful_payments = total_attempts;
         let failed_payments = 0;
-        let success_rate = 100.0; // All payments in Stellar stream are successful
+        let success_rate = 100.0;
 
-        let parts: Vec<&str> = key.split("->").collect();
-        if parts.len() != 2 {
-            continue;
-        }
-
-        let source_parts: Vec<&str> = parts[0].split(':').collect();
-        let dest_parts: Vec<&str> = parts[1].split(':').collect();
-
-        if source_parts.len() != 2 || dest_parts.len() != 2 {
-            continue;
-        }
-
-        // Calculate volume
         let mut volume_usd = 0.0;
-        if let Ok(price) = price_feed.get_price(parts[0]).await {
-            for payment in corr_payments.iter() {
+        if let Ok(price) = price_feed.get_price(source_key).await {
+            for payment in corridor_payments.iter() {
                 if let Ok(amount) = payment.get_amount().parse::<f64>() {
                     volume_usd += amount * price;
                 }
             }
         } else {
-            volume_usd = corr_payments
+            volume_usd = corridor_payments
                 .iter()
                 .filter_map(|p| p.get_amount().parse::<f64>().ok())
                 .sum();
@@ -838,8 +873,8 @@ pub async fn get_corridor_detail(
         let liquidity_trend = get_liquidity_trend(volume_usd);
         let avg_latency = 400.0 + (success_rate * 2.0);
 
-        all_corridors.push(CorridorResponse {
-            id: key.clone(),
+        let corridor = CorridorResponse {
+            id: corridor_key.clone(),
             source_asset: source_parts[0].to_string(),
             destination_asset: dest_parts[0].to_string(),
             success_rate,
@@ -855,74 +890,26 @@ pub async fn get_corridor_detail(
             liquidity_trend,
             health_score,
             last_updated: chrono::Utc::now().to_rfc3339(),
-        });
-    }
+        };
 
-    // Calculate volume for target corridor
-    let total_attempts = corridor_payments.len() as i64;
-    let successful_payments = total_attempts;
-    let failed_payments = 0;
-    let success_rate = 100.0;
+        // Calculate historical metrics
+        let historical_success_rate = calculate_historical_success_rate(&corridor_payments);
+        let latency_distribution =
+            calculate_latency_distribution(&corridor_payments, total_attempts);
+        let liquidity_trends = calculate_liquidity_trends(&corridor_payments, volume_usd);
 
-    let mut volume_usd = 0.0;
-    if let Ok(price) = price_feed.get_price(source_key).await {
-        for payment in corridor_payments.iter() {
-            if let Ok(amount) = payment.get_amount().parse::<f64>() {
-                volume_usd += amount * price;
-            }
-        }
-    } else {
-        volume_usd = corridor_payments
-            .iter()
-            .filter_map(|p| p.get_amount().parse::<f64>().ok())
-            .sum();
-    }
+        // Find related corridors
+        let related_corridors = find_related_corridors(&corridor_key, &all_corridors);
 
-    let health_score = calculate_health_score(success_rate, total_attempts, volume_usd);
-    let liquidity_trend = get_liquidity_trend(volume_usd);
-    let avg_latency = 400.0 + (success_rate * 2.0);
-
-    let corridor = CorridorResponse {
-        id: corridor_key.clone(),
-        source_asset: source_parts[0].to_string(),
-        destination_asset: dest_parts[0].to_string(),
-        success_rate,
-        total_attempts,
-        successful_payments,
-        failed_payments,
-        average_latency_ms: avg_latency,
-        median_latency_ms: avg_latency * 0.75,
-        p95_latency_ms: avg_latency * 2.5,
-        p99_latency_ms: avg_latency * 4.0,
-        liquidity_depth_usd: volume_usd,
-        liquidity_volume_24h_usd: volume_usd * 0.1,
-        liquidity_trend,
-        health_score,
-        last_updated: chrono::Utc::now().to_rfc3339(),
-    };
-
-    // Calculate historical metrics
-    let historical_success_rate = calculate_historical_success_rate(&corridor_payments);
-    let latency_distribution = calculate_latency_distribution(&corridor_payments, total_attempts);
-    let liquidity_trends = calculate_liquidity_trends(&corridor_payments, volume_usd);
-
-    // Find related corridors
-    let related_corridors = find_related_corridors(&corridor_key, &all_corridors);
-
-    let response = CorridorDetailResponse {
-        corridor,
-        historical_success_rate,
-        latency_distribution,
-        liquidity_trends,
-        related_corridors,
-    };
-
-    // Cache the response with 5-minute TTL
-    let _ = cache
-        .set(
-            &cache_key, &response, 300, // 5 minutes
-        )
-        .await;
+        Ok(CorridorDetailResponse {
+            corridor,
+            historical_success_rate,
+            latency_distribution,
+            liquidity_trends,
+            related_corridors,
+        })
+    })
+    .await?;
 
     Ok(Json(response))
 }

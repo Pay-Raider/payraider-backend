@@ -20,7 +20,6 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
-use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 
 pub fn routes(
@@ -121,15 +120,12 @@ pub fn routes(
         .merge(rpc_routes)
         .merge(service_routes)
         .merge(oauth_routes)
-        .layer(
-            ServiceBuilder::new()
-                .layer(middleware::from_fn_with_state(
-                    rate_limiter,
-                    rate_limit_middleware,
-                ))
-                .layer(middleware::from_fn(
-                    crate::api_v1_middleware::version_middleware,
-                ))
-                .layer(cors),
-        )
+        .layer(cors)
+        .layer(middleware::from_fn(
+            crate::api_v1_middleware::version_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            rate_limiter,
+            rate_limit_middleware,
+        ))
 }
