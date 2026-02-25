@@ -20,7 +20,6 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
-use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 
 pub fn routes(
@@ -41,6 +40,14 @@ pub fn routes(
     pool: sqlx::SqlitePool,
     cache: Arc<CacheManager>,
 ) -> Router {
+    let rate_limiter_layer = {
+        let limiter = Arc::clone(&rate_limiter);
+        middleware::from_fn(move |req, next| {
+            let limiter = Arc::clone(&limiter);
+            async move { rate_limit_middleware(limiter, req, next).await }
+        })
+    };
+
     // 1. Cached routes
     let cached_routes = Router::new()
         .route("/anchors", get(anchors_cached::get_anchors))
@@ -121,15 +128,9 @@ pub fn routes(
         .merge(rpc_routes)
         .merge(service_routes)
         .merge(oauth_routes)
-        .layer(
-            ServiceBuilder::new()
-                .layer(middleware::from_fn_with_state(
-                    rate_limiter,
-                    rate_limit_middleware,
-                ))
-                .layer(middleware::from_fn(
-                    crate::api_v1_middleware::version_middleware,
-                ))
-                .layer(cors),
-        )
+        .layer(cors)
+        .layer(middleware::from_fn(
+            crate::api_v1_middleware::version_middleware,
+        ))
+        .layer(rate_limiter_layer)
 }

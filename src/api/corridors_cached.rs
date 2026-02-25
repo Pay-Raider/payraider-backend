@@ -761,7 +761,7 @@ pub async fn get_corridor_detail(
         .await
         .map_err(|e| {
             tracing::error!("Failed to fetch payments from RPC: {}", e);
-            ApiError::internal("RPC_FETCH_ERROR", "Failed to fetch payment data from RPC")
+            anyhow::anyhow!("Failed to fetch payment data from RPC")
         })?;
 
         // Filter payments for this specific corridor
@@ -785,11 +785,10 @@ pub async fn get_corridor_detail(
 
         // If no payments found for this corridor, return 404
         if corridor_payments.is_empty() {
-            return Err(ApiError::not_found(
-                "CORRIDOR_NOT_FOUND",
-                &format!("No payment data found for corridor: {}", corridor_key),
-            )
-            .into());
+            return Err(anyhow::anyhow!(
+                "No payment data found for corridor: {}",
+                corridor_key
+            ));
         }
 
         // Build all corridor responses for related corridors lookup
