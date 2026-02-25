@@ -4,6 +4,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[path = "cache/helpers.rs"]
+pub mod helpers;
+
 /// Cache statistics for monitoring
 #[derive(Debug, Clone)]
 pub struct CacheStats {
