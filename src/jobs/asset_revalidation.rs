@@ -153,7 +153,16 @@ impl AssetRevalidationJob {
     pub async fn get_stats(&self) -> Result<RevalidationStats> {
         let cutoff_date = Utc::now() - Duration::days(self.config.max_age_days);
 
-        let row = sqlx::query!(
+        #[derive(sqlx::FromRow)]
+        struct StatsRow {
+            total_assets: Option<i64>,
+            needs_revalidation: Option<i64>,
+            verified_count: Option<i64>,
+            unverified_count: Option<i64>,
+            suspicious_count: Option<i64>,
+        }
+
+        let row = sqlx::query_as::<_, StatsRow>(
             r#"
             SELECT
                 COUNT(*) as total_assets,
@@ -163,8 +172,8 @@ impl AssetRevalidationJob {
                 SUM(CASE WHEN verification_status = 'suspicious' THEN 1 ELSE 0 END) as suspicious_count
             FROM verified_assets
             "#,
-            cutoff_date
         )
+        .bind(cutoff_date)
         .fetch_one(&self.pool)
         .await?;
 

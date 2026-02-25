@@ -129,15 +129,6 @@ impl AuthService {
             id: record.id,
             username: record.username,
         })
-    /// Authenticate user with credentials
-    /// TODO: Implement database-backed user store with bcrypt/argon2 password hashing
-    pub fn authenticate(&self, _username: &str, _password: &str) -> Result<User> {
-        // Hardcoded demo credentials removed for security (SEC-001).
-        // This must be replaced with a proper database-backed user store
-        // that uses bcrypt or argon2 for password hashing before production use.
-        Err(anyhow!(
-            "Authentication not configured. Implement database-backed user store."
-        ))
     }
 
     /// Generate access token

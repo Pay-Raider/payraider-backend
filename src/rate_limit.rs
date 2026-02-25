@@ -134,42 +134,35 @@ impl RateLimiter {
         self.endpoint_configs.write().await.insert(path, config);
     }
 
-    /// Extract client identifier from request
-    async fn extract_client_identifier(&self, req: &Request) -> ClientIdentifier {
+    /// Resolve client identifier from extracted request context.
+    async fn resolve_client_identifier(
+        &self,
+        bearer_token: Option<String>,
+        auth_user_id: Option<String>,
+        ip_address: String,
+    ) -> ClientIdentifier {
         // Try to extract API key from Authorization header
-        if let Some(auth_header) = req.headers().get(header::AUTHORIZATION) {
-            if let Ok(auth_str) = auth_header.to_str() {
-                // Check for API key format: "Bearer si_live_..."
-                if let Some(token) = auth_str.strip_prefix("Bearer ") {
-                    if token.starts_with("si_live_") || token.starts_with("si_test_") {
-                        // Validate API key against database if available
-                        if let Some(pool) = &self.db_pool {
-                            let key_hash = hash_api_key(token);
-                            if let Ok(Some(api_key)) =
-                                self.get_api_key_by_hash(pool, &key_hash).await
-                            {
-                                // Update last_used_at timestamp
-                                let _ = self.update_api_key_last_used(pool, &api_key.id).await;
-                                return ClientIdentifier::ApiKey(api_key.id);
-                            }
-                        }
+        if let Some(token) = bearer_token {
+            if token.starts_with("si_live_") || token.starts_with("si_test_") {
+                // Validate API key against database if available
+                if let Some(pool) = &self.db_pool {
+                    let key_hash = hash_api_key(&token);
+                    if let Ok(Some(api_key)) = self.get_api_key_by_hash(pool, &key_hash).await {
+                        // Update last_used_at timestamp
+                        let _ = self.update_api_key_last_used(pool, &api_key.id).await;
+                        return ClientIdentifier::ApiKey(api_key.id);
                     }
                 }
             }
         }
 
         // Try to extract authenticated user from extensions (set by auth middleware)
-        if let Some(auth_user) = req.extensions().get::<crate::auth_middleware::AuthUser>() {
-            return ClientIdentifier::User(auth_user.user_id.clone());
+        if let Some(user_id) = auth_user_id {
+            return ClientIdentifier::User(user_id);
         }
 
         // Fall back to IP address
-        if let Some(connect_info) = req.extensions().get::<ConnectInfo<std::net::SocketAddr>>() {
-            return ClientIdentifier::IpAddress(connect_info.0.ip().to_string());
-        }
-
-        // Default fallback
-        ClientIdentifier::IpAddress("unknown".to_string())
+        ClientIdentifier::IpAddress(ip_address)
     }
 
     /// Get API key from database by hash
@@ -404,15 +397,32 @@ impl IntoResponse for RateLimitError {
 /// Middleware for rate limiting
 pub async fn rate_limit_middleware(
     State(limiter): State<Arc<RateLimiter>>,
-    addr: ConnectInfo<std::net::SocketAddr>,
     req: Request,
     next: Next,
 ) -> Response {
-    let ip = addr.0.ip().to_string();
+    let bearer_token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|auth_str| auth_str.strip_prefix("Bearer "))
+        .map(str::to_owned);
+
+    let auth_user_id = req
+        .extensions()
+        .get::<crate::auth_middleware::AuthUser>()
+        .map(|auth_user| auth_user.user_id.clone());
+
+    let ip = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|connect_info| connect_info.0.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
     let path = req.uri().path().to_string();
 
-    // Extract client identifier from request
-    let client = limiter.extract_client_identifier(&req).await;
+    // Resolve client identifier from copied request metadata.
+    let client = limiter
+        .resolve_client_identifier(bearer_token, auth_user_id, ip.clone())
+        .await;
 
     let (allowed, info) = limiter
         .check_rate_limit_for_client(&client, &path, &ip)
