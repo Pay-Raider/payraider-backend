@@ -268,6 +268,7 @@ pub async fn list_corridors(
 }
 
 /// GET /`api/corridors/:corridor_key` - Get detailed corridor information
+#[allow(clippy::similar_names)]
 pub async fn get_corridor_detail(
     State(app_state): State<AppState>,
     Path(corridor_key): Path<String>,

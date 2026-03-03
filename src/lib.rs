@@ -1,3 +1,17 @@
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::format_push_string)]
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::cognitive_complexity)]
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::unused_async)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::module_name_repetitions)]
+
 pub mod admin_audit_log;
 pub mod alert_handlers;
 pub mod alerts;

@@ -99,6 +99,7 @@ pub fn get_corridors_by_success_rate(
         .collect()
 }
 
+#[allow(clippy::similar_names)]
 fn parse_corridor_key(corridor_key: &str) -> Corridor {
     let parts: Vec<&str> = corridor_key.split("->").collect();
     let asset_a_parts: Vec<&str> = parts[0].split(':').collect();

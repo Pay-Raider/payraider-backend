@@ -112,7 +112,7 @@ pub async fn export_corridors(
 
             let header_format = Format::new()
                 .set_bold()
-                .set_background_color(Color::RGB(0xD9EAD3));
+                .set_background_color(Color::RGB(0x00D9_EAD3));
 
             let headers = [
                 "Corridor ID",
@@ -279,7 +279,7 @@ pub async fn export_anchors(
 
             let header_format = Format::new()
                 .set_bold()
-                .set_background_color(Color::RGB(0xD9EAD3));
+                .set_background_color(Color::RGB(0x00D9_EAD3));
 
             let headers = [
                 "Anchor ID",
@@ -463,7 +463,7 @@ pub async fn export_payments(
 
             let header_format = Format::new()
                 .set_bold()
-                .set_background_color(Color::RGB(0xD9EAD3));
+                .set_background_color(Color::RGB(0x00D9_EAD3));
 
             let headers = [
                 "Transaction Hash",

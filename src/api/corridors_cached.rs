@@ -126,10 +126,10 @@ pub struct CorridorResponse {
     #[schema(example = 1200.0)]
     pub p99_latency_ms: f64,
     /// Liquidity depth in USD
-    #[schema(example = 1500000.0)]
+    #[schema(example = 1_500_000.0)]
     pub liquidity_depth_usd: f64,
     /// 24-hour trading volume in USD
-    #[schema(example = 150000.0)]
+    #[schema(example = 150_000.0)]
     pub liquidity_volume_24h_usd: f64,
     /// Liquidity trend (increasing, stable, decreasing)
     #[schema(example = "stable")]
@@ -174,10 +174,10 @@ pub struct LiquidityDataPoint {
     #[schema(example = "2024-01-15T10:00:00Z")]
     pub timestamp: String,
     /// Liquidity in USD at this time
-    #[schema(example = 1500000.0)]
+    #[schema(example = 1_500_000.0)]
     pub liquidity_usd: f64,
     /// 24-hour volume in USD
-    #[schema(example = 150000.0)]
+    #[schema(example = 150_000.0)]
     pub volume_24h_usd: f64,
 }
 
@@ -218,10 +218,10 @@ pub struct ListCorridorsQuery {
     #[param(example = 100.0)]
     pub success_rate_max: Option<f64>,
     /// Minimum volume filter (USD)
-    #[param(example = 100000.0)]
+    #[param(example = 100_000.0)]
     pub volume_min: Option<f64>,
     /// Maximum volume filter (USD)
-    #[param(example = 10000000.0)]
+    #[param(example = 10_000_000.0)]
     pub volume_max: Option<f64>,
     /// Filter by asset code
     #[param(example = "USDC")]

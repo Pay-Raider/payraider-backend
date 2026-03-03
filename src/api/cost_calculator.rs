@@ -55,7 +55,7 @@ pub struct CostCalculationRequest {
     pub destination_currency: String,
     #[schema(example = 1000.0)]
     pub source_amount: f64,
-    #[schema(example = 1550000.0)]
+    #[schema(example = 1_550_000.0)]
     pub destination_amount: Option<f64>,
     pub routes: Option<Vec<PaymentRoute>>,
 }
