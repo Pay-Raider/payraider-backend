@@ -32,7 +32,7 @@ impl Default for PriceFeedConfig {
 }
 
 impl PriceFeedConfig {
-    #[must_use] 
+    #[must_use]
     pub fn from_env() -> Self {
         Self {
             provider: std::env::var("PRICE_FEED_PROVIDER")
@@ -77,7 +77,7 @@ pub struct CoinGeckoProvider {
 }
 
 impl CoinGeckoProvider {
-    #[must_use] 
+    #[must_use]
     pub fn new(api_key: Option<String>, timeout: Duration) -> Self {
         let client = Client::builder()
             .timeout(timeout)
@@ -141,9 +141,7 @@ impl PriceFeedProvider for CoinGeckoProvider {
                 "https://pro-api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd&x_cg_pro_api_key={api_key}"
             )
         } else {
-            format!(
-                "https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
-            )
+            format!("https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd")
         };
 
         let response = self
@@ -185,7 +183,9 @@ impl PriceFeedClient {
     pub fn new(config: PriceFeedConfig, asset_mapping: HashMap<String, String>) -> Self {
         let timeout = Duration::from_secs(config.request_timeout_seconds);
 
-        let provider: Arc<dyn PriceFeedProvider> = if config.provider.as_str() == "coingecko" { Arc::new(CoinGeckoProvider::new(config.api_key.clone(), timeout)) } else {
+        let provider: Arc<dyn PriceFeedProvider> = if config.provider.as_str() == "coingecko" {
+            Arc::new(CoinGeckoProvider::new(config.api_key.clone(), timeout))
+        } else {
             warn!(
                 "Unknown provider '{}', defaulting to CoinGecko",
                 config.provider
@@ -365,7 +365,7 @@ impl PriceFeedClient {
 }
 
 /// Default asset mapping for common Stellar assets
-#[must_use] 
+#[must_use]
 pub fn default_asset_mapping() -> HashMap<String, String> {
     let mut mapping = HashMap::new();
 

@@ -5,7 +5,7 @@ use std::time::Duration;
 use super::circuit_breaker::CircuitBreakerConfig;
 
 /// Load circuit breaker and retry config from environment with defaults.
-#[must_use] 
+#[must_use]
 pub fn circuit_breaker_config_from_env() -> CircuitBreakerConfig {
     let failure_threshold = std::env::var("RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD")
         .ok()
@@ -28,7 +28,7 @@ pub fn circuit_breaker_config_from_env() -> CircuitBreakerConfig {
 }
 
 /// Max retries for `retry_with_backoff` (from `RPC_MAX_RETRIES`, default 3).
-#[must_use] 
+#[must_use]
 pub fn max_retries_from_env() -> u32 {
     std::env::var("RPC_MAX_RETRIES")
         .ok()
@@ -37,7 +37,7 @@ pub fn max_retries_from_env() -> u32 {
 }
 
 /// Initial backoff duration (from `RPC_INITIAL_BACKOFF_MS`, default 100).
-#[must_use] 
+#[must_use]
 pub fn initial_backoff_from_env() -> Duration {
     let ms = std::env::var("RPC_INITIAL_BACKOFF_MS")
         .ok()
@@ -47,7 +47,7 @@ pub fn initial_backoff_from_env() -> Duration {
 }
 
 /// Max backoff duration (from `RPC_MAX_BACKOFF_MS`, default 5000).
-#[must_use] 
+#[must_use]
 pub fn max_backoff_from_env() -> Duration {
     let ms = std::env::var("RPC_MAX_BACKOFF_MS")
         .ok()

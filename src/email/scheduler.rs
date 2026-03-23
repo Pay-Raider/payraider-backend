@@ -15,7 +15,7 @@ pub struct DigestScheduler {
 }
 
 impl DigestScheduler {
-    #[must_use] 
+    #[must_use]
     pub const fn new(
         email_service: Arc<EmailService>,
         cache: Arc<CacheManager>,

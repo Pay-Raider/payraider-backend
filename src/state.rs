@@ -12,7 +12,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    #[must_use] 
+    #[must_use]
     pub const fn new(
         db: Arc<Database>,
         ws_state: Arc<WsState>,

@@ -46,7 +46,7 @@ impl Default for Sep24State {
 }
 
 impl Sep24State {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))

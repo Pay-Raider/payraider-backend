@@ -23,7 +23,7 @@ struct CorridorState {
 }
 
 impl CorridorMonitor {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         alert_manager: Arc<AlertManager>,
         cache: Arc<CacheManager>,
@@ -38,7 +38,7 @@ impl CorridorMonitor {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn new_with_webhooks(
         alert_manager: Arc<AlertManager>,
         cache: Arc<CacheManager>,
@@ -79,10 +79,7 @@ impl CorridorMonitor {
                 payment.get_asset_code().as_deref().unwrap_or("XLM"),
                 payment.get_asset_issuer().as_deref().unwrap_or("native")
             );
-            corridor_map
-                .entry(key)
-                .or_default()
-                .push(payment);
+            corridor_map.entry(key).or_default().push(payment);
         }
 
         let mut prev_state = self.previous_state.write().await;

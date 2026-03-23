@@ -141,7 +141,7 @@ impl ApiError {
     }
 
     /// Add details to any error variant
-    #[must_use] 
+    #[must_use]
     pub fn with_details(mut self, details: HashMap<String, serde_json::Value>) -> Self {
         match &mut self {
             Self::NotFound { details: d, .. }
@@ -165,7 +165,7 @@ impl ApiError {
     }
 
     /// Convert to `ErrorResponse` with optional request ID
-    #[must_use] 
+    #[must_use]
     pub fn to_error_response(&self, request_id: Option<String>) -> ErrorResponse {
         let include_stack_trace = cfg!(debug_assertions);
 

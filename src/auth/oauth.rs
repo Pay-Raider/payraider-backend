@@ -68,7 +68,7 @@ pub struct OAuthService {
 
 impl OAuthService {
     /// Create new OAuth service
-    #[must_use] 
+    #[must_use]
     pub fn new(db: SqlitePool) -> Self {
         let jwt_secret = std::env::var("JWT_SECRET")
             .expect("JWT_SECRET environment variable is required for OAuth service");

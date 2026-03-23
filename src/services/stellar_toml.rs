@@ -530,7 +530,9 @@ impl StellarTomlClient {
                     fixed_number: table.get("fixed_number").and_then(toml::Value::as_integer),
                     max_number: table.get("max_number").and_then(toml::Value::as_integer),
                     is_unlimited: table.get("is_unlimited").and_then(toml::Value::as_bool),
-                    is_asset_anchored: table.get("is_asset_anchored").and_then(toml::Value::as_bool),
+                    is_asset_anchored: table
+                        .get("is_asset_anchored")
+                        .and_then(toml::Value::as_bool),
                     anchor_asset_type: table
                         .get("anchor_asset_type")
                         .and_then(|v| v.as_str())

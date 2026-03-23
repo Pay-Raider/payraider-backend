@@ -20,7 +20,7 @@ pub struct TelegramBot {
 }
 
 impl TelegramBot {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         token: &str,
         db: Arc<Database>,

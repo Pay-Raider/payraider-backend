@@ -39,7 +39,7 @@ pub struct AccountMergeDetector {
 }
 
 impl AccountMergeDetector {
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: Pool<Sqlite>, rpc_client: Arc<StellarRpcClient>) -> Self {
         Self { pool, rpc_client }
     }
@@ -80,7 +80,9 @@ impl AccountMergeDetector {
         ledger_sequence: u64,
         operation: &HorizonOperation,
     ) -> Result<bool> {
-        let destination_account = if let Some(account) = operation.into.clone() { account } else {
+        let destination_account = if let Some(account) = operation.into.clone() {
+            account
+        } else {
             warn!(
                 "Skipping account_merge operation {} without destination account",
                 operation.id
@@ -97,7 +99,8 @@ impl AccountMergeDetector {
             .resolve_merged_balance(&operation.id, &destination_account)
             .await;
 
-        let created_at = DateTime::parse_from_rfc3339(&operation.created_at).map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+        let created_at = DateTime::parse_from_rfc3339(&operation.created_at)
+            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
         let event = AccountMergeEvent {
             operation_id: operation.id.clone(),

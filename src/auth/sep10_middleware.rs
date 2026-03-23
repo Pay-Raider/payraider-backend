@@ -92,9 +92,7 @@ pub enum Sep10AuthError {
 impl IntoResponse for Sep10AuthError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            Self::MissingToken => {
-                (StatusCode::UNAUTHORIZED, "Missing authentication token")
-            }
+            Self::MissingToken => (StatusCode::UNAUTHORIZED, "Missing authentication token"),
             Self::InvalidToken => (StatusCode::UNAUTHORIZED, "Invalid or expired token"),
         };
 

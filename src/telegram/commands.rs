@@ -14,7 +14,7 @@ pub struct CommandHandler {
 }
 
 impl CommandHandler {
-    #[must_use] 
+    #[must_use]
     pub const fn new(
         db: Arc<Database>,
         cache: Arc<CacheManager>,
@@ -83,9 +83,7 @@ impl CommandHandler {
         let payments = match self.rpc_client.fetch_payments(200, None).await {
             Ok(p) => p,
             Err(e) => {
-                return formatter::escape_markdown(&format!(
-                    "Failed to fetch corridor data: {e}"
-                ));
+                return formatter::escape_markdown(&format!("Failed to fetch corridor data: {e}"));
             }
         };
 
@@ -130,9 +128,7 @@ impl CommandHandler {
         let payments = match self.rpc_client.fetch_payments(200, None).await {
             Ok(p) => p,
             Err(e) => {
-                return formatter::escape_markdown(&format!(
-                    "Failed to fetch corridor data: {e}"
-                ));
+                return formatter::escape_markdown(&format!("Failed to fetch corridor data: {e}"));
             }
         };
 

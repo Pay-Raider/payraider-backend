@@ -15,7 +15,7 @@ pub struct LeaseManager {
 }
 
 impl LeaseManager {
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             check_interval: Duration::from_secs(60), // Check every 60 seconds

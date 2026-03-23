@@ -22,7 +22,7 @@ pub struct OrderBookSnapshot {
 }
 
 /// Compute total liquidity in USD within a max slippage percent
-#[must_use] 
+#[must_use]
 pub fn compute_liquidity_depth(order_book: &OrderBookSnapshot, max_slippage_percent: f64) -> f64 {
     if order_book.bids.is_empty() && order_book.asks.is_empty() {
         return 0.0;
@@ -58,7 +58,7 @@ pub fn compute_liquidity_depth(order_book: &OrderBookSnapshot, max_slippage_perc
 }
 
 /// Computes corridor metrics from transactions, calculating average and median settlement latency with optional liquidity depth.
-#[must_use] 
+#[must_use]
 pub fn compute_corridor_metrics(
     txns: &[CorridorTransaction],
     order_book: Option<&OrderBookSnapshot>, // Optional snapshot for liquidity depth
@@ -117,8 +117,8 @@ pub fn compute_corridor_metrics(
     let median_settlement_latency_ms = compute_median(&mut latency_values).map(|v| v as i32);
 
     // Compute liquidity depth using order book snapshot if provided
-    let liquidity_depth_usd = order_book
-        .map_or(0.0, |ob| compute_liquidity_depth(ob, slippage_percent));
+    let liquidity_depth_usd =
+        order_book.map_or(0.0, |ob| compute_liquidity_depth(ob, slippage_percent));
 
     CorridorMetrics {
         id: uuid::Uuid::nil().to_string(),
@@ -142,7 +142,7 @@ pub fn compute_corridor_metrics(
 }
 
 /// Computes corridor metrics from payment records, aggregating settlement latency (both average and median) per corridor.
-#[must_use] 
+#[must_use]
 pub fn compute_metrics_from_payments(payments: &[PaymentRecord]) -> Vec<CorridorMetrics> {
     let mut corridor_map: HashMap<String, Vec<&PaymentRecord>> = HashMap::new();
 
@@ -223,7 +223,7 @@ pub fn compute_metrics_from_payments(payments: &[PaymentRecord]) -> Vec<Corridor
 }
 
 /// Filter payments by time window and compute metrics
-#[must_use] 
+#[must_use]
 pub fn compute_metrics_by_window(
     payments: &[PaymentRecord],
     start: chrono::DateTime<chrono::Utc>,

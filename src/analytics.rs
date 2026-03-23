@@ -44,7 +44,7 @@ pub struct AnchorReliabilityScore {
 ///
 /// - Returns a zeroed metric payload with `Red` status when `total_transactions == 0`.
 /// - Success/failure rates are rounded to 2 decimals for stable API output and UI rendering.
-#[must_use] 
+#[must_use]
 pub fn compute_anchor_metrics(
     total_transactions: i64,
     successful_transactions: i64,
@@ -115,7 +115,7 @@ fn calculate_settlement_time_score(avg_settlement_time_ms: Option<i32>) -> f64 {
 }
 
 /// Calculate assets issued per anchor
-#[must_use] 
+#[must_use]
 pub const fn count_assets_per_anchor(assets: &[String]) -> usize {
     assets.len()
 }
@@ -150,7 +150,7 @@ pub const fn count_assets_per_anchor(assets: &[String]) -> usize {
 ///
 /// # Returns
 /// `AnchorReliabilityScore` with composite score (0-100) and component scores
-#[must_use] 
+#[must_use]
 pub fn compute_anchor_reliability_score(
     asset_performances: &[AnchorAssetPerformance],
     network_max_volume: f64,
@@ -218,8 +218,10 @@ pub fn compute_anchor_reliability_score(
 
     // 5. Calculate composite_score
     // Weights: 60% performance, 30% volume, 10% diversity
-    let composite_score =
-        0.1f64.mul_add(asset_diversity_score, 0.6f64.mul_add(asset_performance_score, 0.3 * volume_score));
+    let composite_score = 0.1f64.mul_add(
+        asset_diversity_score,
+        0.6f64.mul_add(asset_performance_score, 0.3 * volume_score),
+    );
 
     AnchorReliabilityScore {
         anchor_address: String::new(), // Caller will set this

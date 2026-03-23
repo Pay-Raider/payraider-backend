@@ -12,7 +12,7 @@ pub struct TrustlineAnalyzer {
 }
 
 impl TrustlineAnalyzer {
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: Pool<Sqlite>, rpc_client: Arc<StellarRpcClient>) -> Self {
         Self { pool, rpc_client }
     }

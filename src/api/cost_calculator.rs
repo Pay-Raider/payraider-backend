@@ -283,7 +283,8 @@ fn estimate_route(
     mid_market_rate: f64,
 ) -> RouteEstimate {
     let fees = RouteFees::for_route(route);
-    let slippage_bps = (source_amount / 10_000.0).mul_add(fees.slippage_per_10k_bps, fees.slippage_base_bps)
+    let slippage_bps = (source_amount / 10_000.0)
+        .mul_add(fees.slippage_per_10k_bps, fees.slippage_base_bps)
         .min(200.0);
 
     let destination_before_fees = source_amount * mid_market_rate;

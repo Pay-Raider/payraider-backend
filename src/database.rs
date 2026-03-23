@@ -64,7 +64,7 @@ impl SqlLogConfig {
     /// - `RUST_ENV` or ENVIRONMENT: "development" => log all queries, else log only slow
     /// - `DB_LOG_LEVEL`: trace | debug | info | warn | error | off (default: debug in dev, info in prod)
     /// - `DB_SLOW_QUERY_MS`: threshold in ms for slow query logging in production (default: 100)
-    #[must_use] 
+    #[must_use]
     pub fn from_env() -> Self {
         let env_mode = std::env::var("RUST_ENV")
             .or_else(|_| std::env::var("ENVIRONMENT"))
@@ -105,7 +105,7 @@ fn parse_db_log_level(is_dev: bool) -> log::LevelFilter {
 
 impl PoolConfig {
     /// Load pool configuration from environment variables
-    #[must_use] 
+    #[must_use]
     pub fn from_env() -> Self {
         Self {
             max_connections: std::env::var("DB_POOL_MAX_CONNECTIONS")
@@ -211,7 +211,7 @@ pub struct Database {
 }
 
 impl Database {
-    #[must_use] 
+    #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
         let admin_audit_logger = AdminAuditLogger::new(pool.clone());
         Self {
@@ -220,18 +220,18 @@ impl Database {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn pool(&self) -> &SqlitePool {
         &self.pool
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn corridor_aggregates(&self) -> crate::db::aggregates::CorridorAggregates {
         crate::db::aggregates::CorridorAggregates::new(self.pool.clone())
     }
 
     /// Get connection pool metrics
-    #[must_use] 
+    #[must_use]
     pub fn pool_metrics(&self) -> PoolMetrics {
         PoolMetrics {
             size: self.pool.size(),
@@ -639,7 +639,10 @@ impl Database {
             return Ok(std::collections::HashMap::new());
         }
 
-        let anchor_id_strs: Vec<String> = anchor_ids.iter().map(std::string::ToString::to_string).collect();
+        let anchor_id_strs: Vec<String> = anchor_ids
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         let placeholders = anchor_id_strs
             .iter()
             .enumerate()
@@ -1060,7 +1063,7 @@ impl Database {
     }
 
     // Aggregation methods
-    #[must_use] 
+    #[must_use]
     pub fn aggregation_db(&self) -> crate::db::aggregation::AggregationDb {
         crate::db::aggregation::AggregationDb::new(self.pool.clone())
     }

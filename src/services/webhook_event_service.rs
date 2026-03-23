@@ -17,7 +17,7 @@ pub struct WebhookEventService {
 }
 
 impl WebhookEventService {
-    #[must_use] 
+    #[must_use]
     pub fn new(db: SqlitePool) -> Self {
         Self {
             webhook_service: Arc::new(WebhookService::new(db)),

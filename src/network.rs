@@ -41,7 +41,7 @@ pub struct NetworkConfig {
 
 impl NetworkConfig {
     /// Create network configuration from environment variables
-    #[must_use] 
+    #[must_use]
     pub fn from_env() -> Self {
         let network_str =
             std::env::var("STELLAR_NETWORK").unwrap_or_else(|_| "mainnet".to_string());
@@ -58,7 +58,7 @@ impl NetworkConfig {
     }
 
     /// Create network configuration for a specific network
-    #[must_use] 
+    #[must_use]
     pub fn for_network(network: StellarNetwork) -> Self {
         let (rpc_url, horizon_url, network_passphrase) = match network {
             StellarNetwork::Mainnet => (
@@ -86,25 +86,25 @@ impl NetworkConfig {
     }
 
     /// Get the network passphrase for transaction signing
-    #[must_use] 
+    #[must_use]
     pub fn network_passphrase(&self) -> &str {
         &self.network_passphrase
     }
 
     /// Check if this is the mainnet
-    #[must_use] 
+    #[must_use]
     pub fn is_mainnet(&self) -> bool {
         self.network == StellarNetwork::Mainnet
     }
 
     /// Check if this is the testnet
-    #[must_use] 
+    #[must_use]
     pub fn is_testnet(&self) -> bool {
         self.network == StellarNetwork::Testnet
     }
 
     /// Get a display-friendly network name
-    #[must_use] 
+    #[must_use]
     pub const fn display_name(&self) -> &str {
         match self.network {
             StellarNetwork::Mainnet => "Stellar Mainnet",
@@ -113,7 +113,7 @@ impl NetworkConfig {
     }
 
     /// Get network color for UI (hex color code)
-    #[must_use] 
+    #[must_use]
     pub const fn color(&self) -> &str {
         match self.network {
             StellarNetwork::Mainnet => "#00D4AA", // Stellar green

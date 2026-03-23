@@ -33,7 +33,7 @@ pub struct Checkpoint {
 
 impl Checkpoint {
     /// Create a new checkpoint
-    #[must_use] 
+    #[must_use]
     pub fn new(session_id: String, last_ledger: u64) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -48,21 +48,21 @@ impl Checkpoint {
     }
 
     /// Add metadata to checkpoint
-    #[must_use] 
+    #[must_use]
     pub fn with_metadata(mut self, key: String, value: String) -> Self {
         self.metadata.insert(key, value);
         self
     }
 
     /// Set state snapshot
-    #[must_use] 
+    #[must_use]
     pub fn with_state(mut self, state: serde_json::Value) -> Self {
         self.state_snapshot = state;
         self
     }
 
     /// Set processing statistics
-    #[must_use] 
+    #[must_use]
     pub const fn with_stats(mut self, processed: u64, failed: u64) -> Self {
         self.events_processed = processed;
         self.events_failed = failed;
@@ -77,7 +77,7 @@ pub struct CheckpointManager {
 
 impl CheckpointManager {
     /// Create a new checkpoint manager
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }

@@ -73,7 +73,7 @@ struct SetMyCommandsRequest<'a> {
 }
 
 impl TelegramClient {
-    #[must_use] 
+    #[must_use]
     pub fn new(token: &str) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(35))

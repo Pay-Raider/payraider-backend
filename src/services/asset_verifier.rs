@@ -92,9 +92,7 @@ impl AssetVerifier {
 
     /// Check Stellar Expert for asset verification
     async fn check_stellar_expert(&self, asset_code: &str, asset_issuer: &str) -> Result<bool> {
-        let url = format!(
-            "{STELLAR_EXPERT_API}/asset/{asset_code}-{asset_issuer}"
-        );
+        let url = format!("{STELLAR_EXPERT_API}/asset/{asset_code}-{asset_issuer}");
 
         for attempt in 1..=MAX_RETRIES {
             match self.http_client.get(&url).send().await {
@@ -123,7 +121,8 @@ impl AssetVerifier {
             }
 
             if attempt < MAX_RETRIES {
-                tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS * u64::from(attempt))).await;
+                tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS * u64::from(attempt)))
+                    .await;
             }
         }
 
@@ -175,7 +174,8 @@ impl AssetVerifier {
             }
 
             if attempt < MAX_RETRIES {
-                tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS * u64::from(attempt))).await;
+                tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS * u64::from(attempt)))
+                    .await;
             }
         }
 
@@ -327,7 +327,7 @@ impl AssetVerifier {
     }
 
     /// Calculate reputation score based on verification results
-    #[must_use] 
+    #[must_use]
     pub fn calculate_reputation_score(&self, result: &VerificationResult) -> f64 {
         let mut score: f64 = 0.0;
 
@@ -372,7 +372,7 @@ impl AssetVerifier {
     }
 
     /// Determine verification status based on reputation score and other factors
-    #[must_use] 
+    #[must_use]
     pub fn determine_status(
         &self,
         reputation_score: f64,

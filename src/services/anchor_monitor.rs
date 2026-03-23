@@ -19,7 +19,7 @@ struct AnchorMetrics {
 }
 
 impl AnchorMonitor {
-    #[must_use] 
+    #[must_use]
     pub fn new(db: Arc<Database>, alert_manager: Arc<AlertManager>) -> Self {
         Self {
             db,

@@ -25,7 +25,7 @@ pub struct ApplicationState {
 
 impl ApplicationState {
     /// Create a new empty state
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             ledger: 0,
@@ -36,7 +36,7 @@ impl ApplicationState {
     }
 
     /// Create state at a specific ledger
-    #[must_use] 
+    #[must_use]
     pub fn at_ledger(ledger: u64) -> Self {
         Self {
             ledger,
@@ -57,7 +57,7 @@ impl ApplicationState {
     }
 
     /// Compute state hash for verification
-    #[must_use] 
+    #[must_use]
     pub fn compute_hash(&self) -> String {
         use sha2::{Digest, Sha256};
         let json = self.to_json().unwrap_or_default();
@@ -98,7 +98,7 @@ pub struct StateBuilder {
 
 impl StateBuilder {
     /// Create a new state builder
-    #[must_use] 
+    #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
         Self {
             pool,
@@ -107,13 +107,13 @@ impl StateBuilder {
     }
 
     /// Create state builder with initial state
-    #[must_use] 
+    #[must_use]
     pub const fn with_state(pool: SqlitePool, state: ApplicationState) -> Self {
         Self { pool, state }
     }
 
     /// Get current state
-    #[must_use] 
+    #[must_use]
     pub const fn state(&self) -> &ApplicationState {
         &self.state
     }

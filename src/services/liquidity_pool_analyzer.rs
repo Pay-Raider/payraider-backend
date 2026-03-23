@@ -13,7 +13,7 @@ pub struct LiquidityPoolAnalyzer {
 }
 
 impl LiquidityPoolAnalyzer {
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: Pool<Sqlite>, rpc_client: Arc<StellarRpcClient>) -> Self {
         Self { pool, rpc_client }
     }
@@ -232,9 +232,7 @@ impl LiquidityPoolAnalyzer {
             _ => "apy DESC",
         };
 
-        let query = format!(
-            "SELECT * FROM liquidity_pools ORDER BY {order_clause} LIMIT $1"
-        );
+        let query = format!("SELECT * FROM liquidity_pools ORDER BY {order_clause} LIMIT $1");
 
         let pools = sqlx::query_as::<_, LiquidityPool>(&query)
             .bind(limit)
@@ -280,7 +278,7 @@ impl LiquidityPoolAnalyzer {
     /// Compute impermanent loss given initial and current reserves.
     /// IL = 2 * `sqrt(price_ratio)` / (1 + `price_ratio`) - 1
     /// where `price_ratio` = (`current_a/current_b`) / (`initial_a/initial_b`)
-    #[must_use] 
+    #[must_use]
     pub fn compute_impermanent_loss(
         initial_a: f64,
         initial_b: f64,

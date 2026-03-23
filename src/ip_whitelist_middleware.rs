@@ -85,7 +85,7 @@ impl IpWhitelistConfig {
     }
 
     /// Check if an IP address is whitelisted
-    #[must_use] 
+    #[must_use]
     pub fn is_allowed(&self, ip: &IpAddr) -> bool {
         self.allowed_networks
             .iter()

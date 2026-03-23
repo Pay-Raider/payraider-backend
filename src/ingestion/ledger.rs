@@ -31,7 +31,7 @@ pub struct ExtractedPayment {
 }
 
 impl LedgerIngestionService {
-    #[must_use] 
+    #[must_use]
     pub const fn new(
         rpc_client: Arc<StellarRpcClient>,
         fee_bump_tracker: Arc<FeeBumpTrackerService>,
@@ -47,7 +47,7 @@ impl LedgerIngestionService {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn new_with_webhooks(
         rpc_client: Arc<StellarRpcClient>,
         fee_bump_tracker: Arc<FeeBumpTrackerService>,
@@ -67,7 +67,9 @@ impl LedgerIngestionService {
     /// I'm running the main ingestion loop - fetches ledgers and persists them
     pub async fn run_ingestion(&self, batch_size: u32) -> Result<u64> {
         let cursor = self.get_cursor().await?;
-        let start_ledger = if let Some(l) = self.get_last_ledger().await? { Some(l + 1) } else {
+        let start_ledger = if let Some(l) = self.get_last_ledger().await? {
+            Some(l + 1)
+        } else {
             let health = self
                 .rpc_client
                 .check_health()

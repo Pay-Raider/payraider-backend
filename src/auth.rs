@@ -87,7 +87,10 @@ impl AuthService {
         let jwt_secret = std::env::var("JWT_SECRET")
             .expect("JWT_SECRET environment variable is required. Generate a cryptographically secure random key of at least 32 bytes.");
 
-        assert!((jwt_secret.len() >= 32), "JWT_SECRET must be at least 32 characters for adequate security");
+        assert!(
+            (jwt_secret.len() >= 32),
+            "JWT_SECRET must be at least 32 characters for adequate security"
+        );
 
         Self {
             jwt_secret,

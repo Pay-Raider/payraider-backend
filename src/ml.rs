@@ -33,7 +33,7 @@ impl Default for SimpleMLModel {
 }
 
 impl SimpleMLModel {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         // Simple linear model weights (trained offline)
         Self {
@@ -43,14 +43,16 @@ impl SimpleMLModel {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn predict(&self, features: PredictionFeatures) -> PredictionResult {
-        let input = [features.corridor_hash,
+        let input = [
+            features.corridor_hash,
             features.amount_usd,
             features.hour_of_day,
             features.day_of_week,
             features.liquidity_depth,
-            features.recent_success_rate];
+            features.recent_success_rate,
+        ];
 
         let mut score = self.bias;
         for (i, &weight) in self.weights.iter().enumerate() {
@@ -62,7 +64,11 @@ impl SimpleMLModel {
 
         PredictionResult {
             success_probability: prob,
-            confidence: if (0.3..=0.7).contains(&prob) { 0.7 } else { 0.9 },
+            confidence: if (0.3..=0.7).contains(&prob) {
+                0.7
+            } else {
+                0.9
+            },
             model_version: self.version.clone(),
         }
     }

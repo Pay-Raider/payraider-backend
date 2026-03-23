@@ -11,7 +11,7 @@ pub struct Corridor {
 }
 
 impl Corridor {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         asset_a_code: String,
         asset_a_issuer: String,
@@ -38,7 +38,7 @@ impl Corridor {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_string_key(&self) -> String {
         format!(
             "{}:{}->{}:{}",
@@ -113,7 +113,7 @@ pub struct PaymentRecord {
 
 impl PaymentRecord {
     /// Computes settlement latency in milliseconds between submission and confirmation times.
-    #[must_use] 
+    #[must_use]
     pub fn settlement_latency_ms(&self) -> Option<i64> {
         match (self.submission_time, self.confirmation_time) {
             (Some(submitted), Some(confirmed)) => {
@@ -125,7 +125,7 @@ impl PaymentRecord {
     }
 
     /// Extracts the corridor from source and destination assets.
-    #[must_use] 
+    #[must_use]
     pub fn get_corridor(&self) -> Corridor {
         Corridor::new(
             self.source_asset_code.clone(),

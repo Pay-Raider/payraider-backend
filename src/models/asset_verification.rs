@@ -11,7 +11,7 @@ pub enum VerificationStatus {
 }
 
 impl VerificationStatus {
-    #[must_use] 
+    #[must_use]
     pub const fn as_str(&self) -> &str {
         match self {
             Self::Verified => "verified",
@@ -20,7 +20,7 @@ impl VerificationStatus {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "verified" => Self::Verified,
@@ -70,7 +70,7 @@ pub struct VerifiedAsset {
 }
 
 impl VerifiedAsset {
-    #[must_use] 
+    #[must_use]
     pub fn get_status(&self) -> VerificationStatus {
         VerificationStatus::from_str(&self.verification_status)
     }
@@ -123,7 +123,7 @@ pub enum ReportType {
 }
 
 impl ReportType {
-    #[must_use] 
+    #[must_use]
     pub const fn as_str(&self) -> &str {
         match self {
             Self::Suspicious => "suspicious",
@@ -144,7 +144,7 @@ pub enum ReportStatus {
 }
 
 impl ReportStatus {
-    #[must_use] 
+    #[must_use]
     pub const fn as_str(&self) -> &str {
         match self {
             Self::Pending => "pending",

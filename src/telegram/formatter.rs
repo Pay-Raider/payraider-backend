@@ -1,7 +1,7 @@
 use crate::alerts::{Alert, AlertType};
 
 /// Escape special characters for Telegram `MarkdownV2`.
-#[must_use] 
+#[must_use]
 pub fn escape_markdown(text: &str) -> String {
     let special = [
         '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!',
@@ -16,7 +16,7 @@ pub fn escape_markdown(text: &str) -> String {
     escaped
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_alert(alert: &Alert) -> String {
     let (emoji, type_label) = match alert.alert_type {
         AlertType::SuccessRateDrop => ("\u{1F534}", "Success Rate Drop"),
@@ -43,7 +43,7 @@ pub fn format_alert(alert: &Alert) -> String {
     )
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_status(corridor_count: usize, anchor_count: usize, active_alerts: usize) -> String {
     let title = escape_markdown("System Status");
     format!(
@@ -54,7 +54,7 @@ pub fn format_status(corridor_count: usize, anchor_count: usize, active_alerts: 
     )
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_corridor_list(
     corridors: &[(String, f64, i64, f64)], // (id, success_rate, volume, health_score)
 ) -> String {
@@ -91,7 +91,7 @@ pub fn format_corridor_list(
     lines.join("\n")
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_corridor_detail(
     id: &str,
     source_asset: &str,
@@ -123,7 +123,7 @@ pub fn format_corridor_detail(
     )
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_anchor_list(
     anchors: &[(String, String, f64, String)], // (id, name, reliability, status)
 ) -> String {
@@ -153,7 +153,7 @@ pub fn format_anchor_list(
     lines.join("\n")
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_anchor_detail(
     name: &str,
     stellar_account: &str,
@@ -189,7 +189,7 @@ pub fn format_anchor_detail(
     )
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_help() -> String {
     let title = escape_markdown("Stellar Insights Bot");
     let cmds = [
