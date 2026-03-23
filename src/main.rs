@@ -13,6 +13,7 @@ use stellar_insights_backend::{
         fee_bump_tracker::FeeBumpTrackerService,
         liquidity_pool_analyzer::LiquidityPoolAnalyzer,
         price_feed::{PriceFeedClient, PriceFeedConfig, default_asset_mapping},
+        webhook_dispatcher::WebhookDispatcher,
     },
     state::AppState,
     websocket::WsState,
@@ -49,6 +50,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lp_analyzer = Arc::new(LiquidityPoolAnalyzer::new(pool.clone(), rpc_client.clone()));
     
     let rate_limiter = Arc::new(RateLimiter::new().await.unwrap());
+    
+    // Start webhook dispatcher as a background task
+    let webhook_pool = pool.clone();
+    tokio::spawn(async move {
+        let dispatcher = WebhookDispatcher::new(webhook_pool);
+        if let Err(e) = dispatcher.run().await {
+            tracing::error!("Webhook dispatcher stopped: {}", e);
+        }
+    });
     
     let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
     

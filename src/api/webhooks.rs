@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde_json::json;
@@ -140,7 +140,36 @@ pub async fn delete_webhook(
         .into_response())
 }
 
-/// POST /api/webhooks/:id/test - Send test payload to webhook
+/// GET /api/webhooks/:id - Get a single webhook by ID
+pub async fn get_webhook(
+    State(db): State<SqlitePool>,
+    auth_user: AuthUser,
+    Path(webhook_id): Path<String>,
+) -> Result<Response, WebhookApiError> {
+    let service = WebhookService::new(db);
+    let webhook = service
+        .get_webhook(&webhook_id)
+        .await
+        .map_err(|e| WebhookApiError::ServerError(e.to_string()))?
+        .ok_or_else(|| WebhookApiError::NotFound("Webhook not found".to_string()))?;
+
+    if webhook.user_id != auth_user.user_id {
+        return Err(WebhookApiError::Forbidden);
+    }
+
+    let response = WebhookResponse {
+        id: webhook.id,
+        url: webhook.url,
+        event_types: webhook.event_types.split(',').map(std::string::ToString::to_string).collect(),
+        filters: webhook.filters.as_ref().and_then(|f| serde_json::from_str(f).ok()),
+        is_active: webhook.is_active,
+        created_at: webhook.created_at,
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// POST /api/webhooks/:id/test - Queue a test event for delivery
 pub async fn test_webhook(
     State(db): State<SqlitePool>,
     auth_user: AuthUser,
@@ -148,38 +177,34 @@ pub async fn test_webhook(
 ) -> Result<Response, WebhookApiError> {
     let service = WebhookService::new(db);
 
-    // Get webhook
+    // Get webhook and verify ownership
     let webhook = service
         .get_webhook(&webhook_id)
         .await
         .map_err(|e| WebhookApiError::ServerError(e.to_string()))?
         .ok_or_else(|| WebhookApiError::NotFound("Webhook not found".to_string()))?;
 
-    // Verify ownership
     if webhook.user_id != auth_user.user_id {
         return Err(WebhookApiError::Forbidden);
     }
 
-    // Create test payload
     let test_payload = json!({
-        "event": "test",
-        "timestamp": chrono::Utc::now().timestamp(),
-        "data": {
-            "message": "This is a test webhook delivery"
-        }
+        "message": "This is a test webhook delivery",
+        "webhook_id": webhook_id,
     });
 
-    // Send test delivery (simplified - doesn't actually send, just validates)
-    // In real implementation, would fire off async HTTP request with retry logic
-    tracing::info!(
-        "Test webhook delivery for webhook_id={}: {}",
-        webhook_id,
-        test_payload
-    );
+    let event_id = service
+        .create_webhook_event(&webhook_id, "test", test_payload.clone())
+        .await
+        .map_err(|e| WebhookApiError::ServerError(e.to_string()))?;
 
     Ok((
         StatusCode::OK,
-        Json(json!({"message": "Test webhook prepared", "payload": test_payload})),
+        Json(json!({
+            "message": "Test event queued for delivery",
+            "event_id": event_id,
+            "payload": test_payload
+        })),
     )
         .into_response())
 }
@@ -213,7 +238,7 @@ impl IntoResponse for WebhookApiError {
 pub fn routes(db: SqlitePool) -> Router {
     Router::new()
         .route("/api/webhooks", post(register_webhook).get(list_webhooks))
-        .route("/api/webhooks/:id", delete(delete_webhook))
+        .route("/api/webhooks/:id", get(get_webhook).delete(delete_webhook))
         .route("/api/webhooks/:id/test", post(test_webhook))
         .with_state(db)
 }
