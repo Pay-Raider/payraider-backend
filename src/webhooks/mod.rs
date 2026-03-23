@@ -15,7 +15,7 @@ pub struct WebhookSignature;
 
 impl WebhookSignature {
     /// Generate HMAC-SHA256 signature for webhook payload
-    #[must_use] 
+    #[must_use]
     pub fn sign(payload: &str, secret: &str) -> String {
         let mut mac =
             HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
@@ -24,7 +24,7 @@ impl WebhookSignature {
     }
 
     /// Verify webhook signature
-    #[must_use] 
+    #[must_use]
     pub fn verify(payload: &str, secret: &str, signature: &str) -> bool {
         let expected = Self::sign(payload, secret);
         signature == expected
@@ -83,7 +83,7 @@ pub enum WebhookEventType {
 }
 
 impl WebhookEventType {
-    #[must_use] 
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::CorridorHealthDegraded => "corridor.health_degraded",
@@ -93,7 +93,7 @@ impl WebhookEventType {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "corridor.health_degraded" => Some(Self::CorridorHealthDegraded),
@@ -112,7 +112,7 @@ pub struct WebhookService {
 }
 
 impl WebhookService {
-    #[must_use] 
+    #[must_use]
     pub fn new(db: SqlitePool) -> Self {
         let encryption_key = std::env::var("ENCRYPTION_KEY").unwrap_or_else(|_| {
             "0000000000000000000000000000000000000000000000000000000000000000".to_string()
@@ -129,7 +129,10 @@ impl WebhookService {
         let id = Uuid::new_v4().to_string();
         let secret = Uuid::new_v4().to_string();
         let event_types_str = request.event_types.join(",");
-        let filters_str = request.filters.as_ref().map(std::string::ToString::to_string);
+        let filters_str = request
+            .filters
+            .as_ref()
+            .map(std::string::ToString::to_string);
         let now = chrono::Utc::now().to_rfc3339();
 
         let encrypted_secret = crate::crypto::encrypt_data(&secret, &self.encryption_key)

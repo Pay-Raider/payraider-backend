@@ -149,10 +149,7 @@ pub async fn list_corridors(
             .get_aggregated_corridor_metrics(start_date, end_date)
             .await
             .map_err(|e| {
-                ApiError::internal(
-                    "DATABASE_ERROR",
-                    format!("Failed to fetch corridors: {e}"),
-                )
+                ApiError::internal("DATABASE_ERROR", format!("Failed to fetch corridors: {e}"))
             })?;
 
         // Convert to CorridorMetrics-like structure for filtering
@@ -186,10 +183,7 @@ pub async fn list_corridors(
             .get_corridor_metrics_for_date(today)
             .await
             .map_err(|e| {
-                ApiError::internal(
-                    "DATABASE_ERROR",
-                    format!("Failed to fetch corridors: {e}"),
-                )
+                ApiError::internal("DATABASE_ERROR", format!("Failed to fetch corridors: {e}"))
             })?
     };
 

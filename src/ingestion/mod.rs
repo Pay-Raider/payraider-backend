@@ -15,7 +15,7 @@ pub struct DataIngestionService {
 }
 
 impl DataIngestionService {
-    #[must_use] 
+    #[must_use]
     pub const fn new(rpc_client: Arc<StellarRpcClient>, db: Arc<Database>) -> Self {
         Self { rpc_client, db }
     }

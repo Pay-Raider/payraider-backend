@@ -30,7 +30,7 @@ pub struct ProcessingContext {
 
 impl ProcessingContext {
     /// Create a new processing context
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             session_id: None,
@@ -42,7 +42,7 @@ impl ProcessingContext {
     }
 
     /// Create context for replay
-    #[must_use] 
+    #[must_use]
     pub const fn for_replay(session_id: String, dry_run: bool) -> Self {
         Self {
             session_id: Some(session_id),
@@ -54,7 +54,7 @@ impl ProcessingContext {
     }
 
     /// Check if this is a replay context
-    #[must_use] 
+    #[must_use]
     pub const fn is_replay(&self) -> bool {
         self.session_id.is_some()
     }
@@ -83,7 +83,7 @@ pub struct ProcessingResult {
 
 impl ProcessingResult {
     /// Create a successful result
-    #[must_use] 
+    #[must_use]
     pub const fn success() -> Self {
         Self {
             success: true,
@@ -95,7 +95,7 @@ impl ProcessingResult {
     }
 
     /// Create a failed result
-    #[must_use] 
+    #[must_use]
     pub const fn failure(error: String) -> Self {
         Self {
             success: false,
@@ -107,7 +107,7 @@ impl ProcessingResult {
     }
 
     /// Create a skipped result (idempotency)
-    #[must_use] 
+    #[must_use]
     pub const fn skipped() -> Self {
         Self {
             success: true,
@@ -119,14 +119,14 @@ impl ProcessingResult {
     }
 
     /// Add a state change
-    #[must_use] 
+    #[must_use]
     pub fn with_change(mut self, change: StateChange) -> Self {
         self.state_changes.push(change);
         self
     }
 
     /// Set duration
-    #[must_use] 
+    #[must_use]
     pub const fn with_duration(mut self, duration_ms: u64) -> Self {
         self.duration_ms = duration_ms;
         self
@@ -186,7 +186,7 @@ pub struct CompositeEventProcessor {
 
 impl CompositeEventProcessor {
     /// Create a new composite processor
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             processors: Vec::new(),
@@ -316,7 +316,7 @@ pub struct SnapshotEventProcessor {
 }
 
 impl SnapshotEventProcessor {
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: sqlx::SqlitePool) -> Self {
         Self { pool }
     }

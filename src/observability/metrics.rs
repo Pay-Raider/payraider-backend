@@ -237,7 +237,8 @@ pub async fn http_metrics_middleware(req: Request<Body>, next: Next) -> Response
     let method = req.method().as_str().to_string();
     let endpoint = req
         .extensions()
-        .get::<MatchedPath>().map_or_else(|| req.uri().path().to_string(), |m| m.as_str().to_string());
+        .get::<MatchedPath>()
+        .map_or_else(|| req.uri().path().to_string(), |m| m.as_str().to_string());
 
     state()
         .http_in_flight_requests

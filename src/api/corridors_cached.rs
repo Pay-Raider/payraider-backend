@@ -399,10 +399,7 @@ pub async fn list_corridors(
                 // Extract the actual asset pair from the payment
                 if let Some(asset_pair) = extract_asset_pair_from_payment(payment) {
                     let corridor_key = asset_pair.to_corridor_key();
-                    corridor_map
-                        .entry(corridor_key)
-                        .or_default()
-                        .push(payment);
+                    corridor_map.entry(corridor_key).or_default().push(payment);
                 } else {
                     tracing::warn!(
                         payment_id = crate::logging::redaction::redact_hash(&payment.id),
@@ -782,10 +779,7 @@ pub async fn get_corridor_detail(
         for payment in &payments {
             if let Some(asset_pair) = extract_asset_pair_from_payment(payment) {
                 let key = asset_pair.to_corridor_key();
-                corridor_map
-                    .entry(key.clone())
-                    .or_default()
-                    .push(payment);
+                corridor_map.entry(key.clone()).or_default().push(payment);
 
                 if key == corridor_key {
                     corridor_payments.push(payment);

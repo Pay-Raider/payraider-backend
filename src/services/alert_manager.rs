@@ -9,7 +9,7 @@ pub struct AlertManager {
 }
 
 impl AlertManager {
-    #[must_use] 
+    #[must_use]
     pub fn new(db: Arc<Database>) -> Self {
         Self {
             db,

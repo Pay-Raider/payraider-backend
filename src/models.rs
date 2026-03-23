@@ -86,7 +86,7 @@ pub enum AnchorStatus {
 }
 
 impl AnchorStatus {
-    #[must_use] 
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Green => "green",
@@ -95,7 +95,7 @@ impl AnchorStatus {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_metrics(success_rate: f64, failure_rate: f64) -> Self {
         if success_rate > 98.0 && failure_rate <= 1.0 {
             Self::Green
@@ -202,7 +202,7 @@ pub struct PaymentRecord {
 }
 
 impl PaymentRecord {
-    #[must_use] 
+    #[must_use]
     pub fn get_corridor(&self) -> crate::models::corridor::Corridor {
         let src_code = if self.source_asset_code.is_empty() {
             self.asset_code.clone().unwrap_or_default()

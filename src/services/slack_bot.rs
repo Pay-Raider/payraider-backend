@@ -12,7 +12,7 @@ pub struct SlackBotService {
 
 impl SlackBotService {
     /// Create a new `SlackBotService`
-    #[must_use] 
+    #[must_use]
     pub fn new(webhook_url: String, alert_rx: broadcast::Receiver<Alert>) -> Self {
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(5))

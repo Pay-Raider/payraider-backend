@@ -27,9 +27,7 @@ fn validate_filter_f64(
     if v < min_allowed || v > max_allowed {
         return Err(ApiError::bad_request(
             "INVALID_PARAMETER",
-            format!(
-                "{param_name} must be between {min_allowed} and {max_allowed} (got {v})."
-            ),
+            format!("{param_name} must be between {min_allowed} and {max_allowed} (got {v})."),
         ));
     }
     Ok(())

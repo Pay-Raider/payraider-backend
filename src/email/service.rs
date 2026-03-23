@@ -9,7 +9,7 @@ pub struct EmailService {
 }
 
 impl EmailService {
-    #[must_use] 
+    #[must_use]
     pub const fn new(smtp_host: String, smtp_user: String, smtp_pass: String) -> Self {
         Self {
             smtp_host,

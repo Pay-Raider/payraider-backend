@@ -47,7 +47,7 @@ pub struct SnapshotService {
 
 impl SnapshotService {
     /// Create a new snapshot service
-    #[must_use] 
+    #[must_use]
     pub const fn new(
         db: Arc<Database>,
         contract_service: Option<Arc<ContractService>>,

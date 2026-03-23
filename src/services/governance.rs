@@ -78,7 +78,7 @@ pub struct GovernanceService {
 }
 
 impl GovernanceService {
-    #[must_use] 
+    #[must_use]
     pub const fn new(db: Arc<Database>) -> Self {
         Self { db }
     }

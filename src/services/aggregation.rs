@@ -35,7 +35,7 @@ pub struct AggregationService {
 }
 
 impl AggregationService {
-    #[must_use] 
+    #[must_use]
     pub const fn new(db: Arc<Database>, config: AggregationConfig) -> Self {
         Self { db, config }
     }
@@ -174,9 +174,10 @@ impl AggregationService {
 
                     // Update averages (weighted by transaction count)
                     if let Some(latency) = metric.avg_settlement_latency_ms {
-                        let total_latency = i64::from(existing.avg_settlement_latency_ms.unwrap_or(0))
-                            * existing.total_transactions
-                            + i64::from(latency) * metric.total_transactions;
+                        let total_latency =
+                            i64::from(existing.avg_settlement_latency_ms.unwrap_or(0))
+                                * existing.total_transactions
+                                + i64::from(latency) * metric.total_transactions;
                         existing.avg_settlement_latency_ms = Some(
                             (total_latency
                                 / (existing.total_transactions + metric.total_transactions))

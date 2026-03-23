@@ -38,7 +38,7 @@ impl VaultConfig {
     }
 
     /// Create config with explicit values (for testing)
-    #[must_use] 
+    #[must_use]
     pub const fn new(vault_addr: String, vault_token: String, db_role: String) -> Self {
         Self {
             vault_addr,

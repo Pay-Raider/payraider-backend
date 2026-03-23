@@ -71,7 +71,7 @@ pub enum BroadcastMessage {
 
 impl RealtimeBroadcaster {
     /// Create a new realtime broadcaster
-    #[must_use] 
+    #[must_use]
     pub fn new(
         ws_state: Arc<WsState>,
         db: Arc<Database>,
@@ -351,10 +351,7 @@ impl RealtimeBroadcaster {
 
     /// Subscribe a connection to specific channels
     pub fn subscribe_connection(&self, connection_id: Uuid, channels: Vec<String>) {
-        let mut subscription_set = self
-            .subscriptions
-            .entry(connection_id)
-            .or_default();
+        let mut subscription_set = self.subscriptions.entry(connection_id).or_default();
 
         for channel in channels {
             subscription_set.insert(channel.clone());

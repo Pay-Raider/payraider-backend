@@ -53,7 +53,7 @@ pub struct ContractEvent {
 
 impl ContractEvent {
     /// Create a unique identifier for this event
-    #[must_use] 
+    #[must_use]
     pub fn unique_id(&self) -> String {
         format!(
             "{}:{}:{}",
@@ -62,7 +62,7 @@ impl ContractEvent {
     }
 
     /// Check if event matches a filter
-    #[must_use] 
+    #[must_use]
     pub fn matches_filter(&self, filter: &EventFilter) -> bool {
         if let Some(ref contract_ids) = filter.contract_ids {
             if !contract_ids.contains(&self.contract_id) {

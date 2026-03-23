@@ -46,7 +46,7 @@ pub struct ContractEventListenerJob {
 
 impl ContractEventListenerJob {
     /// Create a new contract event listener job
-    #[must_use] 
+    #[must_use]
     pub const fn new(db: Arc<Database>, config: ContractEventListenerConfig) -> Self {
         Self { db, config }
     }

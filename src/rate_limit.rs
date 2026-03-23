@@ -59,7 +59,7 @@ pub enum ClientIdentifier {
 
 impl ClientIdentifier {
     /// Get the tier for this client type
-    #[must_use] 
+    #[must_use]
     pub const fn tier(&self) -> ClientTier {
         match self {
             Self::ApiKey(_) => ClientTier::Authenticated,
@@ -69,7 +69,7 @@ impl ClientIdentifier {
     }
 
     /// Get the identifier string for rate limit key
-    #[must_use] 
+    #[must_use]
     pub fn as_key(&self) -> String {
         match self {
             Self::ApiKey(key) => format!("apikey:{key}"),
@@ -260,7 +260,9 @@ impl RateLimiter {
         // Try Redis first
         if let Some(conn) = self.redis_connection.read().await.as_ref() {
             let mut conn = conn.clone();
-            if let Ok((allowed, remaining, reset)) = self.check_redis_limit(&mut conn, &key, limit).await {
+            if let Ok((allowed, remaining, reset)) =
+                self.check_redis_limit(&mut conn, &key, limit).await
+            {
                 return (
                     allowed,
                     RateLimitInfo {
@@ -405,7 +407,11 @@ pub async fn rate_limit_middleware(
 
     let ip = req
         .extensions()
-        .get::<ConnectInfo<std::net::SocketAddr>>().map_or_else(|| "unknown".to_string(), |connect_info| connect_info.0.ip().to_string());
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map_or_else(
+            || "unknown".to_string(),
+            |connect_info| connect_info.0.ip().to_string(),
+        );
     let path = req.uri().path().to_string();
 
     // Resolve client identifier from copied request metadata.

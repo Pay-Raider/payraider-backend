@@ -49,7 +49,7 @@ pub struct MuxedAccountInfo {
 /// Returns true if the given string is a valid Stellar muxed account (M-address) format.
 /// M-addresses are 69 characters and start with 'M'.
 #[inline]
-#[must_use] 
+#[must_use]
 pub fn is_muxed_address(addr: &str) -> bool {
     addr.starts_with('M')
         && addr.len() == MUXED_ADDRESS_LEN
@@ -60,7 +60,7 @@ pub fn is_muxed_address(addr: &str) -> bool {
 
 /// Returns true if the given string looks like a Stellar account address (G or M).
 #[inline]
-#[must_use] 
+#[must_use]
 pub fn is_stellar_account_address(addr: &str) -> bool {
     if addr.starts_with('G') && addr.len() == G_ADDRESS_LEN {
         return true;
@@ -70,7 +70,7 @@ pub fn is_stellar_account_address(addr: &str) -> bool {
 
 /// Parse an M-address into base account (G) and muxed ID.
 /// Returns None if the input is not a valid M-address or decoding fails.
-#[must_use] 
+#[must_use]
 pub fn parse_muxed_address(addr: &str) -> Option<MuxedAccountInfo> {
     if !is_muxed_address(addr) {
         return None;
@@ -112,7 +112,7 @@ pub fn parse_muxed_address(addr: &str) -> Option<MuxedAccountInfo> {
 /// Normalize an account identifier for display or storage.
 /// Accepts both G- and M-addresses and returns them as-is (no conversion).
 #[inline]
-#[must_use] 
+#[must_use]
 pub fn normalize_account_input(addr: &str) -> Option<&str> {
     let trimmed = addr.trim();
     if trimmed.is_empty() {

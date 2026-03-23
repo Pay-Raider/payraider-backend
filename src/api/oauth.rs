@@ -308,17 +308,11 @@ pub enum OAuthApiError {
 impl IntoResponse for OAuthApiError {
     fn into_response(self) -> Response {
         let (status_code, error, description) = match self {
-            Self::InvalidRequest(msg) => {
-                (StatusCode::BAD_REQUEST, "invalid_request", Some(msg))
-            }
+            Self::InvalidRequest(msg) => (StatusCode::BAD_REQUEST, "invalid_request", Some(msg)),
             Self::InvalidClient => (StatusCode::UNAUTHORIZED, "invalid_client", None),
-            Self::InvalidScope(msg) => {
-                (StatusCode::BAD_REQUEST, "invalid_scope", Some(msg))
-            }
+            Self::InvalidScope(msg) => (StatusCode::BAD_REQUEST, "invalid_scope", Some(msg)),
             Self::InvalidGrant => (StatusCode::UNAUTHORIZED, "invalid_grant", None),
-            Self::UnsupportedGrantType => {
-                (StatusCode::BAD_REQUEST, "unsupported_grant_type", None)
-            }
+            Self::UnsupportedGrantType => (StatusCode::BAD_REQUEST, "unsupported_grant_type", None),
             Self::ServerError(msg) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "server_error", Some(msg))
             }

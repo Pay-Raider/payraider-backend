@@ -76,12 +76,11 @@ pub fn decrypt_data(encrypted_data: &str, key_hex: &str) -> Result<String> {
         .decrypt(nonce, cipher_text_bytes.as_ref())
         .map_err(|e| anyhow!("Decryption failed: {e}"))?;
 
-    String::from_utf8(plain_text_bytes)
-        .map_err(|e| anyhow!("Invalid UTF-8 in decrypted data: {e}"))
+    String::from_utf8(plain_text_bytes).map_err(|e| anyhow!("Invalid UTF-8 in decrypted data: {e}"))
 }
 
 /// Helper function to check if a string appears to be encrypted
-#[must_use] 
+#[must_use]
 pub fn is_encrypted(data: &str) -> bool {
     data.contains(':') && data.split(':').count() == 2
 }

@@ -9,7 +9,7 @@ pub struct AggregationDb {
 }
 
 impl AggregationDb {
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }

@@ -36,13 +36,12 @@ impl fmt::Display for RpcError {
 impl std::error::Error for RpcError {}
 
 impl RpcError {
-    #[must_use] 
+    #[must_use]
     pub const fn is_retryable(&self) -> bool {
-        self.is_transient()
-            || matches!(self, Self::ServerError { status, .. } if *status >= 500)
+        self.is_transient() || matches!(self, Self::ServerError { status, .. } if *status >= 500)
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn is_transient(&self) -> bool {
         matches!(
             self,
@@ -50,7 +49,7 @@ impl RpcError {
         )
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn categorize(err: &str) -> Self {
         let lowered = err.to_ascii_lowercase();
         if lowered.contains("timeout") || lowered.contains("timed out") {
@@ -72,7 +71,7 @@ impl RpcError {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn error_type_label(&self) -> &'static str {
         match self {
             Self::NetworkError(_) => "network_error",

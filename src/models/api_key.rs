@@ -61,7 +61,7 @@ pub struct CreateApiKeyResponse {
     pub plain_key: String,
 }
 
-#[must_use] 
+#[must_use]
 pub fn generate_api_key() -> (String, String, String) {
     let raw = Uuid::new_v4().to_string().replace('-', "");
     let plain_key = format!("si_live_{raw}");
@@ -70,7 +70,7 @@ pub fn generate_api_key() -> (String, String, String) {
     (plain_key, prefix, hash)
 }
 
-#[must_use] 
+#[must_use]
 pub fn hash_api_key(plain_key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(plain_key.as_bytes());

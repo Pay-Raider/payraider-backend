@@ -40,7 +40,7 @@ pub struct AssetRevalidationJob {
 
 impl AssetRevalidationJob {
     /// Create a new asset revalidation job
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: SqlitePool, config: RevalidationConfig) -> Self {
         Self { pool, config }
     }

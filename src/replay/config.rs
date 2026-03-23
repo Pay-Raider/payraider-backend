@@ -53,48 +53,48 @@ impl Default for ReplayConfig {
 
 impl ReplayConfig {
     /// Create a new replay config with defaults
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Set replay mode
-    #[must_use] 
+    #[must_use]
     pub const fn with_mode(mut self, mode: ReplayMode) -> Self {
         self.mode = mode;
         self
     }
 
     /// Set ledger range
-    #[must_use] 
+    #[must_use]
     pub fn with_range(mut self, range: ReplayRange) -> Self {
         self.range = range;
         self
     }
 
     /// Set event filter
-    #[must_use] 
+    #[must_use]
     pub fn with_filter(mut self, filter: EventFilter) -> Self {
         self.filter = filter;
         self
     }
 
     /// Set batch size
-    #[must_use] 
+    #[must_use]
     pub const fn with_batch_size(mut self, size: usize) -> Self {
         self.batch_size = size;
         self
     }
 
     /// Enable dry-run mode
-    #[must_use] 
+    #[must_use]
     pub const fn dry_run(mut self) -> Self {
         self.dry_run = true;
         self
     }
 
     /// Enable verbose logging
-    #[must_use] 
+    #[must_use]
     pub const fn verbose(mut self) -> Self {
         self.verbose = true;
         self
@@ -192,7 +192,7 @@ pub enum ReplayRange {
 
 impl ReplayRange {
     /// Get the start ledger for this range
-    #[must_use] 
+    #[must_use]
     pub const fn start_ledger(&self, latest: u64, checkpoint_ledger: Option<u64>) -> Option<u64> {
         match self {
             Self::All => Some(0),
@@ -205,7 +205,7 @@ impl ReplayRange {
     }
 
     /// Get the end ledger for this range
-    #[must_use] 
+    #[must_use]
     pub const fn end_ledger(&self, latest: u64) -> Option<u64> {
         match self {
             Self::All => Some(latest),
@@ -218,7 +218,7 @@ impl ReplayRange {
     }
 
     /// Check if a ledger is within this range
-    #[must_use] 
+    #[must_use]
     pub fn contains(&self, ledger: u64, latest: u64, checkpoint_ledger: Option<u64>) -> bool {
         let start = self.start_ledger(latest, checkpoint_ledger).unwrap_or(0);
         let end = self.end_ledger(latest).unwrap_or(u64::MAX);

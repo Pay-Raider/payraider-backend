@@ -18,7 +18,7 @@ pub struct JobConfig {
 }
 
 impl JobConfig {
-    #[must_use] 
+    #[must_use]
     pub fn from_env(name: &str, default_interval: u64) -> Self {
         let env_prefix = format!("JOB_{}", name.to_uppercase().replace('-', "_"));
         let enabled = std::env::var(format!("{env_prefix}_ENABLED"))
@@ -49,7 +49,7 @@ impl Default for JobScheduler {
 }
 
 impl JobScheduler {
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             handles: Vec::new(),

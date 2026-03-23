@@ -70,7 +70,7 @@ pub struct VerificationRewardsService {
 
 impl VerificationRewardsService {
     /// Create a new verification rewards service
-    #[must_use] 
+    #[must_use]
     pub const fn new(db: Arc<Database>) -> Self {
         Self { db }
     }
@@ -133,9 +133,7 @@ impl VerificationRewardsService {
             .await?;
 
         let message = if is_match {
-            format!(
-                "Verification successful! You earned {reward_points} points."
-            )
+            format!("Verification successful! You earned {reward_points} points.")
         } else {
             "Verification failed. Hash does not match.".to_string()
         };

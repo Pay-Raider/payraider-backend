@@ -16,7 +16,7 @@ pub struct EventStorage {
 
 impl EventStorage {
     /// Create a new event storage
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
@@ -173,7 +173,7 @@ pub struct ReplayStorage {
 
 impl ReplayStorage {
     /// Create a new replay storage
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }

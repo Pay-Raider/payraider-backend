@@ -11,7 +11,7 @@ pub struct FeeBumpTrackerService {
 }
 
 impl FeeBumpTrackerService {
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: Pool<Sqlite>) -> Self {
         Self { pool }
     }
@@ -43,7 +43,8 @@ impl FeeBumpTrackerService {
                         .unwrap_or(0);
 
                     // Parse created_at
-                    let created_at = DateTime::parse_from_rfc3339(&tx.created_at).map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+                    let created_at = DateTime::parse_from_rfc3339(&tx.created_at)
+                        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
                     let fee_bump_tx = FeeBumpTransaction {
                         transaction_hash: tx.hash.clone(),

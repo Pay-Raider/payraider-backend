@@ -28,7 +28,7 @@ pub struct AlertManager {
 }
 
 impl AlertManager {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> (Self, broadcast::Receiver<Alert>) {
         let (tx, rx) = broadcast::channel(100);
         (
@@ -40,7 +40,7 @@ impl AlertManager {
         )
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn new_with_webhooks(
         webhook_event_service: Arc<crate::services::webhook_event_service::WebhookEventService>,
     ) -> (Self, broadcast::Receiver<Alert>) {
@@ -83,9 +83,7 @@ impl AlertManager {
                 alert_type: AlertType::LatencyIncrease,
                 corridor_id: Some(corridor_id.to_string()),
                 anchor_id: None,
-                message: format!(
-                    "Latency increased from {old_latency:.0}ms to {new_latency:.0}ms"
-                ),
+                message: format!("Latency increased from {old_latency:.0}ms to {new_latency:.0}ms"),
                 old_value: old_latency,
                 new_value: new_latency,
                 timestamp: chrono::Utc::now().to_rfc3339(),
@@ -107,7 +105,7 @@ impl AlertManager {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<Alert> {
         self.tx.subscribe()
     }

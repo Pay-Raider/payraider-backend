@@ -16,7 +16,7 @@ pub struct WebhookDispatcher {
 
 impl WebhookDispatcher {
     /// Create new webhook dispatcher
-    #[must_use] 
+    #[must_use]
     pub fn new(db: SqlitePool) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(10))
@@ -50,7 +50,9 @@ impl WebhookDispatcher {
 
         for (event_id, webhook_id, event_type, payload_str) in events {
             // Get webhook details
-            let webhook = if let Some(w) = service.get_webhook(&webhook_id).await? { w } else {
+            let webhook = if let Some(w) = service.get_webhook(&webhook_id).await? {
+                w
+            } else {
                 // Webhook was deleted, mark event as failed
                 let _ = service
                     .update_event_status(&event_id, "failed", Some("webhook_deleted"), 0)

@@ -104,7 +104,11 @@ pub async fn list_webhooks(
         .map(|w| WebhookResponse {
             id: w.id,
             url: w.url,
-            event_types: w.event_types.split(',').map(std::string::ToString::to_string).collect(),
+            event_types: w
+                .event_types
+                .split(',')
+                .map(std::string::ToString::to_string)
+                .collect(),
             filters: w
                 .filters
                 .as_ref()
@@ -160,8 +164,15 @@ pub async fn get_webhook(
     let response = WebhookResponse {
         id: webhook.id,
         url: webhook.url,
-        event_types: webhook.event_types.split(',').map(std::string::ToString::to_string).collect(),
-        filters: webhook.filters.as_ref().and_then(|f| serde_json::from_str(f).ok()),
+        event_types: webhook
+            .event_types
+            .split(',')
+            .map(std::string::ToString::to_string)
+            .collect(),
+        filters: webhook
+            .filters
+            .as_ref()
+            .and_then(|f| serde_json::from_str(f).ok()),
         is_active: webhook.is_active,
         created_at: webhook.created_at,
     };
