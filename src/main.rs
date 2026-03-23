@@ -1,24 +1,24 @@
-use std::sync::Arc;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
 use stellar_insights_backend::{
     api::v1::routes,
-    cache::{CacheManager, CacheConfig},
+    cache::{CacheConfig, CacheManager},
     database::Database,
+    env_config,
+    ingestion::DataIngestionService,
     rate_limit::RateLimiter,
     rpc::StellarRpcClient,
     services::{
         account_merge_detector::AccountMergeDetector,
         fee_bump_tracker::FeeBumpTrackerService,
         liquidity_pool_analyzer::LiquidityPoolAnalyzer,
-        price_feed::{PriceFeedClient, PriceFeedConfig, default_asset_mapping},
+        price_feed::{default_asset_mapping, PriceFeedClient, PriceFeedConfig},
         webhook_dispatcher::WebhookDispatcher,
     },
     state::AppState,
     websocket::WsState,
-    ingestion::DataIngestionService,
-    env_config,
 };
 
 #[tokio::main]
@@ -28,7 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = dotenvy::dotenv();
     env_config::log_env_config();
 
-    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
     let pool = SqlitePool::connect(&db_url).await?;
     let db = Arc::new(Database::new(pool.clone()));
 
@@ -37,16 +38,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rpc_client = Arc::new(StellarRpcClient::new_with_defaults(true));
 
     let price_feed_config = PriceFeedConfig::default();
-    let price_feed = Arc::new(PriceFeedClient::new(price_feed_config, default_asset_mapping()));
+    let price_feed = Arc::new(PriceFeedClient::new(
+        price_feed_config,
+        default_asset_mapping(),
+    ));
 
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
     let app_state = AppState::new(db.clone(), ws_state, ingestion);
-    let cached_state = (db.clone(), cache.clone(), rpc_client.clone(), price_feed.clone());
+    let cached_state = (
+        db.clone(),
+        cache.clone(),
+        rpc_client.clone(),
+        price_feed.clone(),
+    );
 
     let fee_bump_tracker = Arc::new(FeeBumpTrackerService::new(pool.clone()));
-    let account_merge_detector = Arc::new(AccountMergeDetector::new(pool.clone(), rpc_client.clone()));
+    let account_merge_detector =
+        Arc::new(AccountMergeDetector::new(pool.clone(), rpc_client.clone()));
     let lp_analyzer = Arc::new(LiquidityPoolAnalyzer::new(pool.clone(), rpc_client.clone()));
 
     let rate_limiter = Arc::new(RateLimiter::new().await.unwrap());
@@ -60,7 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
 
     let app = routes(
         app_state,
