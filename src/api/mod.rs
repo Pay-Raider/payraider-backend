@@ -2,14 +2,12 @@ pub mod account_merges;
 pub mod achievements;
 pub mod alerts;
 pub mod anchors;
-pub mod anchors_cached;
 pub mod api_keys;
 pub mod asset_verification;
 
 pub mod auth;
 pub mod cache_stats;
 pub mod corridors;
-pub mod corridors_cached;
 pub mod cost_calculator;
 pub mod export;
 // pub mod digest;  // Commented out - depends on email module

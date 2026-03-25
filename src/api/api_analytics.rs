@@ -33,10 +33,10 @@ pub async fn get_analytics_overview(State(db): State<Arc<Database>>) -> Json<Api
 
     // 4. Top Endpoints
     let top_endpoints = sqlx::query_as::<_, EndpointStat>(
-        "SELECT endpoint, method, COUNT(*) as count, AVG(response_time_ms) as avg_response_time_ms 
-         FROM api_usage_stats 
-         GROUP BY endpoint, method 
-         ORDER BY count DESC 
+        "SELECT endpoint, method, COUNT(*) as count, AVG(response_time_ms) as avg_response_time_ms
+         FROM api_usage_stats
+         GROUP BY endpoint, method
+         ORDER BY count DESC
          LIMIT 10",
     )
     .fetch_all(db.pool())
@@ -45,9 +45,9 @@ pub async fn get_analytics_overview(State(db): State<Arc<Database>>) -> Json<Api
 
     // 5. Status Distribution
     let status_distribution = sqlx::query_as::<_, StatusStat>(
-        "SELECT status_code, COUNT(*) as count 
-         FROM api_usage_stats 
-         GROUP BY status_code 
+        "SELECT status_code, COUNT(*) as count
+         FROM api_usage_stats
+         GROUP BY status_code
          ORDER BY count DESC",
     )
     .fetch_all(db.pool())

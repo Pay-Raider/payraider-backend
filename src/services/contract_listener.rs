@@ -301,7 +301,7 @@ impl ContractEventListener {
     async fn store_snapshot_event(&self, event: &SnapshotEvent) -> Result<()> {
         let query = r"
             INSERT OR REPLACE INTO contract_events (
-                id, contract_id, event_type, epoch, hash, timestamp, 
+                id, contract_id, event_type, epoch, hash, timestamp,
                 ledger, transaction_hash, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ";
@@ -330,10 +330,10 @@ impl ContractEventListener {
 
         // Get snapshot from database
         let query = r"
-            SELECT hash, canonical_json 
-            FROM snapshots 
-            WHERE epoch = ? 
-            ORDER BY created_at DESC 
+            SELECT hash, canonical_json
+            FROM snapshots
+            WHERE epoch = ?
+            ORDER BY created_at DESC
             LIMIT 1
         ";
 
@@ -396,7 +396,7 @@ impl ContractEventListener {
     /// Update verification status in database
     async fn update_verification_status(&self, epoch: u64, is_verified: bool) -> Result<()> {
         let query = r"
-            UPDATE snapshots 
+            UPDATE snapshots
             SET verification_status = ?, verified_at = ?
             WHERE epoch = ?
         ";
@@ -522,7 +522,7 @@ impl ContractEventListener {
     /// Get recent events from database
     pub async fn get_recent_events(&self, limit: i64) -> Result<Vec<SnapshotEvent>> {
         let query = r"
-            SELECT contract_id, event_type, epoch, hash, timestamp, 
+            SELECT contract_id, event_type, epoch, hash, timestamp,
                    ledger, transaction_hash
             FROM contract_events
             ORDER BY created_at DESC
