@@ -299,7 +299,7 @@ fn generate_corridor_list_cache_key(params: &ListCorridorsQuery) -> String {
 ///
 /// **DATA SOURCE: RPC**
 /// - Payment data from Horizon API
-/// - Trade data from Horizon API  
+/// - Trade data from Horizon API
 /// - Order book data from Horizon API
 /// - Calculates corridor metrics from real-time RPC data
 #[utoipa::path(

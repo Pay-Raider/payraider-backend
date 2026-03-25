@@ -23,7 +23,7 @@ impl AggregationDb {
     ) -> Result<Vec<crate::models::corridor::PaymentRecord>> {
         let records = sqlx::query_as::<_, PaymentRecordRow>(
             r"
-            SELECT 
+            SELECT
                 id,
                 transaction_hash,
                 source_account,
@@ -181,7 +181,7 @@ impl AggregationDb {
     ) -> Result<Vec<HourlyCorridorMetrics>> {
         let rows = sqlx::query_as::<_, HourlyCorridorMetricsRow>(
             r"
-            SELECT 
+            SELECT
                 id,
                 corridor_key,
                 asset_a_code,
