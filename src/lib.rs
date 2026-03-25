@@ -34,7 +34,6 @@ pub mod email;
 pub mod env_config;
 pub mod error;
 pub mod handlers;
-pub mod http_cache;
 pub mod ingestion;
 pub mod ip_whitelist_middleware;
 pub mod jobs;
