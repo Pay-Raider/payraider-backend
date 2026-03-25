@@ -26,9 +26,11 @@ pub mod auth_middleware;
 pub mod broadcast;
 pub mod cache;
 pub mod cache_invalidation;
-pub mod cache_middleware;
+// cache_middleware removed in favor of cache helper APIs
 pub mod crypto;
 pub mod database;
+
+pub mod http_cache; // HTTP caching layer (ETag/conditional responses)
 pub mod db;
 pub mod email;
 pub mod env_config;
