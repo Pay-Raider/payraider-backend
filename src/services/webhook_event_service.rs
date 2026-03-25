@@ -163,7 +163,7 @@ impl WebhookEventService {
         // For now, we'll get all active webhooks and filter in memory
         // In a production system, you might want to optimize this with a better query
         let all_webhooks = sqlx::query_as::<_, crate::webhooks::Webhook>(
-            "SELECT id, user_id, url, event_types, filters, secret, is_active, created_at, last_fired_at 
+            "SELECT id, user_id, url, event_types, filters, secret, is_active, created_at, last_fired_at
              FROM webhooks WHERE is_active = 1"
         )
         .fetch_all(&self.webhook_service.db)

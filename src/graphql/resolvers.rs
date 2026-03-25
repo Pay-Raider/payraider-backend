@@ -13,11 +13,11 @@ impl QueryRoot {
     /// Get a single anchor by ID
     async fn anchor(&self, ctx: &Context<'_>, id: String) -> Result<Option<AnchorType>> {
         let pool = &self.pool;
-        
+
         let anchor = sqlx::query_as!(
             AnchorType,
             r#"
-            SELECT 
+            SELECT
                 id, name, stellar_account, home_domain,
                 total_transactions, successful_transactions, failed_transactions,
                 total_volume_usd, avg_settlement_time_ms, reliability_score,
@@ -82,11 +82,11 @@ impl QueryRoot {
     /// Get a single corridor by ID
     async fn corridor(&self, ctx: &Context<'_>, id: String) -> Result<Option<CorridorType>> {
         let pool = &self.pool;
-        
+
         let corridor = sqlx::query_as!(
             CorridorType,
             r#"
-            SELECT 
+            SELECT
                 id, source_asset_code, source_asset_issuer,
                 destination_asset_code, destination_asset_issuer,
                 reliability_score, status,
@@ -155,11 +155,11 @@ impl QueryRoot {
     /// Get assets for a specific anchor
     async fn assets_by_anchor(&self, ctx: &Context<'_>, anchor_id: String) -> Result<Vec<AssetType>> {
         let pool = &self.pool;
-        
+
         let assets = sqlx::query_as!(
             AssetType,
             r#"
-            SELECT 
+            SELECT
                 id, anchor_id, asset_code, asset_issuer,
                 total_supply, num_holders,
                 created_at as "created_at: _", updated_at as "updated_at: _"
@@ -217,11 +217,11 @@ impl QueryRoot {
         entity_type: String,
     ) -> Result<Option<SnapshotType>> {
         let pool = &self.pool;
-        
+
         let snapshot = sqlx::query_as!(
             SnapshotType,
             r#"
-            SELECT 
+            SELECT
                 id, entity_id, entity_type, data, hash, epoch,
                 timestamp as "timestamp: _", created_at as "created_at: _"
             FROM snapshots

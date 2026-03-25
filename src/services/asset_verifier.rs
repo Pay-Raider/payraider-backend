@@ -268,7 +268,7 @@ impl AssetVerifier {
     ) -> Result<Option<(i64, i64, f64)>> {
         let result = sqlx::query_as::<_, (i64, i64, f64)>(
             r"
-            SELECT 
+            SELECT
                 COALESCE(SUM(trustline_count), 0) as trustline_count,
                 COALESCE(COUNT(*), 0) as transaction_count,
                 COALESCE(SUM(total_volume_usd), 0.0) as total_volume

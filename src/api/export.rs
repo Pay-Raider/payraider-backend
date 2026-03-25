@@ -379,7 +379,7 @@ pub async fn export_payments(
 
     let payments = sqlx::query_as::<_, PaymentRecord>(
         r"
-        SELECT * FROM payments 
+        SELECT * FROM payments
         WHERE created_at BETWEEN $1 AND $2
         ORDER BY created_at DESC
         LIMIT 5000

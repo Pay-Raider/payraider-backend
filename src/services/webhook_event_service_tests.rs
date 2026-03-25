@@ -7,7 +7,7 @@ mod webhook_integration_tests {
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect(":memory:").await.unwrap();
-        
+
         // Create webhook tables
         sqlx::query(
             r#"
@@ -53,11 +53,11 @@ mod webhook_integration_tests {
     async fn test_webhook_registration_and_triggering() {
         let pool = setup_test_db().await;
         let webhook_service = Arc::new(WebhookEventService::new(pool.clone()));
-        
+
         // Register a test webhook
         let webhook_id = Uuid::new_v4().to_string();
         let user_id = Uuid::new_v4().to_string();
-        
+
         sqlx::query(
             r#"
             INSERT INTO webhooks (id, user_id, url, event_types, secret, is_active, created_at)
@@ -107,11 +107,11 @@ mod webhook_integration_tests {
     async fn test_corridor_health_webhook() {
         let pool = setup_test_db().await;
         let webhook_service = Arc::new(WebhookEventService::new(pool.clone()));
-        
+
         // Register a test webhook for corridor events
         let webhook_id = Uuid::new_v4().to_string();
         let user_id = Uuid::new_v4().to_string();
-        
+
         sqlx::query(
             r#"
             INSERT INTO webhooks (id, user_id, url, event_types, secret, is_active, created_at)
@@ -184,11 +184,11 @@ mod webhook_integration_tests {
     async fn test_payment_created_webhook() {
         let pool = setup_test_db().await;
         let webhook_service = Arc::new(WebhookEventService::new(pool.clone()));
-        
+
         // Register a test webhook for payment events
         let webhook_id = Uuid::new_v4().to_string();
         let user_id = Uuid::new_v4().to_string();
-        
+
         sqlx::query(
             r#"
             INSERT INTO webhooks (id, user_id, url, event_types, secret, is_active, created_at)
@@ -238,11 +238,11 @@ mod webhook_integration_tests {
     async fn test_webhook_filters() {
         let pool = setup_test_db().await;
         let webhook_service = Arc::new(WebhookEventService::new(pool.clone()));
-        
+
         // Register a test webhook with filters
         let webhook_id = Uuid::new_v4().to_string();
         let user_id = Uuid::new_v4().to_string();
-        
+
         sqlx::query(
             r#"
             INSERT INTO webhooks (id, user_id, url, event_types, filters, secret, is_active, created_at)
