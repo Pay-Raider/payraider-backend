@@ -83,9 +83,9 @@ impl TrustlineAnalyzer {
             INSERT INTO trustline_snapshots (
                 asset_code, asset_issuer, total_trustlines, authorized_trustlines, unauthorized_trustlines, total_supply, snapshot_at
             )
-            SELECT 
+            SELECT
                 asset_code, asset_issuer, total_trustlines, authorized_trustlines, unauthorized_trustlines, total_supply, CURRENT_TIMESTAMP
-            FROM 
+            FROM
                 trustline_stats
             "
         )
@@ -106,7 +106,7 @@ impl TrustlineAnalyzer {
 
         let row = sqlx::query(
             r"
-            SELECT 
+            SELECT
                 COUNT(*) as total_assets,
                 SUM(total_trustlines) as network_trustlines
             FROM trustline_stats
@@ -129,8 +129,8 @@ impl TrustlineAnalyzer {
     pub async fn get_trustline_rankings(&self, limit: i64) -> Result<Vec<TrustlineStat>> {
         let rankings = sqlx::query_as::<_, TrustlineStat>(
             r"
-            SELECT * FROM trustline_stats 
-            ORDER BY total_trustlines DESC 
+            SELECT * FROM trustline_stats
+            ORDER BY total_trustlines DESC
             LIMIT ?1
             ",
         )
@@ -150,9 +150,9 @@ impl TrustlineAnalyzer {
     ) -> Result<Vec<TrustlineSnapshot>> {
         let history = sqlx::query_as::<_, TrustlineSnapshot>(
             r"
-            SELECT * FROM trustline_snapshots 
+            SELECT * FROM trustline_snapshots
             WHERE asset_code = ?1 AND asset_issuer = ?2
-            ORDER BY snapshot_at DESC 
+            ORDER BY snapshot_at DESC
             LIMIT ?3
             ",
         )

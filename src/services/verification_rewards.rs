@@ -156,7 +156,7 @@ impl VerificationRewardsService {
     pub async fn get_user_stats(&self, user_id: &str) -> Result<UserRewardStats> {
         let row = sqlx::query(
             r"
-            SELECT 
+            SELECT
                 u.id,
                 u.username,
                 COALESCE(ur.total_points, 0) as total_points,
@@ -197,11 +197,11 @@ impl VerificationRewardsService {
     pub async fn get_leaderboard(&self, limit: i32) -> Result<Vec<LeaderboardEntry>> {
         let rows = sqlx::query(
             r"
-            SELECT 
+            SELECT
                 username,
                 total_points,
                 successful_verifications,
-                CAST(successful_verifications AS REAL) / 
+                CAST(successful_verifications AS REAL) /
                     NULLIF(successful_verifications + failed_verifications, 0) * 100 AS success_rate
             FROM verification_leaderboard
             LIMIT ?
@@ -234,7 +234,7 @@ impl VerificationRewardsService {
     ) -> Result<Vec<VerificationRecord>> {
         let rows = sqlx::query(
             r"
-            SELECT 
+            SELECT
                 id,
                 snapshot_id,
                 epoch,
@@ -346,7 +346,7 @@ impl VerificationRewardsService {
     ) -> Result<()> {
         sqlx::query(
             r"
-            INSERT INTO snapshot_verifications 
+            INSERT INTO snapshot_verifications
             (id, user_id, snapshot_id, epoch, submitted_hash, expected_hash, is_match, reward_points, verified_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ",

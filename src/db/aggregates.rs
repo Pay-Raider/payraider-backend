@@ -230,7 +230,7 @@ impl CorridorAggregates {
 
         let stats = sqlx::query_as::<_, CorridorSummaryStats>(
             r"
-            SELECT 
+            SELECT
                 COUNT(*) as total_corridors,
                 SUM(total_transactions) as total_transactions,
                 SUM(successful_transactions) as successful_transactions,

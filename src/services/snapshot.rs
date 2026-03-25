@@ -175,7 +175,7 @@ impl SnapshotService {
     /// Aggregate anchor metrics from database
     async fn aggregate_anchor_metrics(&self) -> Result<Vec<SnapshotAnchorMetrics>> {
         let query = r"
-            SELECT 
+            SELECT
                 id,
                 name,
                 stellar_account,
@@ -241,7 +241,7 @@ impl SnapshotService {
     /// Aggregate corridor metrics from database
     async fn aggregate_corridor_metrics(&self) -> Result<Vec<SnapshotCorridorMetrics>> {
         let query = r"
-            SELECT 
+            SELECT
                 cm.id,
                 cm.corridor_key,
                 cm.asset_a_code,
@@ -708,10 +708,10 @@ impl SnapshotService {
 
         // Get backend snapshot data
         let query = r"
-            SELECT hash, canonical_json 
-            FROM snapshots 
-            WHERE epoch = ? 
-            ORDER BY created_at DESC 
+            SELECT hash, canonical_json
+            FROM snapshots
+            WHERE epoch = ?
+            ORDER BY created_at DESC
             LIMIT 1
         ";
 
@@ -764,7 +764,7 @@ impl SnapshotService {
     /// Update verification status in database
     async fn update_verification_status(&self, epoch: u64, is_verified: bool) -> Result<()> {
         let query = r"
-            UPDATE snapshots 
+            UPDATE snapshots
             SET verification_status = ?, verified_at = ?
             WHERE epoch = ?
         ";
@@ -803,7 +803,7 @@ impl SnapshotService {
         } else {
             // Fallback to database query if no event indexer
             let query = r"
-                SELECT 
+                SELECT
                     epoch,
                     hash,
                     ledger,
@@ -811,7 +811,7 @@ impl SnapshotService {
                     created_at,
                     transaction_hash
                 FROM contract_events
-                WHERE event_type = 'SNAP_SUB' 
+                WHERE event_type = 'SNAP_SUB'
                 AND epoch IS NOT NULL
                 ORDER BY epoch DESC
                 LIMIT ?

@@ -124,7 +124,7 @@ impl FeeBumpTrackerService {
     pub async fn get_fee_bump_stats(&self) -> Result<FeeBumpStats> {
         let row: (i64, f64, i64, i64, i64) = sqlx::query_as(
             r"
-            SELECT 
+            SELECT
                 COUNT(*) as total_count,
                 COALESCE(AVG(fee_charged), 0.0) as avg_fee,
                 COALESCE(MAX(fee_charged), 0) as max_fee,
