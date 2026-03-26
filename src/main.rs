@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
-    let app_state = AppState::new(db.clone(), ws_state, ingestion);
+    let app_state = AppState::new(db.clone(), ws_state, ingestion, cache.clone(), rpc_client.clone());
     let cached_state = (
         db.clone(),
         cache.clone(),
