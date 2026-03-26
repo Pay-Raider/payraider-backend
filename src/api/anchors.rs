@@ -269,7 +269,6 @@ pub async fn create_anchor_asset(
 use crate::cache::helpers::cached_query;
 use crate::cache::{keys, CacheManager};
 use crate::database::Database;
-use crate::error::ApiResult;
 use crate::rpc::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
     error::{with_retry, RetryConfig},

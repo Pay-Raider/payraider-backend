@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
 
-use crate::auth::{sep10_auth_middleware, Sep10User};
 use crate::auth::sep10_simple::Sep10Service;
+use crate::auth::{sep10_auth_middleware, Sep10User};
 use crate::services::verification_rewards::{VerificationRewardsService, VerifySnapshotRequest};
 
 /// Build verification rewards routes
