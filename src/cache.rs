@@ -261,6 +261,33 @@ impl CacheManager {
         self.delete_pattern(pattern).await
     }
 
+    /// Invalidate all corridor-related cache entries.
+    pub async fn invalidate_corridors(&self) -> anyhow::Result<usize> {
+        let pattern = keys::corridor_pattern();
+        let deleted = self.invalidate_pattern(&pattern).await?;
+        tracing::info!(
+            "Invalidated {} corridor cache entries matching pattern: {}",
+            deleted,
+            pattern
+        );
+        Ok(deleted)
+    }
+
+    /// Invalidate cache entries for a specific corridor and related list views.
+    pub async fn invalidate_corridor(&self, corridor_key: &str) -> anyhow::Result<()> {
+        let detail_key = keys::corridor_detail(corridor_key);
+        self.delete(&detail_key).await?;
+
+        // Corridor list endpoints can include this corridor, so clear list/detail variants.
+        let invalidated = self.invalidate_corridors().await?;
+        tracing::info!(
+            "Invalidated corridor cache for key: {} ({} related entries removed)",
+            corridor_key,
+            invalidated
+        );
+        Ok(())
+    }
+
     /// Clean up expired entries (Redis handles this automatically, but useful for monitoring)
     pub async fn cleanup_expired(&self) -> anyhow::Result<()> {
         tracing::debug!("Cache cleanup triggered (Redis auto-expires keys)");
@@ -389,6 +416,11 @@ mod tests {
         assert_eq!(keys::anchor_list(50, 0), "anchor:list:50:0");
         assert_eq!(keys::anchor_detail("123"), "anchor:detail:123");
         assert_eq!(keys::anchor_by_account("GA123"), "anchor:account:GA123");
+        assert_eq!(
+            keys::corridor_detail("USDC:issuer->XLM:native"),
+            "corridor:detail:USDC:issuer->XLM:native"
+        );
+        assert_eq!(keys::corridor_pattern(), "corridor:*");
         assert_eq!(keys::dashboard_stats(), "dashboard:stats");
         assert_eq!(keys::anchor_pattern(), "anchor:*");
     }
