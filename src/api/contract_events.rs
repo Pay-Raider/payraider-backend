@@ -42,6 +42,15 @@ pub struct EventListQuery {
 }
 
 /// Handler for GET /api/analytics/verification-summary
+#[utoipa::path(
+    get,
+    path = "/api/analytics/verification-summary",
+    responses(
+        (status = 200, description = "Verification summary retrieved", body = VerificationSummaryResponse),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Contract Events"
+)]
 pub async fn get_verification_summary(
     State(event_indexer): State<Arc<EventIndexer>>,
 ) -> Result<Json<VerificationSummaryResponse>, (StatusCode, String)> {
@@ -73,6 +82,21 @@ pub async fn get_verification_summary(
 }
 
 /// Handler for GET /api/analytics/contract-events
+#[utoipa::path(
+    get,
+    path = "/api/analytics/contract-events",
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum number of events to return"),
+        ("offset" = Option<i64>, Query, description = "Number of events to skip"),
+        ("event_type" = Option<String>, Query, description = "Filter by event type"),
+        ("verification_status" = Option<String>, Query, description = "Filter by verification status")
+    ),
+    responses(
+        (status = 200, description = "List of contract events", body = Vec<crate::services::event_indexer::IndexedEvent>),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Contract Events"
+)]
 pub async fn list_contract_events(
     State(event_indexer): State<Arc<EventIndexer>>,
     Query(params): Query<EventListQuery>,
@@ -100,6 +124,19 @@ pub async fn list_contract_events(
 }
 
 /// Handler for GET /api/analytics/contract-events/:id
+#[utoipa::path(
+    get,
+    path = "/api/analytics/contract-events/{id}",
+    params(
+        ("id" = String, Path, description = "Event ID")
+    ),
+    responses(
+        (status = 200, description = "Contract event details", body = crate::services::event_indexer::IndexedEvent),
+        (status = 404, description = "Event not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Contract Events"
+)]
 pub async fn get_contract_event(
     State(event_indexer): State<Arc<EventIndexer>>,
     Path(id): Path<String>,
@@ -122,6 +159,18 @@ pub async fn get_contract_event(
 }
 
 /// Handler for GET /api/analytics/contract-events/epoch/:epoch
+#[utoipa::path(
+    get,
+    path = "/api/analytics/contract-events/epoch/{epoch}",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number")
+    ),
+    responses(
+        (status = 200, description = "List of events for the epoch", body = Vec<crate::services::event_indexer::IndexedEvent>),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Contract Events"
+)]
 pub async fn get_events_for_epoch(
     State(event_indexer): State<Arc<EventIndexer>>,
     Path(epoch): Path<u64>,
@@ -143,6 +192,15 @@ pub async fn get_events_for_epoch(
 }
 
 /// Handler for GET /api/analytics/event-stats
+#[utoipa::path(
+    get,
+    path = "/api/analytics/event-stats",
+    responses(
+        (status = 200, description = "Event statistics", body = crate::services::event_indexer::EventStats),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Contract Events"
+)]
 pub async fn get_event_stats(
     State(event_indexer): State<Arc<EventIndexer>>,
 ) -> Result<Json<crate::services::event_indexer::EventStats>, (StatusCode, String)> {

@@ -29,6 +29,17 @@ pub fn router() -> Router<AppState> {
 
 // Rule Handlers
 
+/// GET /api/alerts/rules - List all alert rules for the authenticated user
+#[utoipa::path(
+    get,
+    path = "/api/alerts/rules",
+    responses(
+        (status = 200, description = "List of alert rules", body = Vec<AlertRule>),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Alerts"
+)]
 async fn list_rules(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -40,6 +51,19 @@ async fn list_rules(
     Ok(Json(rules))
 }
 
+/// POST /api/alerts/rules - Create a new alert rule
+#[utoipa::path(
+    post,
+    path = "/api/alerts/rules",
+    request_body = CreateAlertRuleRequest,
+    responses(
+        (status = 201, description = "Alert rule created", body = AlertRule),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Alerts"
+)]
 async fn create_rule(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -52,6 +76,23 @@ async fn create_rule(
     Ok((StatusCode::CREATED, Json(rule)))
 }
 
+/// PUT /api/alerts/rules/{id} - Update an existing alert rule
+#[utoipa::path(
+    put,
+    path = "/api/alerts/rules/{id}",
+    params(
+        ("id" = String, Path, description = "Alert rule ID")
+    ),
+    request_body = UpdateAlertRuleRequest,
+    responses(
+        (status = 200, description = "Alert rule updated", body = AlertRule),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Alert rule not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Alerts"
+)]
 async fn update_rule(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -65,6 +106,21 @@ async fn update_rule(
     Ok(Json(rule))
 }
 
+/// DELETE /api/alerts/rules/{id} - Delete an alert rule
+#[utoipa::path(
+    delete,
+    path = "/api/alerts/rules/{id}",
+    params(
+        ("id" = String, Path, description = "Alert rule ID")
+    ),
+    responses(
+        (status = 204, description = "Alert rule deleted"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Alert rule not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Alerts"
+)]
 async fn delete_rule(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -76,6 +132,17 @@ async fn delete_rule(
 
 // History Handlers
 
+/// GET /api/alerts/history - List alert history for the authenticated user
+#[utoipa::path(
+    get,
+    path = "/api/alerts/history",
+    responses(
+        (status = 200, description = "List of alert history entries", body = Vec<AlertHistory>),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Alerts"
+)]
 async fn list_history(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -88,6 +155,21 @@ async fn list_history(
     Ok(Json(history))
 }
 
+/// POST /api/alerts/history/{id}/read - Mark an alert history entry as read
+#[utoipa::path(
+    post,
+    path = "/api/alerts/history/{id}/read",
+    params(
+        ("id" = String, Path, description = "Alert history ID")
+    ),
+    responses(
+        (status = 200, description = "Alert history marked as read"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Alert history not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Alerts"
+)]
 async fn mark_history_read(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -100,6 +182,21 @@ async fn mark_history_read(
     Ok(StatusCode::OK)
 }
 
+/// POST /api/alerts/history/{id}/dismiss - Dismiss an alert history entry
+#[utoipa::path(
+    post,
+    path = "/api/alerts/history/{id}/dismiss",
+    params(
+        ("id" = String, Path, description = "Alert history ID")
+    ),
+    responses(
+        (status = 200, description = "Alert history dismissed"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Alert history not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Alerts"
+)]
 async fn dismiss_history(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -112,6 +209,23 @@ async fn dismiss_history(
     Ok(StatusCode::OK)
 }
 
+/// POST /api/alerts/history/{id}/snooze - Snooze the underlying rule from an alert history entry
+#[utoipa::path(
+    post,
+    path = "/api/alerts/history/{id}/snooze",
+    params(
+        ("id" = String, Path, description = "Alert history ID")
+    ),
+    request_body = SnoozeAlertRequest,
+    responses(
+        (status = 200, description = "Rule snoozed", body = AlertRule),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Alert history not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Alerts"
+)]
 async fn snooze_rule_from_history(
     State(state): State<AppState>,
     auth_user: AuthUser,

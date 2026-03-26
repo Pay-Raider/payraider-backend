@@ -3,7 +3,16 @@ use crate::models::{ApiAnalyticsOverview, EndpointStat, StatusStat};
 use axum::{extract::State, routing::get, Json, Router};
 use std::sync::Arc;
 
-/// Handler for GET /api/admin/analytics/overview
+/// GET /api/admin/analytics/overview - Get API analytics overview
+#[utoipa::path(
+    get,
+    path = "/api/admin/analytics/overview",
+    responses(
+        (status = 200, description = "API analytics overview", body = ApiAnalyticsOverview),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Analytics"
+)]
 pub async fn get_analytics_overview(State(db): State<Arc<Database>>) -> Json<ApiAnalyticsOverview> {
     // 1. Total Requests
     let total_requests: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_usage_stats")

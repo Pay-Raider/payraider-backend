@@ -503,7 +503,7 @@ pub async fn rate_limit_middleware(
         return RateLimitError { info }.into_response();
     }
 
-    let mut response = next.run(req).await;
+    let response = next.run(req).await;
 
     match add_rate_limit_headers(response, &info) {
         Ok(res) => res,
