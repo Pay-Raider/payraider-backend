@@ -6,10 +6,15 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::broadcast::broadcast_corridor_update;
+use crate::cache::helpers::cached_query;
+use crate::cache::keys;
+use crate::cache::CacheManager;
+use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::{Corridor, CorridorMetrics};
 use crate::models::{CreateCorridorRequest, SortBy};
@@ -19,6 +24,7 @@ use crate::rpc::{
     StellarRpcClient,
 };
 use crate::services::analytics::{compute_corridor_metrics, CorridorTransaction};
+use crate::services::price_feed::PriceFeedClient;
 use crate::state::AppState;
 use crate::validation;
 
