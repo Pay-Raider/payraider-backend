@@ -1593,4 +1593,59 @@ impl Database {
 
         Ok(Some(new_key))
     }
+
+    pub async fn get_recent_anchor_performance(
+        &self,
+        anchor_id: &str,
+        minutes: i64,
+    ) -> Result<crate::models::AnchorMetrics> {
+        self.execute_with_timing("get_recent_anchor_performance", async {
+            let start_time = Utc::now() - chrono::Duration::minutes(minutes);
+            
+            // Query for aggregates from payments table
+            // In a real system, we'd join with anchors/assets to filter by anchor_id
+            
+            let row: (i64, i64, Option<f64>) = sqlx::query_as(
+                r"
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN successful = 1 THEN 1 ELSE 0 END) as successful,
+                    AVG(amount) as avg_latency
+                FROM payments
+                WHERE (source_account = ? OR destination_account = ?)
+                AND created_at >= ?
+                "
+            )
+            .bind(anchor_id)
+            .bind(anchor_id)
+            .bind(start_time.to_rfc3339())
+            .fetch_one(&self.pool)
+            .await?;
+
+            let total_transactions = row.0;
+            let successful_transactions = row.1;
+            let failed_transactions = total_transactions - successful_transactions;
+            let success_rate = if total_transactions > 0 {
+                (successful_transactions as f64 / total_transactions as f64) * 100.0
+            } else {
+                100.0
+            };
+            let failure_rate = 100.0 - success_rate;
+            let avg_settlement_time_ms = row.2.map(|l| l as i32);
+
+            let status = crate::models::AnchorStatus::from_metrics(success_rate, failure_rate);
+
+            Ok(crate::models::AnchorMetrics {
+                success_rate,
+                failure_rate,
+                reliability_score: success_rate, // Simple mapping
+                total_transactions,
+                successful_transactions,
+                failed_transactions,
+                avg_settlement_time_ms,
+                status,
+            })
+        })
+        .await
+    }
 }

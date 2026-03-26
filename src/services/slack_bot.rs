@@ -38,7 +38,7 @@ impl SlackBotService {
     }
 
     /// Send a single alert to Slack
-    async fn send_alert_to_slack(&self, alert: &Alert) -> Result<()> {
+    pub async fn send_alert_to_slack(&self, alert: &Alert) -> Result<()> {
         let (title, color, emoji) = match alert.alert_type {
             AlertType::SuccessRateDrop => ("Success Rate Drop", "#E01E5A", "🔴"),
             AlertType::LatencyIncrease => ("Latency Increase", "#ECB22E", "🟡"),
