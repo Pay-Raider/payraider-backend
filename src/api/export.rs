@@ -1,6 +1,6 @@
 use axum::{
     extract::{Query, State},
-    http::{header, HeaderMap},
+    http::{header, HeaderMap, HeaderValue},
     response::IntoResponse,
 };
 use chrono::{DateTime, Duration, Utc};
@@ -82,24 +82,20 @@ pub async fn export_corridors(
                 .map_err(|e| ApiError::internal("EXPORT_ERROR", e.to_string()))?;
 
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, "text/csv".parse().unwrap());
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/csv"));
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"corridors_export.csv\""
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("attachment; filename=\"corridors_export.csv\""),
             );
 
             Ok((headers, data))
         }
         "json" => {
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"corridors_export.json\""
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("attachment; filename=\"corridors_export.json\""),
             );
 
             let data = serde_json::to_vec(&corridors)
@@ -178,15 +174,11 @@ pub async fn export_corridors(
             let mut headers = HeaderMap::new();
             headers.insert(
                 header::CONTENT_TYPE,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             );
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"corridors_export.xlsx\""
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("attachment; filename=\"corridors_export.xlsx\""),
             );
 
             Ok((headers, data))
@@ -197,6 +189,7 @@ pub async fn export_corridors(
         )),
     }
 }
+
 
 pub async fn export_anchors(
     State(app_state): State<AppState>,
@@ -249,24 +242,20 @@ pub async fn export_anchors(
                 .map_err(|e| ApiError::internal("EXPORT_ERROR", e.to_string()))?;
 
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, "text/csv".parse().unwrap());
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/csv"));
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"anchors_export.csv\""
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("attachment; filename=\"anchors_export.csv\""),
             );
 
             Ok((headers, data))
         }
         "json" => {
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"anchors_export.json\""
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("attachment; filename=\"anchors_export.json\""),
             );
 
             let data = serde_json::to_vec(&anchors)
@@ -345,15 +334,11 @@ pub async fn export_anchors(
             let mut headers = HeaderMap::new();
             headers.insert(
                 header::CONTENT_TYPE,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             );
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"anchors_export.xlsx\""
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("attachment; filename=\"anchors_export.xlsx\""),
             );
 
             Ok((headers, data))
@@ -433,24 +418,20 @@ pub async fn export_payments(
                 .map_err(|e| ApiError::internal("EXPORT_ERROR", e.to_string()))?;
 
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, "text/csv".parse().unwrap());
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/csv"));
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"payments_export.csv\""
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("attachment; filename=\"payments_export.csv\""),
             );
 
             Ok((headers, data))
         }
         "json" => {
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"payments_export.json\""
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("attachment; filename=\"payments_export.json\""),
             );
 
             let data = serde_json::to_vec(&payments)
@@ -528,15 +509,11 @@ pub async fn export_payments(
             let mut headers = HeaderMap::new();
             headers.insert(
                 header::CONTENT_TYPE,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             );
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"payments_export.xlsx\""
-                    .parse()
-                    .unwrap(),
+                HeaderValue::from_static("attachment; filename=\"payments_export.xlsx\""),
             );
 
             Ok((headers, data))
