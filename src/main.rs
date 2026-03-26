@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
-    let app_state = AppState::new(db.clone(), ws_state, ingestion);
+    let app_state = AppState::new(db.clone(), cache.clone(), ws_state, ingestion);
     let cached_state = (
         db.clone(),
         cache.clone(),
