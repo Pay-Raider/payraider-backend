@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State, WebSocketUpgrade, ws::WebSocket},
+    extract::{ws::WebSocket, Path, State, WebSocketUpgrade},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post, put},

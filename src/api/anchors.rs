@@ -6,14 +6,26 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use utoipa::{IntoParams, ToSchema};
+use uuid::Uuid;
 use uuid::Uuid;
 
 use crate::broadcast::broadcast_anchor_update;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
 use crate::state::AppState;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnchorMetrics {
+    pub anchor_id: Uuid,
+    pub total_payments: u64,
+    pub successful_payments: u64,
+    pub failed_payments: u64,
+    pub total_volume: f64,
+}
 
 #[derive(Debug, Serialize)]
 pub struct ListAnchorsResponse {
@@ -257,9 +269,9 @@ pub async fn create_anchor_asset(
 use crate::cache::helpers::cached_query;
 use crate::cache::{keys, CacheManager};
 use crate::database::Database;
-use crate::error::ApiResult;
 use crate::rpc::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
+    error::{with_retry, RetryConfig},
     StellarRpcClient,
 };
 use crate::services::price_feed::PriceFeedClient;
@@ -291,6 +303,60 @@ fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
             ))
         })
         .clone()
+}
+
+// Add retry helper
+async fn with_retry<F, Fut, T>(
+    mut operation: F,
+    max_retries: u32,
+    initial_backoff: Duration,
+) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = anyhow::Result<T>>,
+{
+    let mut backoff = initial_backoff;
+    let mut last_error = None;
+    
+    for attempt in 0..=max_retries {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                last_error = Some(e);
+                if attempt < max_retries {
+                    tokio::time::sleep(backoff).await;
+                    backoff *= 2;  // Exponential backoff
+                }
+            }
+        }
+    }
+    
+    Err(last_error.unwrap())
+}
+
+pub async fn get_anchor_metrics_with_rpc(
+    anchor_id: Uuid,
+    rpc_client: Arc<StellarRpcClient>,
+) -> anyhow::Result<AnchorMetrics> {
+    let circuit_breaker = rpc_circuit_breaker();
+    
+    // Use with_retry with circuit_breaker for resilience
+    with_retry(
+        || async {
+            rpc_client
+                .fetch_anchor_metrics(anchor_id)
+                .await
+                .map_err(|e| RpcError::categorize(&e.to_string()))
+        },
+        RetryConfig {
+            max_attempts: 4,
+            base_delay_ms: 100,
+            max_delay_ms: 5000,
+        },
+        circuit_breaker,
+    )
+    .await
+    .context("Failed to fetch anchor metrics from RPC")
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]

@@ -1,6 +1,6 @@
-use sqlx::SqlitePool;
 use std::time::Duration;
 use std::sync::Arc;
+use anyhow::Context;
 use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
     HeaderValue, Method,
@@ -11,7 +11,7 @@ use stellar_insights_backend::{
     api::v1::routes,
     backup::{BackupConfig, BackupManager},
     cache::{CacheConfig, CacheManager},
-    database::Database,
+    database::{Database, PoolConfig},
     env_config,
     ingestion::DataIngestionService,
     rate_limit::RateLimiter,
@@ -31,7 +31,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
     env_config::log_env_config();
     let _tracing_guard = stellar_insights_backend::observability::tracing::init_tracing(
@@ -41,10 +41,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
-    let pool = SqlitePool::connect(&db_url).await?;
+    let pool = PoolConfig::from_env().create_pool(&db_url).await
+        .map_err(|e| format!("Failed to create database pool: {e}"))?;
     let db = Arc::new(Database::new(pool.clone()));
 
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()).await.unwrap());
+    let cache = Arc::new(
+        CacheManager::new(CacheConfig::default())
+            .await
+            .context("Failed to initialize cache manager - check Redis connection")?,
+    );
 
     let rpc_client = Arc::new(StellarRpcClient::new_with_defaults(true));
 
