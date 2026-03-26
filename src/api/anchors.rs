@@ -156,14 +156,14 @@ pub async fn update_anchor_metrics(
 
     let anchor = app_state
         .db
-        .update_anchor_metrics(
-            id,
-            req.total_transactions,
-            req.successful_transactions,
-            req.failed_transactions,
-            req.avg_settlement_time_ms,
-            req.volume_usd,
-        )
+        .update_anchor_metrics(crate::database::AnchorMetricsUpdate {
+            anchor_id: id,
+            total_transactions: req.total_transactions,
+            successful_transactions: req.successful_transactions,
+            failed_transactions: req.failed_transactions,
+            avg_settlement_time_ms: req.avg_settlement_time_ms,
+            volume_usd: req.volume_usd,
+        })
         .await?;
 
     // Broadcast the anchor update to WebSocket clients
