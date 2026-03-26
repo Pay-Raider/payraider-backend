@@ -6,14 +6,25 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::broadcast::broadcast_corridor_update;
+use crate::cache::helpers::cached_query;
+use crate::cache::keys;
+use crate::cache::CacheManager;
+use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::{Corridor, CorridorMetrics};
 use crate::models::{CreateCorridorRequest, SortBy};
+use crate::rpc::{
+    circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
+    error::{with_retry, RetryConfig, RpcError},
+    StellarRpcClient,
+};
 use crate::services::analytics::{compute_corridor_metrics, CorridorTransaction};
+use crate::services::price_feed::PriceFeedClient;
 use crate::state::AppState;
 use crate::validation;
 
@@ -375,26 +386,32 @@ pub async fn list_corridors(
             .map_err(|e| anyhow::anyhow!("Failed to fetch trades from RPC: {e}"))?;
             // **RPC DATA**: Fetch recent payments with pagination to identify active corridors
             // Use paginated fetch to get more complete data (up to configured limit)
-            let payments = match rpc_client.fetch_all_payments(Some(1000)).await {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        "Failed to fetch payments from RPC"
-                    );
-                    return Ok(vec![]);
-                }
-            };
+            let payments = with_retry(
+                || async {
+                    rpc_client
+                        .fetch_all_payments(Some(1000))
+                        .await
+                        .map_err(|e| RpcError::categorize(&e.to_string()))
+                },
+                RetryConfig::default(),
+                circuit_breaker.clone(),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch payments from RPC: {e}"))?;
 
             // **RPC DATA**: Fetch recent trades with pagination for volume data
-            let _trades = match rpc_client.fetch_all_trades(Some(1000)).await {
-                Ok(t) => t,
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to fetch trades from RPC"
-                    );
-                    vec![]
+            let _trades = with_retry(
+                || async {
+                    rpc_client
+                        .fetch_all_trades(Some(1000))
+                        .await
+                        .map_err(|e| RpcError::categorize(&e.to_string()))
+                },
+                RetryConfig::default(),
+                circuit_breaker.clone(),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch trades from RPC: {e}"))?;
                 }
             };
 

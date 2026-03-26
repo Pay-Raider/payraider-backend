@@ -1,3 +1,4 @@
+use anyhow::Context;
 use axum::{
     extract::{ConnectInfo, Request, State},
     http::{header, HeaderValue, StatusCode},
@@ -9,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::Context;
 
 use crate::models::api_key::hash_api_key;
 
@@ -248,7 +248,8 @@ impl RateLimiter {
                     reset_at: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
-                        .as_secs() as i64 + 60,
+                        .as_secs() as i64
+                        + 60,
                     reset_after_seconds: 60,
                     window_seconds: 60,
                     is_whitelisted: true,
@@ -271,18 +272,19 @@ impl RateLimiter {
             {
                 return (
                     allowed,
-                RateLimitInfo {
-                    limit,
-                    remaining,
-                    reset_at: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64 + reset as i64,
-                    reset_after_seconds: reset,
-                    window_seconds: 60,
-                    is_whitelisted: false,
-                    client_id: Some(client.as_key()),
-                },
+                    RateLimitInfo {
+                        limit,
+                        remaining,
+                        reset_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64
+                            + reset as i64,
+                        reset_after_seconds: reset,
+                        window_seconds: 60,
+                        is_whitelisted: false,
+                        client_id: Some(client.as_key()),
+                    },
                 );
             }
         }
@@ -297,7 +299,8 @@ impl RateLimiter {
                 reset_at: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-                    .as_secs() as i64 + reset as i64,
+                    .as_secs() as i64
+                    + reset as i64,
                 reset_after_seconds: reset,
                 window_seconds: 60,
                 is_whitelisted: false,
@@ -344,7 +347,7 @@ impl RateLimiter {
     async fn check_memory_limit(&self, key: &str, limit: u32) -> (bool, u32, u32) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs() as i64;
 
         let mut store = self.fallback_memory_store.write().await;
@@ -379,41 +382,46 @@ pub struct RateLimitInfo {
 }
 
 /// Add rate limit headers to a response according to standards
-pub fn add_rate_limit_headers(mut response: Response, info: &RateLimitInfo) -> anyhow::Result<Response> {
+pub fn add_rate_limit_headers(
+    mut response: Response,
+    info: &RateLimitInfo,
+) -> anyhow::Result<Response> {
     // Standard rate limit headers (draft RFC)
     response.headers_mut().insert(
         "RateLimit-Limit",
         HeaderValue::from_str(&info.limit.to_string())
-            .context("Failed to create RateLimit-Limit header")?
+            .context("Failed to create RateLimit-Limit header")?,
     );
-    
+
     response.headers_mut().insert(
         "RateLimit-Remaining",
         HeaderValue::from_str(&info.remaining.to_string())
-            .context("Failed to create RateLimit-Remaining header")?
+            .context("Failed to create RateLimit-Remaining header")?,
     );
-    
+
     response.headers_mut().insert(
         "RateLimit-Reset",
         HeaderValue::from_str(&info.reset_at.to_string())
-            .context("Failed to create RateLimit-Reset header")?
+            .context("Failed to create RateLimit-Reset header")?,
     );
-    
+
     // Add Retry-After when rate limited
     if info.remaining == 0 {
         response.headers_mut().insert(
             header::RETRY_AFTER,
             HeaderValue::from_str(&info.reset_after_seconds.to_string())
-                .context("Failed to create Retry-After header")?
+                .context("Failed to create Retry-After header")?,
         );
     }
-    
+
     // Add custom header for rate limit policy
     response.headers_mut().insert(
         "X-RateLimit-Policy",
-        HeaderValue::from_str(&format!("{} requests per {} seconds", 
-            info.limit, info.window_seconds))
-            .context("Failed to create X-RateLimit-Policy header")?
+        HeaderValue::from_str(&format!(
+            "{} requests per {} seconds",
+            info.limit, info.window_seconds
+        ))
+        .context("Failed to create X-RateLimit-Policy header")?,
     );
 
     // Add optional client identifier for debugging (sanitized)
@@ -424,7 +432,7 @@ pub fn add_rate_limit_headers(mut response: Response, info: &RateLimitInfo) -> a
                 .insert("X-RateLimit-Client", header_value);
         }
     }
-    
+
     Ok(response)
 }
 
@@ -442,10 +450,7 @@ impl IntoResponse for RateLimitError {
             "reset_after": self.info.reset_after_seconds,
         });
 
-        let response = (
-            StatusCode::TOO_MANY_REQUESTS,
-            axum::Json(body),
-        ).into_response();
+        let response = (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
 
         match add_rate_limit_headers(response, &self.info) {
             Ok(res) => res,
@@ -504,7 +509,11 @@ pub async fn rate_limit_middleware(
         Ok(res) => res,
         Err(e) => {
             tracing::error!("Failed to add rate limit headers: {}", e);
-            next.run(Request::new(axum::body::Body::empty())).await // This is suboptimal but should not happen
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to add rate limit headers",
+            )
+                .into_response()
         }
     }
 }

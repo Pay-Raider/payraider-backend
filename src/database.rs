@@ -259,11 +259,7 @@ impl Database {
             );
         }
 
-        crate::observability::metrics::observe_db_query(
-            operation,
-            status,
-            elapsed.as_secs_f64(),
-        );
+        crate::observability::metrics::observe_db_query(operation, status, elapsed.as_secs_f64());
 
         result
     }
@@ -490,10 +486,7 @@ impl Database {
     /// - Updates anchor's `updated_at` timestamp
     /// - Records entry in `anchor_metrics_history` table
     /// - Computes and updates `reliability_score` and status
-    pub async fn update_anchor_metrics(
-        &self,
-        update: AnchorMetricsUpdate,
-    ) -> Result<Anchor> {
+    pub async fn update_anchor_metrics(&self, update: AnchorMetricsUpdate) -> Result<Anchor> {
         // Compute metrics
         let metrics = compute_anchor_metrics(
             update.total_transactions,
@@ -674,10 +667,9 @@ impl Database {
     /// Get all anchors from the database
     pub async fn get_all_anchors(&self) -> Result<Vec<Anchor>> {
         self.execute_with_timing("get_all_anchors", async {
-            let anchors =
-                sqlx::query_as::<_, Anchor>("SELECT * FROM anchors ORDER BY name ASC")
-                    .fetch_all(&self.pool)
-                    .await?;
+            let anchors = sqlx::query_as::<_, Anchor>("SELECT * FROM anchors ORDER BY name ASC")
+                .fetch_all(&self.pool)
+                .await?;
             Ok(anchors)
         })
         .await
@@ -1527,6 +1519,23 @@ impl Database {
                             e
                         );
                         return Ok(None);
+            if let Some(ref k) = key {
+                if let Some(ref expires_at) = k.expires_at {
+                    match DateTime::parse_from_rfc3339(expires_at) {
+                        Ok(exp) => {
+                            if exp < Utc::now() {
+                                return Ok(None);
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "API key {} has malformed expires_at '{}': {}",
+                                k.id,
+                                expires_at,
+                                e
+                            );
+                            return Ok(None);
+                        }
                     }
                 }
             }
@@ -1541,6 +1550,16 @@ impl Database {
                 log::warn!("Failed to update last_used_at for API key {}: {}", k.id, e);
             }
         }
+                // last_used_at update is best-effort; a failure here should not block validation
+                if let Err(e) = sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
+                    .bind(Utc::now().to_rfc3339())
+                    .bind(&k.id)
+                    .execute(&self.pool)
+                    .await
+                {
+                    log::warn!("Failed to update last_used_at for API key {}: {}", k.id, e);
+                }
+            }
 
             Ok(key)
         })

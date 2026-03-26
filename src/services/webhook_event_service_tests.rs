@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod webhook_integration_tests {
     use super::*;
+    use crate::services::webhook_event_service::WebhookEventService;
+    use crate::webhooks::events::CorridorMetrics;
     use sqlx::SqlitePool;
     use std::sync::Arc;
     use uuid::Uuid;
@@ -91,7 +93,7 @@ mod webhook_integration_tests {
 
         // Verify webhook event was created
         let events: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT id, webhook_id, event_type FROM webhook_events WHERE webhook_id = ?"
+            "SELECT id, webhook_id, event_type FROM webhook_events WHERE webhook_id = ?",
         )
         .bind(&webhook_id)
         .fetch_all(&pool)
@@ -169,7 +171,7 @@ mod webhook_integration_tests {
 
         // Verify webhook event was created
         let events: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT id, webhook_id, event_type FROM webhook_events WHERE webhook_id = ?"
+            "SELECT id, webhook_id, event_type FROM webhook_events WHERE webhook_id = ?",
         )
         .bind(&webhook_id)
         .fetch_all(&pool)
@@ -223,7 +225,7 @@ mod webhook_integration_tests {
 
         // Verify webhook event was created
         let events: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT id, webhook_id, event_type FROM webhook_events WHERE webhook_id = ?"
+            "SELECT id, webhook_id, event_type FROM webhook_events WHERE webhook_id = ?",
         )
         .bind(&webhook_id)
         .fetch_all(&pool)
@@ -301,7 +303,7 @@ mod webhook_integration_tests {
 
         // Verify no webhook event was created due to filter
         let events: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT id, webhook_id, event_type FROM webhook_events WHERE webhook_id = ?"
+            "SELECT id, webhook_id, event_type FROM webhook_events WHERE webhook_id = ?",
         )
         .bind(&webhook_id)
         .fetch_all(&pool)

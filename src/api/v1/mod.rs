@@ -15,8 +15,7 @@ use crate::state::AppState;
 use axum::{
     middleware,
     routing::{get, put},
-    Json,
-    Router,
+    Json, Router,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -99,7 +98,10 @@ pub fn routes(
             "/anchors/:id/assets",
             axum::routing::post(anchors::create_anchor_asset),
         )
-        .route("/corridors", axum::routing::post(corridors::create_corridor))
+        .route(
+            "/corridors",
+            axum::routing::post(corridors::create_corridor),
+        )
         .route(
             "/corridors/:id/metrics-from-transactions",
             put(corridors::update_corridor_metrics_from_transactions),
@@ -158,7 +160,9 @@ pub fn routes(
         // Preserve existing unversioned endpoints for backward compatibility.
         .merge(v1_router)
         .layer(cors)
-        .layer(middleware::from_fn(crate::request_id::request_id_middleware))
+        .layer(middleware::from_fn(
+            crate::request_id::request_id_middleware,
+        ))
         .layer(middleware::from_fn(
             crate::api_v1_middleware::version_middleware,
         ))
