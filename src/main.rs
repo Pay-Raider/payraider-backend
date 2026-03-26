@@ -1,6 +1,11 @@
 use sqlx::SqlitePool;
+use std::time::Duration;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use axum::http::{
+    header::{AUTHORIZATION, CONTENT_TYPE},
+    HeaderValue, Method,
+};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use stellar_insights_backend::{
     api::v1::routes,
@@ -23,10 +28,12 @@ use stellar_insights_backend::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Stellar Insights Backend - Initializing Server");
-
     let _ = dotenvy::dotenv();
     env_config::log_env_config();
+    let _tracing_guard = stellar_insights_backend::observability::tracing::init_tracing(
+        "stellar-insights-backend",
+    )?;
+    tracing::info!("Stellar Insights Backend - Initializing Server");
 
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
@@ -70,10 +77,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:3000,https://stellar-insights.com".to_string());
+
+    let origins: Vec<HeaderValue> = allowed_origins
+        .split(',')
+        .filter_map(|origin| origin.trim().parse::<HeaderValue>().ok())
+        .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .allow_credentials(true)
+        .max_age(Duration::from_secs(3600));
 
     let app = routes(
         app_state,
@@ -91,10 +108,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
-    println!("Server listening on {}", addr);
+    tracing::info!(address = %addr, "Server listening");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
+    stellar_insights_backend::observability::tracing::shutdown_tracing();
 
     Ok(())
 }

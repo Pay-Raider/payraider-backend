@@ -1,7 +1,6 @@
 use crate::api::{
-    account_merges, anchors, anchors_cached, cache_stats, corridors, corridors_cached, 
-    cost_calculator, fee_bump, liquidity_pools, metrics_cached, oauth, price_feed as price_feed_api, 
-    rpc, webhooks,
+    account_merges, anchors, cache_stats, corridors, cost_calculator, fee_bump, liquidity_pools,
+    metrics, oauth, price_feed as price_feed_api, rpc, webhooks,
 };
 use crate::auth_middleware::auth_middleware;
 use crate::cache::CacheManager;
@@ -16,10 +15,41 @@ use crate::state::AppState;
 use axum::{
     middleware,
     routing::{get, put},
+    Json,
     Router,
 };
+use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
+
+#[derive(Serialize)]
+struct ApiVersion {
+    current: String,
+    supported: Vec<String>,
+    deprecated: Vec<String>,
+    sunset_dates: HashMap<String, String>,
+}
+
+async fn get_api_version() -> Json<ApiVersion> {
+    Json(ApiVersion {
+        current: "v1".to_string(),
+        supported: vec!["v1".to_string(), "v2".to_string()],
+        deprecated: vec![],
+        sunset_dates: HashMap::new(),
+    })
+}
+
+async fn v2_not_implemented() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "message": "API v2 is reserved for future releases",
+        "status": "not_implemented"
+    }))
+}
+
+fn v2_routes() -> Router {
+    Router::new().route("/status", get(v2_not_implemented))
+}
 
 pub fn routes(
     app_state: AppState,
@@ -110,16 +140,25 @@ pub fn routes(
     // 6. OAuth routes
     let oauth_routes = oauth::routes(pool);
 
-    // Combine all routes
-    Router::new()
+    // V1 router (mounted at /api/v1 and also preserved at root for compatibility)
+    let v1_router = Router::new()
         .merge(cached_routes)
         .merge(public_anchor_routes)
         .merge(protected_routes)
         .merge(protected_webhook_routes)
         .merge(rpc_routes)
         .merge(service_routes)
-        .merge(oauth_routes)
+        .merge(oauth_routes);
+
+    // Combine all routes
+    Router::new()
+        .nest("/api/v1", v1_router.clone())
+        .nest("/api/v2", v2_routes())
+        .route("/api/version", get(get_api_version))
+        // Preserve existing unversioned endpoints for backward compatibility.
+        .merge(v1_router)
         .layer(cors)
+        .layer(middleware::from_fn(crate::request_id::request_id_middleware))
         .layer(middleware::from_fn(
             crate::api_v1_middleware::version_middleware,
         ))

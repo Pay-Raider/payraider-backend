@@ -308,7 +308,10 @@ fn generate_corridor_list_cache_key(params: &ListCorridorsQuery) -> String {
     ),
     tag = "Corridors"
 )]
-#[tracing::instrument(skip(_db, cache, rpc_client, price_feed, params))]
+#[tracing::instrument(
+    skip(_db, cache, rpc_client, price_feed, params, headers),
+    fields(request_id, query = ?params)
+)]
 pub async fn list_corridors(
     State((_db, cache, rpc_client, price_feed)): State<(
         Arc<Database>,
@@ -319,6 +322,13 @@ pub async fn list_corridors(
     Query(params): Query<ListCorridorsQuery>,
     headers: HeaderMap,
 ) -> ApiResult<Response> {
+    let request_id = headers
+        .get("X-Request-ID")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("unknown");
+    tracing::Span::current().record("request_id", request_id);
+    tracing::info!(request_id = %request_id, "Listing corridors");
+
     validation::validate_corridor_filters(
         params.success_rate_min,
         params.success_rate_max,
@@ -708,7 +718,10 @@ fn find_related_corridors(
     ),
     tag = "Corridors"
 )]
-#[tracing::instrument(skip(db, cache, rpc_client, price_feed))]
+#[tracing::instrument(
+    skip(db, cache, rpc_client, price_feed, headers),
+    fields(corridor_key = %corridor_key, request_id)
+)]
 pub async fn get_corridor_detail(
     State((db, cache, rpc_client, price_feed)): State<(
         Arc<Database>,
@@ -717,8 +730,15 @@ pub async fn get_corridor_detail(
         Arc<PriceFeedClient>,
     )>,
     Path(corridor_key): Path<String>,
+    headers: HeaderMap,
 ) -> ApiResult<Json<CorridorDetailResponse>> {
     use std::collections::HashMap;
+    let request_id = headers
+        .get("X-Request-ID")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("unknown");
+    tracing::Span::current().record("request_id", request_id);
+    tracing::info!(request_id = %request_id, corridor_key = %corridor_key, "Fetching corridor");
 
     // Validate corridor_key format
     let parts: Vec<&str> = corridor_key.split("->").collect();
