@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::time::Duration;
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 
 use anyhow::Context;
@@ -87,8 +86,7 @@ async fn main() -> anyhow::Result<()> {
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
-    let app_state = AppState::new(db.clone(), ws_state, ingestion, cache.clone(), rpc_client.clone());
-    let app_state = AppState::new(db.clone(), cache.clone(), ws_state, ingestion);
+    let app_state = AppState::new(db.clone(), cache.clone(), ws_state, ingestion, rpc_client.clone());
     let cached_state = (
         db.clone(),
         cache.clone(),
@@ -188,7 +186,7 @@ async fn main() -> anyhow::Result<()> {
         pool,
         cache,
     )
-    .layer(TimeoutLayer::new(timeout_duration));
+    .layer(TimeoutLayer::new(timeout_duration))
     .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());

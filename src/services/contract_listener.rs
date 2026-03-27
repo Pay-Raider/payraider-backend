@@ -117,7 +117,8 @@ impl ContractEventListener {
             client,
             config,
             db,
-            last_ledger,
+            alert_service,
+            last_ledger: 0,
         })
     }
 
@@ -374,7 +375,7 @@ impl ContractEventListener {
 
                 // Send alert via AlertService
                 let expected = backend_hash.clone();
-                let actual = on_chain_hash.clone();
+                let actual = on_chain_hash.to_string();
                 
                 let alert_service = self.alert_service.clone();
                 tokio::spawn(async move {
@@ -588,7 +589,7 @@ impl ContractEventListener {
                 .and_then(|s| s.parse().ok()),
         };
 
-        Self::new(config, db)
+        Self::new(config, db, Arc::new(AlertService::default()))
     }
 }
 
@@ -609,7 +610,7 @@ mod tests {
             start_ledger: None,
         };
 
-        let listener = ContractEventListener::new(config, db).unwrap();
+        let listener = ContractEventListener::new(config, db, Arc::new(AlertService::default())).unwrap();
         let data = r#"{"test": "data"}"#;
         let hash = listener.calculate_hash(data).unwrap();
 
