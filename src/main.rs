@@ -40,18 +40,8 @@ async fn main() -> anyhow::Result<()> {
 
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
-    let pool = PoolConfig::from_env()
-        .create_pool(&db_url)
-        .await
+    let pool = PoolConfig::from_env().create_pool(&db_url).await
         .context("Failed to create database pool")?;
-
-    // Run migrations on startup — ensures schema is always up to date
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .context("Failed to run database migrations")?;
-    tracing::info!("Database migrations completed successfully");
-
     let db = Arc::new(Database::new(pool.clone()));
 
     let cache = Arc::new(
