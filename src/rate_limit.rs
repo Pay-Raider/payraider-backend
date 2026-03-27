@@ -205,7 +205,11 @@ impl RateLimiter {
                     match self.get_subscription_tier_by_client_id(pool, id).await {
                         Ok(tier) => tier,
                         Err(e) => {
-                            tracing::error!("Failed to fetch subscription tier for API key {}: {}", id, e);
+                            tracing::error!(
+                                "Failed to fetch subscription tier for API key {}: {}",
+                                id,
+                                e
+                            );
                             ClientTier::Authenticated
                         }
                     }
@@ -218,7 +222,11 @@ impl RateLimiter {
                     match self.get_subscription_tier_by_client_id(pool, user_id).await {
                         Ok(tier) => tier,
                         Err(e) => {
-                            tracing::error!("Failed to fetch subscription tier for user {}: {}", user_id, e);
+                            tracing::error!(
+                                "Failed to fetch subscription tier for user {}: {}",
+                                user_id,
+                                e
+                            );
                             ClientTier::Authenticated
                         }
                     }
@@ -241,7 +249,7 @@ impl RateLimiter {
              WHERE (user_id = ? OR api_key_id = ?) 
              AND (expires_at IS NULL OR expires_at > datetime('now'))
              ORDER BY CASE WHEN tier = 'Premium' THEN 1 ELSE 2 END
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(client_id)
         .bind(client_id)
@@ -585,19 +593,19 @@ mod tests {
 
     async fn setup_test_db() -> sqlx::SqlitePool {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        
+
         sqlx::query(
             "CREATE TABLE user_subscriptions (
                 user_id TEXT,
                 api_key_id TEXT,
                 tier TEXT,
                 expires_at DATETIME
-            )"
+            )",
         )
         .execute(&pool)
         .await
         .unwrap();
-        
+
         pool
     }
 
@@ -605,7 +613,7 @@ mod tests {
     async fn test_premium_user_tier() {
         let db = setup_test_db().await;
         let rate_limiter = RateLimiter::new_with_db(Some(db.clone())).await.unwrap();
-        
+
         // Insert premium user correctly using SQLite datetime function
         sqlx::query("INSERT INTO user_subscriptions (user_id, tier, expires_at) VALUES (?, ?, datetime('now', '+30 days'))")
             .bind("user123")
@@ -613,7 +621,7 @@ mod tests {
             .execute(&db)
             .await
             .unwrap();
-        
+
         let client = ClientIdentifier::User("user123".to_string());
         let tier = rate_limiter.get_client_tier(&client).await;
         assert_eq!(tier, ClientTier::Premium);
@@ -623,7 +631,7 @@ mod tests {
     async fn test_free_user_tier() {
         let db = setup_test_db().await;
         let rate_limiter = RateLimiter::new_with_db(Some(db.clone())).await.unwrap();
-        
+
         let client = ClientIdentifier::User("user456".to_string());
         let tier = rate_limiter.get_client_tier(&client).await;
         assert_eq!(tier, ClientTier::Authenticated);

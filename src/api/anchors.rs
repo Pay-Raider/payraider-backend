@@ -1,9 +1,9 @@
 
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, post},
     http::HeaderMap,
     response::Response,
+    routing::{get, post},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,8 @@ use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
 use crate::state::AppState;
-use tracing::warn;
+use crate::rpc::error::{RetryConfig, with_retry, RpcError};
+use tracing::{warn, info, error};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnchorMetrics {
@@ -239,10 +240,18 @@ pub async fn get_anchor_assets(
 /// POST /api/anchors/:id/assets - Add asset to anchor
 #[derive(Debug, Deserialize, validator::Validate)]
 pub struct CreateAssetRequest {
-    #[validate(length(min = 1, max = 12, message = "Asset code must be between 1 and 12 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 12,
+        message = "Asset code must be between 1 and 12 characters"
+    ))]
     pub asset_code: String,
 
-    #[validate(length(min = 1, max = 56, message = "Asset issuer must be at most 56 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 56,
+        message = "Asset issuer must be at most 56 characters"
+    ))]
     pub asset_issuer: String,
 }
 
@@ -325,6 +334,9 @@ pub(crate) fn rpc_circuit_breaker_instance() -> Arc<CircuitBreaker> {
     rpc_circuit_breaker()
 }
 
+
+
+
 pub async fn get_anchor_metrics_with_rpc(
     anchor_id: Uuid,
     rpc_client: Arc<StellarRpcClient>,
@@ -347,7 +359,9 @@ pub async fn get_anchor_metrics_with_rpc(
     let metrics = match result {
         Ok(metrics) => metrics,
         Err(RpcError::CircuitBreakerOpen) => {
-            return Err(anyhow::anyhow!("Circuit breaker open - RPC service unavailable"));
+            return Err(anyhow::anyhow!(
+                "Circuit breaker open - RPC service unavailable"
+            ));
         }
         Err(err) => return Err(anyhow::anyhow!(err.to_string())),
     };

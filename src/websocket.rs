@@ -389,10 +389,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsState>) {
                     Message::Text(text) => {
                         // Rate limit check — applies to every text message.
                         if !state_clone.check_rate_limit(&client_id) {
-                            warn!(
-                                "Rate limit exceeded for connection {}",
-                                connection_id
-                            );
+                            warn!("Rate limit exceeded for connection {}", connection_id);
                             let error_msg = WsMessage::Error {
                                 message: "Rate limit exceeded. Please slow down.".to_string(),
                             };
@@ -447,10 +444,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsState>) {
                                     }
                                 }
                                 _ => {
-                                    warn!(
-                                        "Unexpected message type from client: {:?}",
-                                        ws_msg
-                                    );
+                                    warn!("Unexpected message type from client: {:?}", ws_msg);
                                 }
                             }
                         } else {
@@ -475,8 +469,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsState>) {
     // ── Send task ──────────────────────────────────────────────────────────────
     let send_task = {
         tokio::spawn(async move {
-            let mut ping_interval =
-                tokio::time::interval(tokio::time::Duration::from_secs(30));
+            let mut ping_interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
 
             loop {
                 tokio::select! {

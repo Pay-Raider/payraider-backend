@@ -180,18 +180,36 @@ mod tests {
 
     #[test]
     fn test_validate_corridor_not_self_referential() {
-        assert!(validate_corridor_not_self_referential("USDC", "GISSUER123456789012345678901234567890123456789012345678", "XLM", "native").is_ok());
-        assert!(validate_corridor_not_self_referential("USDC", "GISSUER1", "USDC", "GISSUER1").is_err());
+        assert!(validate_corridor_not_self_referential(
+            "USDC",
+            "GISSUER123456789012345678901234567890123456789012345678",
+            "XLM",
+            "native"
+        )
+        .is_ok());
+        assert!(
+            validate_corridor_not_self_referential("USDC", "GISSUER1", "USDC", "GISSUER1").is_err()
+        );
         // Case-insensitive code comparison
-        assert!(validate_corridor_not_self_referential("usdc", "GISSUER1", "USDC", "GISSUER1").is_err());
+        assert!(
+            validate_corridor_not_self_referential("usdc", "GISSUER1", "USDC", "GISSUER1").is_err()
+        );
         // Different issuer = different asset, even if code matches
-        assert!(validate_corridor_not_self_referential("USDC", "GISSUER1", "USDC", "GISSUER2").is_ok());
+        assert!(
+            validate_corridor_not_self_referential("USDC", "GISSUER1", "USDC", "GISSUER2").is_ok()
+        );
     }
 
     #[test]
     fn test_validate_stellar_account() {
-        assert!(validate_stellar_account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5").is_ok());
-        assert!(validate_stellar_account("ABCD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5").is_err());
+        assert!(validate_stellar_account(
+            "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+        )
+        .is_ok());
+        assert!(validate_stellar_account(
+            "ABCD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+        )
+        .is_err());
         assert!(validate_stellar_account("").is_err());
     }
 }

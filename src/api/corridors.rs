@@ -705,7 +705,7 @@ fn find_related_corridors(
     ),
     tag = "Corridors"
 )]
-#[instrument(
+#[tracing::instrument(
     skip(db, cache, rpc_client, price_feed),
     fields(request_id = %request_id.0, corridor_key = %corridor_key)
 )]

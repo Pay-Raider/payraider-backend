@@ -1607,10 +1607,10 @@ impl Database {
     ) -> Result<crate::models::AnchorMetrics> {
         self.execute_with_timing("get_recent_anchor_performance", async {
             let start_time = Utc::now() - chrono::Duration::minutes(minutes);
-            
+
             // Query for aggregates from payments table
             // In a real system, we'd join with anchors/assets to filter by anchor_id
-            
+
             let row: (i64, i64, Option<f64>) = sqlx::query_as(
                 r"
                 SELECT 
@@ -1620,7 +1620,7 @@ impl Database {
                 FROM payments
                 WHERE (source_account = ? OR destination_account = ?)
                 AND created_at >= ?
-                "
+                ",
             )
             .bind(anchor_id)
             .bind(anchor_id)

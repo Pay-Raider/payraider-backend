@@ -171,5 +171,8 @@ fn test_corridor_different_issuers_allowed() {
     let dest_issuer = ALT_ISSUER;
 
     let is_same = source_code.eq_ignore_ascii_case(dest_code) && source_issuer == dest_issuer;
-    assert!(!is_same, "same code but different issuers are different assets");
+    assert!(
+        !is_same,
+        "same code but different issuers are different assets"
+    );
 }
