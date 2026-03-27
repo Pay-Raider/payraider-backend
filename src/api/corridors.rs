@@ -385,6 +385,7 @@ pub async fn list_corridors(
 
             // Group payments by asset pairs to identify corridors
             use std::collections::HashMap;
+            use std::sync::{Arc, OnceLock};
             let mut corridor_map: HashMap<String, Vec<&crate::rpc::Payment>> = HashMap::new();
 
             for payment in &payments {
