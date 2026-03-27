@@ -1,5 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::timeout::TimeoutLayer;
 
 use anyhow::Context;
 use axum::http::{
@@ -84,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
+    let app_state = AppState::new(db.clone(), ws_state, ingestion, cache.clone(), rpc_client.clone());
     let app_state = AppState::new(db.clone(), cache.clone(), ws_state, ingestion);
     let cached_state = (
         db.clone(),
@@ -156,6 +159,14 @@ async fn main() -> anyhow::Result<()> {
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 
+    // Configure request timeout
+    let timeout_seconds = std::env::var("REQUEST_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+    let timeout_duration = Duration::from_secs(timeout_seconds);
+    tracing::info!("Request timeout set to {} seconds", timeout_seconds);
+
     let app = routes(
         app_state,
         cached_state,
@@ -169,6 +180,7 @@ async fn main() -> anyhow::Result<()> {
         pool,
         cache,
     )
+    .layer(TimeoutLayer::new(timeout_duration));
     .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());

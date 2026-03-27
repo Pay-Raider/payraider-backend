@@ -96,6 +96,19 @@ impl CacheManager {
         })
     }
 
+    /// Check if Redis connection is healthy
+    pub async fn ping(&self) -> anyhow::Result<()> {
+        if let Some(conn) = self.redis_connection.read().await.as_ref() {
+            let mut conn = conn.clone();
+            redis::cmd("PING")
+                .query_async::<_, String>(&mut conn)
+                .await?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Redis connection not available"))
+        }
+    }
+
     /// Get value from cache, returns None if not found or Redis unavailable
     pub async fn get<T: DeserializeOwned>(&self, key: &str) -> anyhow::Result<Option<T>> {
         if let Some(conn) = self.redis_connection.read().await.as_ref() {
