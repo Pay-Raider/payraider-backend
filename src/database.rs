@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
+use serde::Serialize;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -38,6 +39,20 @@ pub struct Database {
     pool: SqlitePool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct PoolMetrics {
+    pub size: u32,
+    pub idle: usize,
+    pub active: u32,
+}
+
+impl PoolMetrics {
+    #[must_use]
+    pub const fn new(size: u32, idle: usize, active: u32) -> Self {
+        Self { size, idle, active }
+    }
+}
+
 impl Database {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
@@ -45,6 +60,15 @@ impl Database {
 
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    #[must_use]
+    pub fn pool_metrics(&self) -> PoolMetrics {
+        let size = self.pool.size();
+        let idle = self.pool.num_idle();
+        let active = size.saturating_sub(idle as u32);
+
+        PoolMetrics::new(size, idle, active)
     }
 
     pub fn corridor_aggregates(&self) -> crate::db::aggregates::CorridorAggregates {

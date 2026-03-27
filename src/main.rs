@@ -5,6 +5,7 @@ use axum::{
 };
 use dotenv::dotenv;
 use std::sync::Arc;
+use std::time::Duration;
 use tower_http::compression::{CompressionLayer, predicate::SizeAbove};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -42,6 +43,9 @@ use stellar_insights_backend::services::trustline_analyzer::TrustlineAnalyzer;
 use stellar_insights_backend::shutdown::{ShutdownConfig, ShutdownCoordinator};
 use stellar_insights_backend::state::AppState;
 use stellar_insights_backend::websocket::WsState;
+
+const DB_POOL_LOG_INTERVAL: Duration = Duration::from_secs(60);
+const DB_POOL_IDLE_LOW_WATERMARK: usize = 2;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -83,6 +87,31 @@ async fn main() -> Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     let db = Arc::new(Database::new(pool.clone()));
+
+    let pool_metrics_db = Arc::clone(&db);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(DB_POOL_LOG_INTERVAL);
+        loop {
+            interval.tick().await;
+            let metrics = pool_metrics_db.pool_metrics();
+            tracing::info!(
+                pool_size = metrics.size,
+                pool_idle = metrics.idle,
+                pool_active = metrics.active,
+                "Database pool metrics"
+            );
+
+            if metrics.idle <= DB_POOL_IDLE_LOW_WATERMARK {
+                tracing::warn!(
+                    pool_size = metrics.size,
+                    pool_idle = metrics.idle,
+                    pool_active = metrics.active,
+                    low_watermark = DB_POOL_IDLE_LOW_WATERMARK,
+                    "Database pool idle connections are low"
+                );
+            }
+        }
+    });
 
     // Initialize Stellar RPC Client
     let mock_mode = std::env::var("RPC_MOCK_MODE")
@@ -459,6 +488,7 @@ async fn main() -> Result<()> {
     // Build non-cached anchor routes with app state
     let anchor_routes = Router::new()
         .route("/health", get(health_check))
+        .route("/metrics", get(get_prometheus_metrics))
         .route("/api/anchors/:id", get(get_anchor))
         .route(
             "/api/anchors/account/:stellar_account",
@@ -475,6 +505,7 @@ async fn main() -> Result<()> {
 
     // Build protected anchor routes (require authentication)
     let protected_anchor_routes = Router::new()
+        .route("/api/admin/pool-metrics", get(get_pool_metrics))
         .route("/api/anchors", axum::routing::post(create_anchor))
         .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
         .route(

@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
+    http::header,
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -272,6 +273,41 @@ pub async fn health_check() -> impl IntoResponse {
     }))
 }
 
+/// GET /api/admin/pool-metrics - Return current database pool metrics
+pub async fn get_pool_metrics(
+    State(app_state): State<AppState>,
+) -> Json<crate::database::PoolMetrics> {
+    Json(app_state.db.pool_metrics())
+}
+
+/// GET /metrics - Prometheus-style database pool metrics
+pub async fn get_prometheus_metrics(State(app_state): State<AppState>) -> impl IntoResponse {
+    let metrics = app_state.db.pool_metrics();
+    (
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        render_pool_metrics_prometheus(&metrics),
+    )
+}
+
+fn render_pool_metrics_prometheus(metrics: &crate::database::PoolMetrics) -> String {
+    format!(
+        "# HELP stellar_insights_db_pool_size Database pool size\n\
+# TYPE stellar_insights_db_pool_size gauge\n\
+stellar_insights_db_pool_size {}\n\
+# HELP stellar_insights_db_pool_idle Database pool idle connections\n\
+# TYPE stellar_insights_db_pool_idle gauge\n\
+stellar_insights_db_pool_idle {}\n\
+# HELP stellar_insights_db_pool_active Database pool active connections\n\
+# TYPE stellar_insights_db_pool_active gauge\n\
+stellar_insights_db_pool_active {}\n",
+        metrics.size, metrics.idle, metrics.active
+    )
+}
+
 /// GET /api/corridors - List all corridors
 pub async fn list_corridors(
     State(app_state): State<AppState>,
@@ -357,4 +393,20 @@ pub async fn ingestion_status(
 ) -> ApiResult<Json<crate::ingestion::IngestionStatus>> {
     let status = app_state.ingestion.get_ingestion_status().await?;
     Ok(Json(status))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_pool_metrics_prometheus() {
+        let metrics = crate::database::PoolMetrics::new(12, 3, 9);
+        let rendered = render_pool_metrics_prometheus(&metrics);
+
+        assert!(rendered.contains("stellar_insights_db_pool_size 12"));
+        assert!(rendered.contains("stellar_insights_db_pool_idle 3"));
+        assert!(rendered.contains("stellar_insights_db_pool_active 9"));
+        assert!(rendered.contains("# TYPE stellar_insights_db_pool_size gauge"));
+    }
 }
