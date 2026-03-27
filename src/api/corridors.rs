@@ -954,23 +954,18 @@ pub async fn create_corridor(
     State(app_state): State<AppState>,
     Json(req): Json<CreateCorridorRequest>,
 ) -> ApiResult<Json<Corridor>> {
-    if req.source_asset_code.is_empty() || req.dest_asset_code.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Asset codes cannot be empty",
-        ));
-    }
-    if req.source_asset_issuer.is_empty() || req.dest_asset_issuer.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Asset issuers cannot be empty",
-        ));
-    }
+    // Struct-level field validation (lengths, formats)
+    crate::validation::validate_request(&req)?;
+
+    // Business logic: source and destination must differ
+    crate::validation::validate_corridor_not_self_referential(
+        &req.source_asset_code,
+        &req.source_asset_issuer,
+        &req.dest_asset_code,
+        &req.dest_asset_issuer,
+    )?;
+
     let corridor = app_state.db.create_corridor(req).await?;
-
-    // Broadcast the new corridor to WebSocket clients
-    broadcast_corridor_update(&app_state.ws_state, &corridor);
-
     Ok(Json(corridor))
 }
 
