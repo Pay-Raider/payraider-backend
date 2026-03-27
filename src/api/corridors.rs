@@ -357,33 +357,6 @@ pub async fn list_corridors(
         || async {
             let circuit_breaker = rpc_circuit_breaker();
 
-            // **RPC DATA**: Fetch recent payments to identify active corridors
-            let payments = with_retry(
-                || async {
-                    rpc_client
-                        .fetch_payments(200, None)
-                        .await
-                        .map_err(|e| RpcError::categorize(&e.to_string()))
-                },
-                RetryConfig::default(),
-                circuit_breaker.clone(),
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to fetch payments from RPC: {e}"))?;
-
-            // **RPC DATA**: Fetch recent trades for volume data
-            let _trades = with_retry(
-                || async {
-                    rpc_client
-                        .fetch_trades(200, None)
-                        .await
-                        .map_err(|e| RpcError::categorize(&e.to_string()))
-                },
-                RetryConfig::default(),
-                circuit_breaker.clone(),
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to fetch trades from RPC: {e}"))?;
             // **RPC DATA**: Fetch recent payments with pagination to identify active corridors
             // Use paginated fetch to get more complete data (up to configured limit)
             let payments = with_retry(
@@ -412,8 +385,6 @@ pub async fn list_corridors(
             )
             .await
             .map_err(|e| anyhow::anyhow!("Failed to fetch trades from RPC: {e}"))?;
-                }
-            };
 
             // Group payments by asset pairs to identify corridors
             use std::collections::HashMap;
@@ -956,23 +927,18 @@ pub async fn create_corridor(
     State(app_state): State<AppState>,
     Json(req): Json<CreateCorridorRequest>,
 ) -> ApiResult<Json<Corridor>> {
-    if req.source_asset_code.is_empty() || req.dest_asset_code.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Asset codes cannot be empty",
-        ));
-    }
-    if req.source_asset_issuer.is_empty() || req.dest_asset_issuer.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Asset issuers cannot be empty",
-        ));
-    }
+    // Struct-level field validation (lengths, formats)
+    crate::validation::validate_request(&req)?;
+
+    // Business logic: source and destination must differ
+    crate::validation::validate_corridor_not_self_referential(
+        &req.source_asset_code,
+        &req.source_asset_issuer,
+        &req.dest_asset_code,
+        &req.dest_asset_issuer,
+    )?;
+
     let corridor = app_state.db.create_corridor(req).await?;
-
-    // Broadcast the new corridor to WebSocket clients
-    broadcast_corridor_update(&app_state.ws_state, &corridor);
-
     Ok(Json(corridor))
 }
 
@@ -1016,6 +982,10 @@ pub async fn update_corridor_metrics_from_transactions(
 
     let metrics = compute_corridor_metrics(&txs, None, 1.0);
     let corridor = app_state.db.update_corridor_metrics(id, metrics).await?;
+    app_state
+        .cache
+        .invalidate_corridor(&corridor.to_string_key())
+        .await?;
 
     // Broadcast the corridor update to WebSocket clients
     broadcast_corridor_update(&app_state.ws_state, &corridor);

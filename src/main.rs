@@ -1,5 +1,6 @@
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::Context;
 use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
@@ -13,6 +14,7 @@ use stellar_insights_backend::{
     database::{Database, PoolConfig},
     env_config,
     ingestion::DataIngestionService,
+    openapi::ApiDoc,
     rate_limit::RateLimiter,
     rpc::StellarRpcClient,
     services::{
@@ -23,7 +25,6 @@ use stellar_insights_backend::{
         webhook_dispatcher::WebhookDispatcher,
     },
     state::AppState,
-    openapi::ApiDoc,
     websocket::WsState,
 };
 use utoipa::OpenApi;
@@ -33,15 +34,14 @@ use utoipa_swagger_ui::SwaggerUi;
 async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
     env_config::log_env_config();
-    let _tracing_guard = stellar_insights_backend::observability::tracing::init_tracing(
-        "stellar-insights-backend",
-    )?;
+    let _tracing_guard =
+        stellar_insights_backend::observability::tracing::init_tracing("stellar-insights-backend")?;
     tracing::info!("Stellar Insights Backend - Initializing Server");
 
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
     let pool = PoolConfig::from_env().create_pool(&db_url).await
-        .map_err(|e| format!("Failed to create database pool: {e}"))?;
+        .context("Failed to create database pool")?;
     let db = Arc::new(Database::new(pool.clone()));
 
     // Pool exhaustion monitoring: warn at >90% utilization, update Prometheus gauges
@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
-    let app_state = AppState::new(db.clone(), ws_state, ingestion);
+    let app_state = AppState::new(db.clone(), cache.clone(), ws_state, ingestion);
     let cached_state = (
         db.clone(),
         cache.clone(),
@@ -111,18 +111,47 @@ async fn main() -> anyhow::Result<()> {
             tracing::error!("Webhook dispatcher stopped: {}", e);
         }
     });
-
     let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
         .unwrap_or_else(|_| "http://localhost:3000,https://stellar-insights.com".to_string());
 
     let origins: Vec<HeaderValue> = allowed_origins
         .split(',')
-        .filter_map(|origin| origin.trim().parse::<HeaderValue>().ok())
+        .filter_map(|origin| {
+            let trimmed = origin.trim();
+            match trimmed.parse::<HeaderValue>() {
+                Ok(value) => {
+                    tracing::info!("CORS: allowing origin '{}'", trimmed);
+                    Some(value)
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "CORS: skipping invalid origin '{}' — check CORS_ALLOWED_ORIGINS",
+                        trimmed
+                    );
+                    None
+                }
+            }
+        })
         .collect();
+
+    if origins.is_empty() {
+        tracing::warn!(
+            "CORS: no valid origins parsed from CORS_ALLOWED_ORIGINS='{}'. \
+             All cross-origin requests will be rejected.",
+            allowed_origins
+        );
+    }
 
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+            Method::PATCH,
+        ])
         .allow_headers([AUTHORIZATION, CONTENT_TYPE])
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
@@ -140,9 +169,7 @@ async fn main() -> anyhow::Result<()> {
         pool,
         cache,
     )
-    .merge(
-        SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
-    );
+    .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
@@ -154,4 +181,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

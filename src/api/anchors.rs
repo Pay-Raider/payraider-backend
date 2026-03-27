@@ -1,20 +1,20 @@
 use axum::{
     extract::{Path, Query, State},
+    routing::{get, post},
     http::HeaderMap,
     response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
-use uuid::Uuid;
+use anyhow::Context;
 
 use crate::broadcast::broadcast_anchor_update;
 use crate::error::{ApiError, ApiResult};
+use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
 use crate::state::AppState;
 
@@ -148,23 +148,14 @@ pub async fn create_anchor(
     State(app_state): State<AppState>,
     Json(req): Json<CreateAnchorRequest>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
-    if req.name.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Name cannot be empty",
-        ));
-    }
+    // Struct-level field validation (lengths)
+    crate::validation::validate_request(&req)?;
 
-    if req.stellar_account.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Stellar account cannot be empty",
-        ));
-    }
+    // Business logic: stellar account must start with 'G'
+    crate::validation::validate_stellar_account(&req.stellar_account)?;
 
     let anchor = app_state.db.create_anchor(req).await?;
 
-    // Broadcast the new anchor to WebSocket clients
     broadcast_anchor_update(&app_state.ws_state, &anchor);
 
     Ok(Json(anchor))
@@ -236,9 +227,12 @@ pub async fn get_anchor_assets(
 }
 
 /// POST /api/anchors/:id/assets - Add asset to anchor
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, validator::Validate)]
 pub struct CreateAssetRequest {
+    #[validate(length(min = 1, max = 12, message = "Asset code must be between 1 and 12 characters"))]
     pub asset_code: String,
+
+    #[validate(length(min = 1, max = 56, message = "Asset issuer must be at most 56 characters"))]
     pub asset_issuer: String,
 }
 
@@ -247,6 +241,9 @@ pub async fn create_anchor_asset(
     Path(id): Path<Uuid>,
     Json(req): Json<CreateAssetRequest>,
 ) -> ApiResult<Json<crate::models::Asset>> {
+    // Field validation
+    crate::validation::validate_request(&req)?;
+
     // Verify anchor exists
     if app_state.db.get_anchor_by_id(id).await?.is_none() {
         let mut details = HashMap::new();
@@ -271,7 +268,7 @@ use crate::cache::{keys, CacheManager};
 use crate::database::Database;
 use crate::rpc::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
-    error::{with_retry, RetryConfig},
+    error::{with_retry, RetryConfig, RpcError},
     StellarRpcClient,
 };
 use crate::services::price_feed::PriceFeedClient;
@@ -305,41 +302,13 @@ fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
         .clone()
 }
 
-// Add retry helper
-async fn with_retry<F, Fut, T>(
-    mut operation: F,
-    max_retries: u32,
-    initial_backoff: Duration,
-) -> anyhow::Result<T>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = anyhow::Result<T>>,
-{
-    let mut backoff = initial_backoff;
-    let mut last_error = None;
-    
-    for attempt in 0..=max_retries {
-        match operation().await {
-            Ok(result) => return Ok(result),
-            Err(e) => {
-                last_error = Some(e);
-                if attempt < max_retries {
-                    tokio::time::sleep(backoff).await;
-                    backoff *= 2;  // Exponential backoff
-                }
-            }
-        }
-    }
-    
-    Err(last_error.unwrap())
-}
 
 pub async fn get_anchor_metrics_with_rpc(
     anchor_id: Uuid,
     rpc_client: Arc<StellarRpcClient>,
 ) -> anyhow::Result<AnchorMetrics> {
     let circuit_breaker = rpc_circuit_breaker();
-    
+
     // Use with_retry with circuit_breaker for resilience
     with_retry(
         || async {

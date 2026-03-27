@@ -82,6 +82,7 @@ data-encoding = "2.5"
 lazy_static = "1.4"
 csv = "1.4"
 rust_xlsxwriter = { version = "0.83", features = ["chrono", "serde"] }
+validator = { version = "0.18", features = ["derive"] }
 
 
 # [dependencies.stellar-insights-apm]
