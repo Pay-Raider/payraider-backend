@@ -76,7 +76,7 @@ pub struct ActivateRequest {
 }
 
 const fn default_voting_duration() -> i64 {
-    604800 // 7 days
+    604_800 // 7 days
 }
 
 #[derive(Debug, Serialize)]
@@ -89,7 +89,18 @@ pub struct HasVotedResponse {
     pub has_voted: bool,
 }
 
-// POST /proposals
+// POST /api/governance/proposals - Create a new governance proposal
+#[utoipa::path(
+    post,
+    path = "/api/governance/proposals",
+    request_body = CreateProposalRequest,
+    responses(
+        (status = 201, description = "Proposal created"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "Governance"
+)]
 async fn create_proposal(
     State(service): State<Arc<GovernanceService>>,
     sep10_user: axum::Extension<Sep10User>,
@@ -105,7 +116,21 @@ async fn create_proposal(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-// PUT /proposals/:id/activate
+// PUT /api/governance/proposals/:id/activate - Activate a proposal for voting
+#[utoipa::path(
+    put,
+    path = "/api/governance/proposals/{id}/activate",
+    params(
+        ("id" = String, Path, description = "Proposal ID")
+    ),
+    request_body = ActivateRequest,
+    responses(
+        (status = 200, description = "Proposal activated"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "Governance"
+)]
 async fn activate_proposal(
     State(service): State<Arc<GovernanceService>>,
     Path(id): Path<String>,
@@ -125,7 +150,20 @@ async fn activate_proposal(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-// GET /proposals
+// GET /api/governance/proposals - List all proposals
+#[utoipa::path(
+    get,
+    path = "/api/governance/proposals",
+    params(
+        ("status" = Option<String>, Query, description = "Filter by status"),
+        ("limit" = Option<i64>, Query, description = "Maximum results (1-100, default 20)"),
+        ("offset" = Option<i64>, Query, description = "Results offset")
+    ),
+    responses(
+        (status = 200, description = "List of proposals")
+    ),
+    tag = "Governance"
+)]
 async fn list_proposals(
     State(service): State<Arc<GovernanceService>>,
     Query(query): Query<ListProposalsQuery>,
@@ -141,7 +179,19 @@ async fn list_proposals(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-// GET /proposals/:id
+// GET /api/governance/proposals/:id - Get a specific proposal
+#[utoipa::path(
+    get,
+    path = "/api/governance/proposals/{id}",
+    params(
+        ("id" = String, Path, description = "Proposal ID")
+    ),
+    responses(
+        (status = 200, description = "Proposal details"),
+        (status = 404, description = "Proposal not found")
+    ),
+    tag = "Governance"
+)]
 async fn get_proposal(
     State(service): State<Arc<GovernanceService>>,
     Path(id): Path<String>,
@@ -154,7 +204,21 @@ async fn get_proposal(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-// POST /proposals/:id/vote
+// POST /api/governance/proposals/:id/vote - Cast a vote on a proposal
+#[utoipa::path(
+    post,
+    path = "/api/governance/proposals/{id}/vote",
+    params(
+        ("id" = String, Path, description = "Proposal ID")
+    ),
+    request_body = CastVoteRequest,
+    responses(
+        (status = 200, description = "Vote cast successfully"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "Governance"
+)]
 async fn cast_vote(
     State(service): State<Arc<GovernanceService>>,
     Path(id): Path<String>,
@@ -174,7 +238,19 @@ async fn cast_vote(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-// GET /proposals/:id/votes
+// GET /api/governance/proposals/:id/votes - Get votes for a proposal
+#[utoipa::path(
+    get,
+    path = "/api/governance/proposals/{id}/votes",
+    params(
+        ("id" = String, Path, description = "Proposal ID"),
+        ("limit" = Option<i64>, Query, description = "Maximum results (1-100, default 50)")
+    ),
+    responses(
+        (status = 200, description = "List of votes")
+    ),
+    tag = "Governance"
+)]
 async fn get_votes(
     State(service): State<Arc<GovernanceService>>,
     Path(id): Path<String>,
@@ -190,7 +266,19 @@ async fn get_votes(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-// GET /proposals/:id/has-voted/:address
+// GET /api/governance/proposals/:id/has-voted/:address - Check if address has voted
+#[utoipa::path(
+    get,
+    path = "/api/governance/proposals/{id}/has-voted/{address}",
+    params(
+        ("id" = String, Path, description = "Proposal ID"),
+        ("address" = String, Path, description = "Stellar address to check")
+    ),
+    responses(
+        (status = 200, description = "Voting status", body = HasVotedResponse)
+    ),
+    tag = "Governance"
+)]
 async fn has_voted(
     State(service): State<Arc<GovernanceService>>,
     Path((id, address)): Path<(String, String)>,
@@ -203,7 +291,21 @@ async fn has_voted(
     Ok((StatusCode::OK, Json(HasVotedResponse { has_voted: voted })).into_response())
 }
 
-// POST /proposals/:id/comments
+// POST /api/governance/proposals/:id/comments - Add a comment to a proposal
+#[utoipa::path(
+    post,
+    path = "/api/governance/proposals/{id}/comments",
+    params(
+        ("id" = String, Path, description = "Proposal ID")
+    ),
+    request_body = AddCommentRequest,
+    responses(
+        (status = 201, description = "Comment added"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "Governance"
+)]
 async fn add_comment(
     State(service): State<Arc<GovernanceService>>,
     Path(id): Path<String>,
@@ -220,7 +322,19 @@ async fn add_comment(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-// GET /proposals/:id/comments
+// GET /api/governance/proposals/:id/comments - Get comments for a proposal
+#[utoipa::path(
+    get,
+    path = "/api/governance/proposals/{id}/comments",
+    params(
+        ("id" = String, Path, description = "Proposal ID"),
+        ("limit" = Option<i64>, Query, description = "Maximum results (1-100, default 50)")
+    ),
+    responses(
+        (status = 200, description = "List of comments")
+    ),
+    tag = "Governance"
+)]
 async fn get_comments(
     State(service): State<Arc<GovernanceService>>,
     Path(id): Path<String>,

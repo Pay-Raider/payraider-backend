@@ -197,12 +197,74 @@ impl RateLimiter {
 
     /// Get client tier (check for premium status)
     async fn get_client_tier(&self, client: &ClientIdentifier) -> ClientTier {
-        // For now, use basic tier logic
-        // TODO: Implement premium tier detection from database
         match client {
-            ClientIdentifier::ApiKey(_) => ClientTier::Authenticated,
-            ClientIdentifier::User(_) => ClientTier::Authenticated,
+            ClientIdentifier::ApiKey(id) => {
+                // For API keys, we check if the associated user/wallet has a premium subscription
+                // If we have a DB pool, query the user_subscriptions table
+                if let Some(pool) = &self.db_pool {
+                    match self.get_subscription_tier_by_client_id(pool, id).await {
+                        Ok(tier) => tier,
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to fetch subscription tier for API key {}: {}",
+                                id,
+                                e
+                            );
+                            ClientTier::Authenticated
+                        }
+                    }
+                } else {
+                    ClientTier::Authenticated
+                }
+            }
+            ClientIdentifier::User(user_id) => {
+                if let Some(pool) = &self.db_pool {
+                    match self.get_subscription_tier_by_client_id(pool, user_id).await {
+                        Ok(tier) => tier,
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to fetch subscription tier for user {}: {}",
+                                user_id,
+                                e
+                            );
+                            ClientTier::Authenticated
+                        }
+                    }
+                } else {
+                    ClientTier::Authenticated
+                }
+            }
             ClientIdentifier::IpAddress(_) => ClientTier::Anonymous,
+        }
+    }
+
+    /// Query database for subscription tier
+    async fn get_subscription_tier_by_client_id(
+        &self,
+        pool: &sqlx::SqlitePool,
+        client_id: &str,
+    ) -> Result<ClientTier, sqlx::Error> {
+        let record = sqlx::query_as::<_, UserSubscriptionRecord>(
+            "SELECT tier, expires_at FROM user_subscriptions 
+             WHERE (user_id = ? OR api_key_id = ?) 
+             AND (expires_at IS NULL OR expires_at > datetime('now'))
+             ORDER BY CASE WHEN tier = 'Premium' THEN 1 ELSE 2 END
+             LIMIT 1",
+        )
+        .bind(client_id)
+        .bind(client_id)
+        .fetch_optional(pool)
+        .await?;
+
+        match record {
+            Some(r) => {
+                if r.tier == "Premium" {
+                    Ok(ClientTier::Premium)
+                } else {
+                    Ok(ClientTier::Authenticated)
+                }
+            }
+            None => Ok(ClientTier::Authenticated),
         }
     }
 
@@ -381,6 +443,12 @@ pub struct RateLimitInfo {
     pub client_id: Option<String>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct UserSubscriptionRecord {
+    pub tier: String,
+    pub expires_at: Option<String>,
+}
+
 /// Add rate limit headers to a response according to standards
 pub fn add_rate_limit_headers(
     mut response: Response,
@@ -503,7 +571,7 @@ pub async fn rate_limit_middleware(
         return RateLimitError { info }.into_response();
     }
 
-    let mut response = next.run(req).await;
+    let response = next.run(req).await;
 
     match add_rate_limit_headers(response, &info) {
         Ok(res) => res,
@@ -515,5 +583,57 @@ pub async fn rate_limit_middleware(
             )
                 .into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::Row;
+
+    async fn setup_test_db() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+
+        sqlx::query(
+            "CREATE TABLE user_subscriptions (
+                user_id TEXT,
+                api_key_id TEXT,
+                tier TEXT,
+                expires_at DATETIME
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_premium_user_tier() {
+        let db = setup_test_db().await;
+        let rate_limiter = RateLimiter::new_with_db(Some(db.clone())).await.unwrap();
+
+        // Insert premium user correctly using SQLite datetime function
+        sqlx::query("INSERT INTO user_subscriptions (user_id, tier, expires_at) VALUES (?, ?, datetime('now', '+30 days'))")
+            .bind("user123")
+            .bind("Premium")
+            .execute(&db)
+            .await
+            .unwrap();
+
+        let client = ClientIdentifier::User("user123".to_string());
+        let tier = rate_limiter.get_client_tier(&client).await;
+        assert_eq!(tier, ClientTier::Premium);
+    }
+
+    #[tokio::test]
+    async fn test_free_user_tier() {
+        let db = setup_test_db().await;
+        let rate_limiter = RateLimiter::new_with_db(Some(db.clone())).await.unwrap();
+
+        let client = ClientIdentifier::User("user456".to_string());
+        let tier = rate_limiter.get_client_tier(&client).await;
+        assert_eq!(tier, ClientTier::Authenticated);
     }
 }

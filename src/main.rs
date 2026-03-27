@@ -1,5 +1,8 @@
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
+use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::timeout::TimeoutLayer;
+
 use anyhow::Context;
 use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
@@ -12,10 +15,12 @@ use tower_http::{
 
 use stellar_insights_backend::{
     api::v1::routes,
+    backup::{BackupConfig, BackupManager},
     cache::{CacheConfig, CacheManager},
     database::{Database, PoolConfig},
     env_config,
     ingestion::DataIngestionService,
+    openapi::ApiDoc,
     rate_limit::RateLimiter,
     rpc::StellarRpcClient,
     services::{
@@ -26,7 +31,6 @@ use stellar_insights_backend::{
         webhook_dispatcher::WebhookDispatcher,
     },
     state::AppState,
-    openapi::ApiDoc,
     websocket::WsState,
 };
 use utoipa::OpenApi;
@@ -36,16 +40,49 @@ use utoipa_swagger_ui::SwaggerUi;
 async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
     env_config::log_env_config();
-    let _tracing_guard = stellar_insights_backend::observability::tracing::init_tracing(
-        "stellar-insights-backend",
-    )?;
+    let _tracing_guard =
+        stellar_insights_backend::observability::tracing::init_tracing("stellar-insights-backend")?;
     tracing::info!("Stellar Insights Backend - Initializing Server");
 
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
-    let pool = PoolConfig::from_env().create_pool(&db_url).await
-        .map_err(|e| format!("Failed to create database pool: {e}"))?;
+    let pool = PoolConfig::from_env()
+        .create_pool(&db_url)
+        .await
+        .context("Failed to create database pool")?;
+
+    // Run migrations on startup
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .context("Failed to run database migrations")?;
+    tracing::info!("Database migrations completed successfully");
+
     let db = Arc::new(Database::new(pool.clone()));
+
+    // Pool exhaustion monitoring: warn at >90% utilization, update Prometheus gauges
+    {
+        let monitor_pool = pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                let size = monitor_pool.size();
+                let idle = monitor_pool.num_idle() as u32;
+                let active = size.saturating_sub(idle);
+                if size > 0 && active as f64 / size as f64 > 0.9 {
+                    tracing::warn!(
+                        "Database pool nearly exhausted: {}/{} connections active",
+                        active,
+                        size
+                    );
+                }
+                stellar_insights_backend::observability::metrics::set_pool_size(size as i64);
+                stellar_insights_backend::observability::metrics::set_pool_idle(idle as i64);
+                stellar_insights_backend::observability::metrics::set_pool_active(active as i64);
+            }
+        });
+    }
 
     let cache = Arc::new(
         CacheManager::new(CacheConfig::default())
@@ -64,7 +101,13 @@ async fn main() -> anyhow::Result<()> {
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
-    let app_state = AppState::new(db.clone(), ws_state, ingestion);
+    let app_state = AppState::new(
+        db.clone(),
+        ws_state,
+        ingestion,
+        cache.clone(),
+        rpc_client.clone(),
+    );
     let cached_state = (
         db.clone(),
         cache.clone(),
@@ -77,10 +120,17 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(AccountMergeDetector::new(pool.clone(), rpc_client.clone()));
     let lp_analyzer = Arc::new(LiquidityPoolAnalyzer::new(pool.clone(), rpc_client.clone()));
 
+    let backup_config = BackupConfig::from_env();
+    if backup_config.enabled {
+        let backup_manager = Arc::new(BackupManager::new(backup_config));
+        backup_manager.spawn_scheduler();
+        tracing::info!("Backup scheduler enabled");
+    }
+
     let rate_limiter = Arc::new(
         RateLimiter::new()
             .await
-            .context("Failed to initialize rate limiter - check Redis connection")?,
+            .context("Failed to initialize rate limiter")?,
     );
 
     // Start webhook dispatcher as a background task
@@ -91,19 +141,49 @@ async fn main() -> anyhow::Result<()> {
             tracing::error!("Webhook dispatcher stopped: {}", e);
         }
     });
-
     let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
         .unwrap_or_else(|_| "http://localhost:3000,https://stellar-insights.com".to_string());
 
     let origins: Vec<HeaderValue> = allowed_origins
         .split(',')
-        .filter_map(|origin| origin.trim().parse::<HeaderValue>().ok())
+        .filter_map(|origin| {
+            let trimmed = origin.trim();
+            match trimmed.parse::<HeaderValue>() {
+                Ok(value) => {
+                    tracing::info!("CORS: allowing origin '{}'", trimmed);
+                    Some(value)
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "CORS: skipping invalid origin '{}' — check CORS_ALLOWED_ORIGINS",
+                        trimmed
+                    );
+                    None
+                }
+            }
+        })
         .collect();
+
+    if origins.is_empty() {
+        tracing::warn!(
+            "CORS: no valid origins parsed from CORS_ALLOWED_ORIGINS='{}'. \
+             All cross-origin requests will be rejected.",
+            allowed_origins
+        );
+    }
 
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+            Method::PATCH,
+        ])
+        .allow_header(AUTHORIZATION)
+        .allow_header(CONTENT_TYPE)
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 
@@ -142,4 +222,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

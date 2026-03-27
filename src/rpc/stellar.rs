@@ -15,6 +15,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 const MAX_RETRIES: u32 = 3;
 const INITIAL_BACKOFF_MS: u64 = 100;
@@ -90,8 +91,8 @@ pub struct StellarRpcClient {
     circuit_breaker: Arc<CircuitBreaker>,
     /// Maximum records per single request (default: 200)
     max_records_per_request: u32,
-    /// Maximum total records across all paginated requests (default: 10000)
-    max_total_records: u32,
+    /// Maximum total records across all paginated requests (default: 10_000)
+    pub max_total_records: u32,
     /// Delay between pagination requests in milliseconds (default: 100)
     pagination_delay_ms: u64,
     /// Maximum retries for RPC calls
@@ -800,9 +801,9 @@ impl StellarRpcClient {
         if let Some(c) = cursor {
             params
                 .get_mut("pagination")
-                .unwrap()
+                .expect("pagination field should exist")
                 .as_object_mut()
-                .unwrap()
+                .expect("pagination should be an object")
                 .insert("cursor".to_string(), json!(c));
         } else if let Some(start) = start_ledger {
             params.insert("startLedger".to_string(), json!(start));
@@ -1221,15 +1222,11 @@ impl StellarRpcClient {
     /// Vector of all fetched payments up to the limit
     pub async fn fetch_all_payments(&self, max_records: Option<u32>) -> Result<Vec<Payment>> {
         if self.mock_mode {
-            let limit = max_records
-                .unwrap_or(self.max_total_records)
-                .min(ABSOLUTE_MAX_TOTAL_RECORDS);
+            let limit = self.resolve_max_records(max_records);
             return Ok(Self::mock_payments(limit));
         }
 
-        let max_records = max_records
-            .unwrap_or(self.max_total_records)
-            .min(ABSOLUTE_MAX_TOTAL_RECORDS);
+        let max_records = self.resolve_max_records(max_records);
         let mut all_payments = Vec::new();
         let mut cursor: Option<String> = None;
         let mut fetched = 0;
@@ -1242,10 +1239,7 @@ impl StellarRpcClient {
         while fetched < max_records {
             let limit = std::cmp::min(self.max_records_per_request, max_records - fetched);
 
-            let payments = self
-                .fetch_payments(limit, cursor.as_deref())
-                .await
-                .context("Failed to fetch payments page")?;
+            let payments = self.fetch_payments_page(limit, cursor.as_deref()).await?;
 
             if payments.is_empty() {
                 info!("No more payments available, stopping pagination");
@@ -1253,11 +1247,7 @@ impl StellarRpcClient {
             }
 
             fetched += payments.len() as u32;
-
-            // Extract cursor from last payment for next page
-            if let Some(last_payment) = payments.last() {
-                cursor = Some(last_payment.paging_token.clone());
-            }
+            cursor = Self::last_payment_cursor(&payments);
 
             all_payments.extend(payments);
 
@@ -1282,6 +1272,22 @@ impl StellarRpcClient {
             all_payments.len()
         );
         Ok(all_payments)
+    }
+
+    fn resolve_max_records(&self, max_records: Option<u32>) -> u32 {
+        max_records
+            .unwrap_or(self.max_total_records)
+            .min(ABSOLUTE_MAX_TOTAL_RECORDS)
+    }
+
+    async fn fetch_payments_page(&self, limit: u32, cursor: Option<&str>) -> Result<Vec<Payment>> {
+        self.fetch_payments(limit, cursor)
+            .await
+            .context("Failed to fetch payments page")
+    }
+
+    fn last_payment_cursor(payments: &[Payment]) -> Option<String> {
+        payments.last().map(|payment| payment.paging_token.clone())
     }
 
     /// Fetch all trades with automatic pagination up to `max_total_records`
@@ -1578,7 +1584,7 @@ impl StellarRpcClient {
 
     fn mock_ledger_info() -> LedgerInfo {
         LedgerInfo {
-            sequence: 51583040,
+            sequence: 51_583_040,
             hash: "abc123def456".to_string(),
             previous_hash: "xyz789uvw012".to_string(),
             transaction_count: 245,
@@ -1609,7 +1615,7 @@ impl StellarRpcClient {
             .map(|(i, seq)| RpcLedger {
                 hash: format!("hash_{seq}"),
                 sequence: seq,
-                ledger_close_time: format!("{}", 1734032457 + i as u64 * 5),
+                ledger_close_time: format!("{}", 1_734_032_457 + i as u64 * 5),
                 header_xdr: Some("mock_header".to_string()),
                 metadata_xdr: Some("mock_metadata".to_string()),
             })
@@ -2248,7 +2254,7 @@ impl StellarRpcClient {
         ];
 
         for (i, (code, issuer)) in issues.iter().take(limit as usize).enumerate() {
-            let base_trustlines = 10000 - (i as i32 * 2000);
+            let base_trustlines = 10_000 - (i as i32 * 2_000);
             assets.push(HorizonAsset {
                 asset_type: "credit_alphanum4".to_string(),
                 asset_code: (*code).to_string(),
@@ -2281,7 +2287,10 @@ impl StellarRpcClient {
     }
 
     /// Fetch anchor metrics from RPC
-    pub async fn fetch_anchor_metrics(&self, _anchor_id: Uuid) -> Result<crate::api::anchors::AnchorMetrics, RpcError> {
+    pub async fn fetch_anchor_metrics(
+        &self,
+        _anchor_id: Uuid,
+    ) -> Result<crate::api::anchors::AnchorMetrics, RpcError> {
         // TODO: Implement actual RPC call to fetch anchor metrics
         // For now, return mock data
         Ok(crate::api::anchors::AnchorMetrics {
@@ -2289,7 +2298,7 @@ impl StellarRpcClient {
             total_payments: 1000,
             successful_payments: 950,
             failed_payments: 50,
-            total_volume: 1000000.0,
+            total_volume: 1_000_000.0,
         })
     }
 }

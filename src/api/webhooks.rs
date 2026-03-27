@@ -13,6 +13,18 @@ use crate::auth_middleware::AuthUser;
 use crate::webhooks::{CreateWebhookRequest, WebhookResponse, WebhookService};
 
 /// POST /api/webhooks - Register a new webhook
+#[utoipa::path(
+    post,
+    path = "/api/webhooks",
+    request_body = CreateWebhookRequest,
+    responses(
+        (status = 201, description = "Webhook registered successfully"),
+        (status = 400, description = "Invalid webhook URL or missing event types"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Webhooks"
+)]
 pub async fn register_webhook(
     State(db): State<SqlitePool>,
     auth_user: AuthUser,
@@ -89,6 +101,16 @@ pub async fn register_webhook(
 }
 
 /// GET /api/webhooks - List webhooks for authenticated user
+#[utoipa::path(
+    get,
+    path = "/api/webhooks",
+    responses(
+        (status = 200, description = "List of webhooks"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Webhooks"
+)]
 pub async fn list_webhooks(
     State(db): State<SqlitePool>,
     auth_user: AuthUser,
@@ -122,6 +144,20 @@ pub async fn list_webhooks(
 }
 
 /// DELETE /api/webhooks/:id - Delete/deactivate webhook
+#[utoipa::path(
+    delete,
+    path = "/api/webhooks/{id}",
+    params(
+        ("id" = String, Path, description = "Webhook ID")
+    ),
+    responses(
+        (status = 200, description = "Webhook deleted successfully"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Webhook not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Webhooks"
+)]
 pub async fn delete_webhook(
     State(db): State<SqlitePool>,
     auth_user: AuthUser,
@@ -145,6 +181,21 @@ pub async fn delete_webhook(
 }
 
 /// GET /api/webhooks/:id - Get a single webhook by ID
+#[utoipa::path(
+    get,
+    path = "/api/webhooks/{id}",
+    params(
+        ("id" = String, Path, description = "Webhook ID")
+    ),
+    responses(
+        (status = 200, description = "Webhook details", body = WebhookResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - not owner"),
+        (status = 404, description = "Webhook not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Webhooks"
+)]
 pub async fn get_webhook(
     State(db): State<SqlitePool>,
     auth_user: AuthUser,
@@ -181,6 +232,21 @@ pub async fn get_webhook(
 }
 
 /// POST /api/webhooks/:id/test - Queue a test event for delivery
+#[utoipa::path(
+    post,
+    path = "/api/webhooks/{id}/test",
+    params(
+        ("id" = String, Path, description = "Webhook ID")
+    ),
+    responses(
+        (status = 200, description = "Test event queued"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - not owner"),
+        (status = 404, description = "Webhook not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Webhooks"
+)]
 pub async fn test_webhook(
     State(db): State<SqlitePool>,
     auth_user: AuthUser,

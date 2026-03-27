@@ -62,8 +62,18 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
-/// POST /api/verifications/verify
-/// Verify a snapshot hash and earn rewards
+/// POST /api/verifications/verify - Verify a snapshot hash and earn rewards
+#[utoipa::path(
+    post,
+    path = "/api/verifications/verify",
+    request_body = VerifySnapshotRequest,
+    responses(
+        (status = 200, description = "Snapshot verified and reward issued"),
+        (status = 400, description = "Verification failed"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "Verification Rewards"
+)]
 pub async fn verify_snapshot(
     State(service): State<Arc<VerificationRewardsService>>,
     sep10_user: axum::Extension<Sep10User>,
@@ -82,8 +92,16 @@ pub async fn verify_snapshot(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// GET /api/verifications/stats
-/// Get current user's reward statistics
+/// GET /api/verifications/stats - Get current user's reward statistics
+#[utoipa::path(
+    get,
+    path = "/api/verifications/stats",
+    responses(
+        (status = 200, description = "User reward statistics"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "Verification Rewards"
+)]
 pub async fn get_user_stats(
     State(service): State<Arc<VerificationRewardsService>>,
     sep10_user: axum::Extension<Sep10User>,
@@ -96,8 +114,18 @@ pub async fn get_user_stats(
     Ok((StatusCode::OK, Json(stats)).into_response())
 }
 
-/// GET /api/verifications/leaderboard
-/// Get leaderboard of top verifiers
+/// GET /api/verifications/leaderboard - Get leaderboard of top verifiers
+#[utoipa::path(
+    get,
+    path = "/api/verifications/leaderboard",
+    params(
+        ("limit" = Option<i32>, Query, description = "Maximum results (1-100, default 10)")
+    ),
+    responses(
+        (status = 200, description = "Leaderboard of top verifiers")
+    ),
+    tag = "Verification Rewards"
+)]
 pub async fn get_leaderboard(
     State(service): State<Arc<VerificationRewardsService>>,
     Query(query): Query<LeaderboardQuery>,
@@ -112,8 +140,19 @@ pub async fn get_leaderboard(
     Ok((StatusCode::OK, Json(leaderboard)).into_response())
 }
 
-/// GET /api/verifications/history
-/// Get current user's verification history
+/// GET /api/verifications/history - Get current user's verification history
+#[utoipa::path(
+    get,
+    path = "/api/verifications/history",
+    params(
+        ("limit" = Option<i32>, Query, description = "Maximum results (1-100, default 20)")
+    ),
+    responses(
+        (status = 200, description = "User's verification history"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "Verification Rewards"
+)]
 pub async fn get_user_verifications(
     State(service): State<Arc<VerificationRewardsService>>,
     sep10_user: axum::Extension<Sep10User>,
@@ -129,8 +168,18 @@ pub async fn get_user_verifications(
     Ok((StatusCode::OK, Json(verifications)).into_response())
 }
 
-/// GET /`api/verifications/stats/:user_id`
-/// Get reward statistics for a specific user (public)
+/// GET /api/verifications/stats/:user_id - Get reward statistics for a specific user (public)
+#[utoipa::path(
+    get,
+    path = "/api/verifications/stats/{user_id}",
+    params(
+        ("user_id" = String, Path, description = "User ID to get stats for")
+    ),
+    responses(
+        (status = 200, description = "User's reward statistics")
+    ),
+    tag = "Verification Rewards"
+)]
 pub async fn get_public_user_stats(
     State(service): State<Arc<VerificationRewardsService>>,
     Path(user_id): Path<String>,
