@@ -40,19 +40,32 @@ async fn main() -> anyhow::Result<()> {
 
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
-    let pool = PoolConfig::from_env()
-        .create_pool(&db_url)
-        .await
+    let pool = PoolConfig::from_env().create_pool(&db_url).await
         .context("Failed to create database pool")?;
-
-    // Run migrations on startup — ensures schema is always up to date
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .context("Failed to run database migrations")?;
-    tracing::info!("Database migrations completed successfully");
-
     let db = Arc::new(Database::new(pool.clone()));
+
+    // Pool exhaustion monitoring: warn at >90% utilization, update Prometheus gauges
+    {
+        let monitor_pool = pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                let size = monitor_pool.size();
+                let idle = monitor_pool.num_idle() as u32;
+                let active = size.saturating_sub(idle);
+                if size > 0 && active as f64 / size as f64 > 0.9 {
+                    tracing::warn!(
+                        "Database pool nearly exhausted: {}/{} connections active",
+                        active, size
+                    );
+                }
+                stellar_insights_backend::observability::metrics::set_pool_size(size as i64);
+                stellar_insights_backend::observability::metrics::set_pool_idle(idle as i64);
+                stellar_insights_backend::observability::metrics::set_pool_active(active as i64);
+            }
+        });
+    }
 
     let cache = Arc::new(
         CacheManager::new(CacheConfig::default())
@@ -71,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
-    let app_state = AppState::new(db.clone(), ws_state, ingestion);
+    let app_state = AppState::new(db.clone(), cache.clone(), ws_state, ingestion);
     let cached_state = (
         db.clone(),
         cache.clone(),
@@ -98,18 +111,47 @@ async fn main() -> anyhow::Result<()> {
             tracing::error!("Webhook dispatcher stopped: {}", e);
         }
     });
-
     let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
         .unwrap_or_else(|_| "http://localhost:3000,https://stellar-insights.com".to_string());
 
     let origins: Vec<HeaderValue> = allowed_origins
         .split(',')
-        .filter_map(|origin| origin.trim().parse::<HeaderValue>().ok())
+        .filter_map(|origin| {
+            let trimmed = origin.trim();
+            match trimmed.parse::<HeaderValue>() {
+                Ok(value) => {
+                    tracing::info!("CORS: allowing origin '{}'", trimmed);
+                    Some(value)
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "CORS: skipping invalid origin '{}' — check CORS_ALLOWED_ORIGINS",
+                        trimmed
+                    );
+                    None
+                }
+            }
+        })
         .collect();
+
+    if origins.is_empty() {
+        tracing::warn!(
+            "CORS: no valid origins parsed from CORS_ALLOWED_ORIGINS='{}'. \
+             All cross-origin requests will be rejected.",
+            allowed_origins
+        );
+    }
 
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+            Method::PATCH,
+        ])
         .allow_headers([AUTHORIZATION, CONTENT_TYPE])
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
