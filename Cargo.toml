@@ -92,4 +92,18 @@ validator = { version = "0.18", features = ["derive"] }
 [dev-dependencies]
 urlencoding = "2.1"
 tempfile = "3.0"
+criterion = { version = "0.5", features = ["async_tokio"] }
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[[bench]]
+name = "corridor_benchmarks"
+harness = false
+
+[[bench]]
+name = "cache_benchmarks"
+harness = false
+
+[[bench]]
+name = "database_benchmarks"
+harness = false
 

@@ -357,10 +357,8 @@ pub async fn get_anchor_metrics_with_rpc(
 ) -> anyhow::Result<AnchorMetrics> {
     let circuit_breaker = rpc_circuit_breaker();
 
-    let result = circuit_breaker
-        .call(|| async {
     // Use with_retry with circuit_breaker for resilience
-    with_retry(
+    let result = with_retry(
         || async {
             rpc_client
                 .fetch_anchor_metrics(anchor_id)

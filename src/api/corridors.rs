@@ -704,6 +704,7 @@ fn find_related_corridors(
         (status = 500, description = "Internal server error")
     ),
     tag = "Corridors"
+)]
 #[instrument(
     skip(db, cache, rpc_client, price_feed),
     fields(request_id = %request_id.0, corridor_key = %corridor_key)
