@@ -40,11 +40,20 @@ impl Corridor {
 
     fn normalize_ordering(&mut self) {
         let source_key = format!("{}:{}", self.source_asset_code, self.source_asset_issuer);
-        let destination_key = format!("{}:{}", self.destination_asset_code, self.destination_asset_issuer);
- 
+        let destination_key = format!(
+            "{}:{}",
+            self.destination_asset_code, self.destination_asset_issuer
+        );
+
         if source_key > destination_key {
-            std::mem::swap(&mut self.source_asset_code, &mut self.destination_asset_code);
-            std::mem::swap(&mut self.source_asset_issuer, &mut self.destination_asset_issuer);
+            std::mem::swap(
+                &mut self.source_asset_code,
+                &mut self.destination_asset_code,
+            );
+            std::mem::swap(
+                &mut self.source_asset_issuer,
+                &mut self.destination_asset_issuer,
+            );
         }
     }
 
@@ -52,7 +61,10 @@ impl Corridor {
     pub fn to_string_key(&self) -> String {
         format!(
             "{}:{}->{}:{}",
-            self.source_asset_code, self.source_asset_issuer, self.destination_asset_code, self.destination_asset_issuer
+            self.source_asset_code,
+            self.source_asset_issuer,
+            self.destination_asset_code,
+            self.destination_asset_issuer
         )
     }
 }
@@ -202,7 +214,7 @@ mod tests {
             "USDC".to_string(),
             "issuer2".to_string(),
         );
- 
+
         assert_eq!(corridor.source_asset_code, "USDC");
         assert_eq!(corridor.destination_asset_code, "USDC");
         assert_eq!(corridor.source_asset_issuer, "issuer1");
@@ -238,7 +250,7 @@ mod tests {
             submission_time: None,
             confirmation_time: None,
         };
- 
+
         let corridor = payment.get_corridor();
         assert_eq!(corridor.source_asset_code, "EURC");
         assert_eq!(corridor.destination_asset_code, "USDC");

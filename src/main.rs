@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 
 use anyhow::Context;
@@ -7,7 +8,6 @@ use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
     HeaderValue, Method,
 };
-use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use stellar_insights_backend::{
     api::v1::routes,
@@ -42,7 +42,9 @@ async fn main() -> anyhow::Result<()> {
 
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
-    let pool = PoolConfig::from_env().create_pool(&db_url).await
+    let pool = PoolConfig::from_env()
+        .create_pool(&db_url)
+        .await
         .context("Failed to create database pool")?;
 
     // Run migrations on startup
@@ -67,7 +69,8 @@ async fn main() -> anyhow::Result<()> {
                 if size > 0 && active as f64 / size as f64 > 0.9 {
                     tracing::warn!(
                         "Database pool nearly exhausted: {}/{} connections active",
-                        active, size
+                        active,
+                        size
                     );
                 }
                 stellar_insights_backend::observability::metrics::set_pool_size(size as i64);
@@ -94,7 +97,13 @@ async fn main() -> anyhow::Result<()> {
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
-    let app_state = AppState::new(db.clone(), cache.clone(), ws_state, ingestion, rpc_client.clone());
+    let app_state = AppState::new(
+        db.clone(),
+        ws_state,
+        ingestion,
+        cache.clone(),
+        rpc_client.clone(),
+    );
     let cached_state = (
         db.clone(),
         cache.clone(),
@@ -169,7 +178,8 @@ async fn main() -> anyhow::Result<()> {
             Method::OPTIONS,
             Method::PATCH,
         ])
-        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .allow_header(AUTHORIZATION)
+        .allow_header(CONTENT_TYPE)
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 

@@ -191,8 +191,9 @@ impl AggregationService {
             metric.total_transactions,
         );
 
+        // Calculate midpoint for liquidity depth manually as f64 doesn't have .midpoint()
         existing.liquidity_depth_usd =
-            f64::midpoint(existing.liquidity_depth_usd, metric.liquidity_depth_usd);
+            (existing.liquidity_depth_usd + metric.liquidity_depth_usd) / 2.0;
     }
 
     fn merge_latency(
@@ -213,7 +214,10 @@ impl AggregationService {
         }
     }
 
-    fn new_hourly_metric(metric: &CorridorMetrics, hour_bucket: DateTime<Utc>) -> HourlyCorridorMetrics {
+    fn new_hourly_metric(
+        metric: &CorridorMetrics,
+        hour_bucket: DateTime<Utc>,
+    ) -> HourlyCorridorMetrics {
         HourlyCorridorMetrics {
             id: Uuid::new_v4().to_string(),
             corridor_key: metric.corridor_key.clone(),

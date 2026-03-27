@@ -40,7 +40,11 @@ impl AnchorMonitor {
 
         for anchor in anchors {
             // Get metrics from anchor_metrics_history or calculate from transactions
-            let current_metrics = match self.db.get_recent_anchor_performance(&anchor.stellar_account, 60).await {
+            let current_metrics = match self
+                .db
+                .get_recent_anchor_performance(&anchor.stellar_account, 60)
+                .await
+            {
                 Ok(m) => m,
                 Err(e) => {
                     tracing::error!("Failed to get performance for anchor {}: {}", anchor.id, e);

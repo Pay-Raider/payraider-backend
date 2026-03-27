@@ -1,10 +1,5 @@
-//! Contract Event Listener Service
-//!
-//! This service listens to Soroban contract events in real-time,
-//! indexes them, and provides verification capabilities for snapshot submissions.
-
 use crate::database::Database;
-use crate::services::alert_service::AlertService;
+use crate::services::alerts::AlertService;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use reqwest::Client;
@@ -17,19 +12,28 @@ use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
 /// Configuration for the contract event listener
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ListenerConfig {
-    /// Soroban RPC endpoint URL
     pub rpc_url: String,
-    /// Contract address (ID) on Stellar
     pub contract_id: String,
-    /// Polling interval in seconds (default: 10)
     pub poll_interval_secs: u64,
-    /// Start ledger number (optional, will use current if not specified)
     pub start_ledger: Option<u64>,
 }
 
-/// Snapshot event data from contract
+/// Represents a contract event from the Soroban RPC
+#[derive(Debug, Clone, Deserialize)]
+pub struct ContractEvent {
+    pub id: String,
+    pub paging_token: String,
+    pub ledger: String,
+    pub ledger_closed_at: String,
+    pub contract_id: String,
+    pub topic: Vec<String>,
+    pub value: serde_json::Value,
+    pub in_successful_contract_call: bool,
+}
+
+/// Snapshot event data extracted from contract events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotEvent {
     pub epoch: u64,
@@ -41,24 +45,7 @@ pub struct SnapshotEvent {
     pub event_type: String,
 }
 
-/// Contract event from Soroban
-#[derive(Debug, Deserialize)]
-struct ContractEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    ledger: String,
-    #[serde(rename = "ledgerClosedAt")]
-    ledger_closed_at: String,
-    #[serde(rename = "contractId")]
-    contract_id: String,
-    id: String,
-    #[serde(rename = "pagingToken")]
-    paging_token: String,
-    topic: Vec<String>,
-    value: serde_json::Value,
-}
-
-/// RPC request structure for Soroban
+/// RPC request structure for getEvents
 #[derive(Debug, Serialize)]
 struct JsonRpcRequest {
     jsonrpc: String,
@@ -70,24 +57,22 @@ struct JsonRpcRequest {
 /// RPC response structure
 #[derive(Debug, Deserialize)]
 struct JsonRpcResponse<T> {
+    #[allow(dead_code)]
     jsonrpc: String,
+    #[allow(dead_code)]
     id: u64,
-    #[serde(default)]
     result: Option<T>,
-    #[serde(default)]
     error: Option<RpcError>,
 }
 
-/// RPC error details
+/// RPC error structure
 #[derive(Debug, Deserialize)]
 struct RpcError {
     code: i32,
     message: String,
-    #[serde(default)]
-    data: Option<serde_json::Value>,
 }
 
-/// Service for listening to Soroban contract events
+
 pub struct ContractEventListener {
     client: Client,
     config: ListenerConfig,
@@ -375,11 +360,14 @@ impl ContractEventListener {
 
                 // Send alert via AlertService
                 let expected = backend_hash.clone();
-                let actual = on_chain_hash.to_string();
-                
+                let actual = on_chain_hash.clone();
+
                 let alert_service = self.alert_service.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = alert_service.alert_verification_failed(epoch, expected, actual).await {
+                    if let Err(e) = alert_service
+                        .alert_verification_failed(epoch, expected, actual)
+                        .await
+                    {
                         error!("Failed to send verification failure alert: {}", e);
                     }
                 });
@@ -391,7 +379,7 @@ impl ContractEventListener {
             Ok(is_verified)
         } else {
             warn!("No snapshot found in database for epoch {}", epoch);
-            
+
             let alert_service = self.alert_service.clone();
             tokio::spawn(async move {
                 if let Err(e) = alert_service.alert_missing_snapshot(epoch).await {
@@ -574,7 +562,7 @@ impl ContractEventListener {
     }
 
     /// Create from environment variables
-    pub fn from_env(db: Arc<Database>) -> Result<Self> {
+    pub fn from_env(db: Arc<Database>, alert_service: Arc<AlertService>) -> Result<Self> {
         let config = ListenerConfig {
             rpc_url: std::env::var("SOROBAN_RPC_URL")
                 .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string()),
@@ -589,7 +577,7 @@ impl ContractEventListener {
                 .and_then(|s| s.parse().ok()),
         };
 
-        Self::new(config, db, Arc::new(AlertService::default()))
+        Self::new(config, db, alert_service)
     }
 }
 
@@ -610,7 +598,8 @@ mod tests {
             start_ledger: None,
         };
 
-        let listener = ContractEventListener::new(config, db, Arc::new(AlertService::default())).unwrap();
+        let alert_service = Arc::new(AlertService::default());
+        let listener = ContractEventListener::new(config, db, alert_service).unwrap();
         let data = r#"{"test": "data"}"#;
         let hash = listener.calculate_hash(data).unwrap();
 
@@ -642,3 +631,4 @@ mod tests {
         std::env::remove_var("CONTRACT_EVENT_START_LEDGER");
     }
 }
+

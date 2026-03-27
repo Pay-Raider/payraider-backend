@@ -33,8 +33,10 @@ impl LiquidityPoolAnalyzer {
         let mut count = 0u64;
 
         for hp in &horizon_pools {
-            let (primary_reserve_code, primary_reserve_issuer) = Self::parse_asset(&hp.reserves[0].asset);
-            let (secondary_reserve_code, secondary_reserve_issuer) = Self::parse_asset(&hp.reserves[1].asset);
+            let (primary_reserve_code, primary_reserve_issuer) =
+                Self::parse_asset(&hp.reserves[0].asset);
+            let (secondary_reserve_code, secondary_reserve_issuer) =
+                Self::parse_asset(&hp.reserves[1].asset);
             let primary_reserve: f64 = hp.reserves[0].amount.parse().unwrap_or(0.0);
             let secondary_reserve: f64 = hp.reserves[1].amount.parse().unwrap_or(0.0);
 

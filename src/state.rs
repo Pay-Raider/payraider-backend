@@ -1,8 +1,8 @@
 use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::ingestion::DataIngestionService;
-use crate::websocket::WsState;
 use crate::rpc::StellarRpcClient;
+use crate::websocket::WsState;
 use std::sync::Arc;
 
 /// Shared application state for handlers

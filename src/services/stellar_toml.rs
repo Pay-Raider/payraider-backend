@@ -301,7 +301,7 @@ impl StellarTomlClient {
     async fn fetch_toml_from_network(&self, domain: &str) -> Result<StellarToml> {
         // Try HTTPS first
         let secure_toml_url = format!("https://{domain}/.well-known/stellar.toml");
- 
+
         match self.fetch_url(&secure_toml_url).await {
             Ok(content) => return self.parse_toml(&content, domain),
             Err(e) => {
@@ -311,7 +311,7 @@ impl StellarTomlClient {
 
         // Fallback to HTTP
         let fallback_toml_url = format!("http://{domain}/.well-known/stellar.toml");
- 
+
         match self.fetch_url(&fallback_toml_url).await {
             Ok(content) => self.parse_toml(&content, domain),
             Err(e) => {
