@@ -9,6 +9,79 @@ pub struct QueryRoot {
     pub pool: Arc<SqlitePool>,
 }
 
+#[derive(Default)]
+struct AnchorQueryBuilder {
+    conditions: Vec<String>,
+}
+
+impl AnchorQueryBuilder {
+    fn from_filter(filter: Option<&AnchorFilter>) -> Self {
+        let mut builder = Self::default();
+
+        if let Some(f) = filter {
+            if let Some(status) = &f.status {
+                builder.add_status_filter(status);
+            }
+            if let Some(min_score) = f.min_reliability_score {
+                builder.add_min_score_filter(min_score);
+            }
+            if let Some(search) = &f.search {
+                builder.add_search_filter(search);
+            }
+        }
+
+        builder
+    }
+
+    fn add_status_filter(&mut self, status: &str) {
+        let escaped = escape_sql_literal(status);
+        self.conditions.push(format!("status = '{escaped}'"));
+    }
+
+    fn add_min_score_filter(&mut self, min_score: f64) {
+        self.conditions
+            .push(format!("reliability_score >= {min_score}"));
+    }
+
+    fn add_search_filter(&mut self, search: &str) {
+        let escaped = escape_sql_literal(search);
+        self.conditions.push(format!(
+            "(name LIKE '%{escaped}%' OR stellar_account LIKE '%{escaped}%')"
+        ));
+    }
+
+    fn apply_conditions(&self, query: &mut String) {
+        if !self.conditions.is_empty() {
+            query.push_str(" AND ");
+            query.push_str(&self.conditions.join(" AND "));
+        }
+    }
+
+    fn build_data_query(&self, limit: i32, offset: i32) -> String {
+        let mut query = String::from(
+            "SELECT id, name, stellar_account, home_domain, total_transactions, successful_transactions, failed_transactions, total_volume_usd, avg_settlement_time_ms, reliability_score, status, created_at, updated_at FROM anchors WHERE 1=1",
+        );
+        self.apply_conditions(&mut query);
+        write!(
+            query,
+            " ORDER BY reliability_score DESC LIMIT {} OFFSET {}",
+            limit, offset
+        )
+        .unwrap();
+        query
+    }
+
+    fn build_count_query(&self) -> String {
+        let mut query = String::from("SELECT COUNT(*) as count FROM anchors WHERE 1=1");
+        self.apply_conditions(&mut query);
+        query
+    }
+}
+
+fn escape_sql_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
 #[Object]
 impl QueryRoot {
     /// Get a single anchor by ID
@@ -45,25 +118,9 @@ impl QueryRoot {
         let limit = pagination.as_ref().and_then(|p| p.limit).unwrap_or(10).min(100);
         let offset = pagination.as_ref().and_then(|p| p.offset).unwrap_or(0);
 
-        let mut query = String::from("SELECT id, name, stellar_account, home_domain, total_transactions, successful_transactions, failed_transactions, total_volume_usd, avg_settlement_time_ms, reliability_score, status, created_at, updated_at FROM anchors WHERE 1=1");
-        let mut count_query = String::from("SELECT COUNT(*) as count FROM anchors WHERE 1=1");
-
-        if let Some(f) = &filter {
-            if let Some(status) = &f.status {
-                write!(query, " AND status = '{}'", status).unwrap();
-                write!(count_query, " AND status = '{}'", status).unwrap();
-            }
-            if let Some(min_score) = f.min_reliability_score {
-                write!(query, " AND reliability_score >= {}", min_score).unwrap();
-                write!(count_query, " AND reliability_score >= {}", min_score).unwrap();
-            }
-            if let Some(search) = &f.search {
-                write!(query, " AND (name LIKE '%{}%' OR stellar_account LIKE '%{}%')", search, search).unwrap();
-                write!(count_query, " AND (name LIKE '%{}%' OR stellar_account LIKE '%{}%')", search, search).unwrap();
-            }
-        }
-
-        write!(query, " ORDER BY reliability_score DESC LIMIT {} OFFSET {}", limit, offset).unwrap();
+        let query_builder = AnchorQueryBuilder::from_filter(filter.as_ref());
+        let query = query_builder.build_data_query(limit, offset);
+        let count_query = query_builder.build_count_query();
 
         let anchors = sqlx::query_as::<_, AnchorType>(&query)
             .fetch_all(pool.as_ref())

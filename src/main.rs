@@ -12,6 +12,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use stellar_insights_backend::{
     api::v1::routes,
+    backup::{BackupConfig, BackupManager},
     cache::{CacheConfig, CacheManager},
     database::{Database, PoolConfig},
     env_config,
@@ -100,11 +101,14 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(AccountMergeDetector::new(pool.clone(), rpc_client.clone()));
     let lp_analyzer = Arc::new(LiquidityPoolAnalyzer::new(pool.clone(), rpc_client.clone()));
 
-    let rate_limiter = Arc::new(
-        RateLimiter::new()
-            .await
-            .context("Failed to initialize rate limiter - check Redis connection")?,
-    );
+    let backup_config = BackupConfig::from_env();
+    if backup_config.enabled {
+        let backup_manager = Arc::new(BackupManager::new(backup_config));
+        backup_manager.spawn_scheduler();
+        tracing::info!("Backup scheduler enabled");
+    }
+
+    let rate_limiter = Arc::new(RateLimiter::new().await.unwrap());
 
     // Start webhook dispatcher as a background task
     let webhook_pool = pool.clone();
