@@ -1,3 +1,16 @@
+//! Tests for request-parameter validation logic.
+//!
+//! Extends the inline `#[cfg(test)]` block in `src/validation.rs` with
+//! additional boundary and cross-field cases.
+//!
+//! Contains two test suites:
+//!  1. `validate_corridor_filters` — query-parameter boundary tests
+//!  2. `CreateCorridorRequest` / `CreateAnchorRequest` — `validator` crate struct tests
+
+use stellar_insights_backend::validation::validate_corridor_filters;
+use validator::Validate;
+
+// ── Struct mirrors for validator-crate tests (keep in sync with src/models.rs) ──
 use validator::Validate;
 
 // Mirror the structs here for unit testing without needing the full app state.
