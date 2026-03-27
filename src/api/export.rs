@@ -92,7 +92,10 @@ pub async fn export_corridors(
         }
         "json" => {
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            headers.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
             headers.insert(
                 header::CONTENT_DISPOSITION,
                 HeaderValue::from_static("attachment; filename=\"corridors_export.json\""),
@@ -174,7 +177,9 @@ pub async fn export_corridors(
             let mut headers = HeaderMap::new();
             headers.insert(
                 header::CONTENT_TYPE,
-                HeaderValue::from_static("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                HeaderValue::from_static(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
             );
             headers.insert(
                 header::CONTENT_DISPOSITION,
@@ -189,7 +194,6 @@ pub async fn export_corridors(
         )),
     }
 }
-
 
 pub async fn export_anchors(
     State(app_state): State<AppState>,
@@ -252,7 +256,10 @@ pub async fn export_anchors(
         }
         "json" => {
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            headers.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
             headers.insert(
                 header::CONTENT_DISPOSITION,
                 HeaderValue::from_static("attachment; filename=\"anchors_export.json\""),
@@ -334,7 +341,9 @@ pub async fn export_anchors(
             let mut headers = HeaderMap::new();
             headers.insert(
                 header::CONTENT_TYPE,
-                HeaderValue::from_static("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                HeaderValue::from_static(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
             );
             headers.insert(
                 header::CONTENT_DISPOSITION,
@@ -428,7 +437,10 @@ pub async fn export_payments(
         }
         "json" => {
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            headers.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
             headers.insert(
                 header::CONTENT_DISPOSITION,
                 HeaderValue::from_static("attachment; filename=\"payments_export.json\""),
@@ -509,7 +521,9 @@ pub async fn export_payments(
             let mut headers = HeaderMap::new();
             headers.insert(
                 header::CONTENT_TYPE,
-                HeaderValue::from_static("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                HeaderValue::from_static(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
             );
             headers.insert(
                 header::CONTENT_DISPOSITION,
