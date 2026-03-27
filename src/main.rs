@@ -33,8 +33,6 @@ use stellar_insights_backend::{
     state::AppState,
     websocket::WsState,
 };
-use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
