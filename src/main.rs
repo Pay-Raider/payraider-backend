@@ -108,7 +108,11 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Backup scheduler enabled");
     }
 
-    let rate_limiter = Arc::new(RateLimiter::new().await.unwrap());
+    let rate_limiter = Arc::new(
+        RateLimiter::new()
+            .await
+            .context("Failed to initialize rate limiter")?,
+    );
 
     // Start webhook dispatcher as a background task
     let webhook_pool = pool.clone();
