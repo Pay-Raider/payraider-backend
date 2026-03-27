@@ -117,7 +117,8 @@ impl ContractEventListener {
             client,
             config,
             db,
-            last_ledger,
+            alert_service,
+            last_ledger: 0,
         })
     }
 
@@ -573,7 +574,7 @@ impl ContractEventListener {
     }
 
     /// Create from environment variables
-    pub fn from_env(db: Arc<Database>) -> Result<Self> {
+    pub fn from_env(db: Arc<Database>, alert_service: Arc<AlertService>) -> Result<Self> {
         let config = ListenerConfig {
             rpc_url: std::env::var("SOROBAN_RPC_URL")
                 .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string()),
@@ -588,7 +589,7 @@ impl ContractEventListener {
                 .and_then(|s| s.parse().ok()),
         };
 
-        Self::new(config, db)
+        Self::new(config, db, alert_service)
     }
 }
 
