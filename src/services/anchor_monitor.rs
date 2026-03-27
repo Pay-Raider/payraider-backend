@@ -11,12 +11,7 @@ pub struct AnchorMonitor {
     last_metrics: Arc<tokio::sync::RwLock<HashMap<String, AnchorMetrics>>>,
 }
 
-#[derive(Clone, Debug)]
-struct AnchorMetrics {
-    transaction_count: f64,
-    success_rate: f64,
-    avg_latency: f64,
-}
+use crate::models::AnchorMetrics;
 
 impl AnchorMonitor {
     #[must_use]
@@ -45,10 +40,12 @@ impl AnchorMonitor {
 
         for anchor in anchors {
             // Get metrics from anchor_metrics_history or calculate from transactions
-            let current_metrics = AnchorMetrics {
-                transaction_count: 0.0, // TODO: Calculate from transactions
-                success_rate: 0.0,      // TODO: Calculate from transactions
-                avg_latency: 0.0,       // TODO: Calculate from transactions
+            let current_metrics = match self.db.get_recent_anchor_performance(&anchor.stellar_account, 60).await {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::error!("Failed to get performance for anchor {}: {}", anchor.id, e);
+                    continue;
+                }
             };
 
             let mut last_metrics = self.last_metrics.write().await;
@@ -68,16 +65,19 @@ impl AnchorMonitor {
                     );
                 }
 
-                if current_metrics.avg_latency > prev_metrics.avg_latency * 1.5 {
+                let current_latency = current_metrics.avg_settlement_time_ms.unwrap_or(0) as f64;
+                let prev_latency = prev_metrics.avg_settlement_time_ms.unwrap_or(0) as f64;
+
+                if current_latency > prev_latency * 1.5 && prev_latency > 0.0 {
                     self.alert_manager.send_anchor_alert(
                         AlertType::AnchorMetricChange,
                         &anchor.id,
                         format!(
                             "Anchor '{}' latency increased from {:.0}ms to {:.0}ms",
-                            anchor.name, prev_metrics.avg_latency, current_metrics.avg_latency
+                            anchor.name, prev_latency, current_latency
                         ),
-                        prev_metrics.avg_latency,
-                        current_metrics.avg_latency,
+                        prev_latency,
+                        current_latency,
                     );
                 }
             }
