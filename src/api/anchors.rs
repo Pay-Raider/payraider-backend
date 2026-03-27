@@ -60,6 +60,7 @@ const fn default_muxed_limit() -> i64 {
     ),
     tag = "Anchors"
 )]
+#[tracing::instrument(skip(app_state), fields(anchor_id = %id))]
 pub async fn get_anchor(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -91,6 +92,7 @@ pub async fn get_anchor(
     ),
     tag = "Anchors"
 )]
+#[tracing::instrument(skip(app_state), fields(stellar_account = %stellar_account))]
 pub async fn get_anchor_by_account(
     State(app_state): State<AppState>,
     Path(stellar_account): Path<String>,
@@ -134,6 +136,7 @@ pub async fn get_anchor_by_account(
     ),
     tag = "Anchors"
 )]
+#[tracing::instrument(skip(app_state), fields(limit = params.limit))]
 pub async fn get_muxed_analytics(
     State(app_state): State<AppState>,
     Query(params): Query<MuxedAnalyticsQuery>,
@@ -144,6 +147,7 @@ pub async fn get_muxed_analytics(
 }
 
 /// POST /api/anchors - Create a new anchor
+#[tracing::instrument(skip(app_state, req), fields(anchor_name = %req.name))]
 pub async fn create_anchor(
     State(app_state): State<AppState>,
     Json(req): Json<CreateAnchorRequest>,
@@ -171,6 +175,7 @@ pub struct UpdateMetricsRequest {
     pub volume_usd: Option<f64>,
 }
 
+#[tracing::instrument(skip(app_state, req), fields(anchor_id = %id))]
 pub async fn update_anchor_metrics(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -206,6 +211,7 @@ pub async fn update_anchor_metrics(
 }
 
 /// GET /api/anchors/:id/assets - Get assets for an anchor
+#[tracing::instrument(skip(app_state), fields(anchor_id = %id))]
 pub async fn get_anchor_assets(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -236,6 +242,7 @@ pub struct CreateAssetRequest {
     pub asset_issuer: String,
 }
 
+#[tracing::instrument(skip(app_state, req), fields(anchor_id = %id, asset_code = %req.asset_code))]
 pub async fn create_anchor_asset(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -389,6 +396,7 @@ pub struct AnchorsResponse {
     ),
     tag = "Anchors"
 )]
+#[tracing::instrument(skip(db, cache, rpc_client, _price_feed, params, headers), fields(limit = params.limit, offset = params.offset))]
 pub async fn get_anchors(
     State((db, cache, rpc_client, _price_feed)): State<(
         Arc<Database>,

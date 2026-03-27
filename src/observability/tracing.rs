@@ -13,18 +13,17 @@ fn init_otel_tracer(service_name: &str) -> Result<sdktrace::Tracer> {
     let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:4317".to_string());
 
-    let tracer =
-        opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(
-                opentelemetry_otlp::new_exporter()
-                    .tonic()
-                    .with_endpoint(endpoint),
-            )
-            .with_trace_config(sdktrace::config().with_resource(Resource::new(vec![
-                KeyValue::new("service.name", service_name.to_string()),
-            ])))
-            .install_batch(opentelemetry::runtime::Tokio)?;
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(endpoint),
+        )
+        .with_trace_config(sdktrace::config().with_resource(Resource::new(vec![
+            KeyValue::new("service.name", service_name.to_string()),
+        ])))
+        .install_batch(opentelemetry::runtime::Tokio)?;
 
     Ok(tracer)
 }
@@ -41,9 +40,9 @@ pub fn init_tracing(service_name: &str) -> Result<Option<WorkerGuard>> {
     let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "json".to_string());
     let otel_enabled = std::env::var("OTEL_ENABLED")
         .map(|v| v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+        .unwrap_or(true); // Default to true now as we want tracing enabled
 
-    // Optional rotating file appender when LOG_DIR is set (avoids unbounded disk use)
+    // Optional rotating file appender when LOG_DIR is set
     let log_dir = std::env::var("LOG_DIR").ok();
     let file_guard = if let Some(ref dir) = log_dir {
         std::fs::create_dir_all(dir)?;
@@ -65,131 +64,61 @@ pub fn init_tracing(service_name: &str) -> Result<Option<WorkerGuard>> {
     };
 
     let use_json = log_format.eq_ignore_ascii_case("json");
+    let registry = tracing_subscriber::registry().with(env_filter);
 
-    match (otel_enabled, use_json, file_writer) {
-        (true, true, None) => {
-            let tracer = init_otel_tracer(service_name)?;
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .with(tracing_opentelemetry::layer().with_tracer(tracer))
-                .init();
-            tracing::info!("OpenTelemetry tracing enabled");
+    // Add formatting layer
+    let fmt_layer = if use_json {
+        tracing_subscriber::fmt::layer()
+            .json()
+            .with_target(true)
+            .with_level(true)
+            .boxed()
+    } else {
+        tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_level(true)
+            .boxed()
+    };
+
+    // Add optional file layer
+    let file_layer = if let Some(writer) = file_writer {
+        if use_json {
+            Some(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(writer)
+                    .with_target(true)
+                    .with_level(true),
+            )
+        } else {
+            Some(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(writer)
+                    .with_target(true)
+                    .with_level(true),
+            )
         }
-        (true, true, Some(writer)) => {
-            let tracer = init_otel_tracer(service_name)?;
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .with(tracing_opentelemetry::layer().with_tracer(tracer))
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_writer(writer)
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .init();
-            tracing::info!("OpenTelemetry tracing enabled");
+    } else {
+        None
+    };
+
+    // Add OpenTelemetry layer
+    if otel_enabled {
+        let tracer = init_otel_tracer(service_name)?;
+        let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+        if let Some(fl) = file_layer {
+            registry.with(fmt_layer).with(otel_layer).with(fl).init();
+        } else {
+            registry.with(fmt_layer).with(otel_layer).init();
         }
-        (true, false, None) => {
-            let tracer = init_otel_tracer(service_name)?;
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .with(tracing_opentelemetry::layer().with_tracer(tracer))
-                .init();
-            tracing::info!("OpenTelemetry tracing enabled");
-        }
-        (true, false, Some(writer)) => {
-            let tracer = init_otel_tracer(service_name)?;
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .with(tracing_opentelemetry::layer().with_tracer(tracer))
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(writer)
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .init();
-            tracing::info!("OpenTelemetry tracing enabled");
-        }
-        (false, true, None) => {
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .init();
-        }
-        (false, true, Some(writer)) => {
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_writer(writer)
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .init();
-        }
-        (false, false, None) => {
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .init();
-        }
-        (false, false, Some(writer)) => {
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(writer)
-                        .with_target(true)
-                        .with_level(true),
-                )
-                .init();
-        }
+        tracing::info!("OpenTelemetry tracing enabled");
+    } else if let Some(fl) = file_layer {
+        registry.with(fmt_layer).with(fl).init();
+    } else {
+        registry.with(fmt_layer).init();
     }
+
 
     Ok(file_guard)
 }
