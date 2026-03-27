@@ -8,11 +8,6 @@ use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
     HeaderValue, Method,
 };
-use tower_http::{
-    cors::{AllowOrigin, CorsLayer},
-    timeout::TimeoutLayer,
-};
-
 use stellar_insights_backend::{
     api::v1::routes,
     backup::{BackupConfig, BackupManager},
@@ -32,6 +27,10 @@ use stellar_insights_backend::{
     },
     state::AppState,
     websocket::WsState,
+};
+use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
+    timeout::TimeoutLayer,
 };
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -187,7 +186,7 @@ async fn main() -> anyhow::Result<()> {
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 
-    let timeout_seconds = std::env::var("REQUEST_TIMEOUT_SECONDS")
+    let timeout_seconds: u64 = std::env::var("REQUEST_TIMEOUT_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(30);
