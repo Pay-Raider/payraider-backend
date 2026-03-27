@@ -431,7 +431,6 @@ impl ContractService {
                 if error.code == -32602 || error.message.contains("not found") {
                     debug!("Transaction not confirmed yet (attempt {})", attempt);
                     tokio::time::sleep(poll_interval).await;
-                    continue;
                 }
                 return Err(anyhow::anyhow!(
                     "Failed to get transaction status: {}",
@@ -475,7 +474,6 @@ impl ContractService {
                     "PENDING" | "NOT_FOUND" => {
                         debug!("Transaction still pending (attempt {})", attempt);
                         tokio::time::sleep(poll_interval).await;
-                        continue;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown transaction status: {status}"));
