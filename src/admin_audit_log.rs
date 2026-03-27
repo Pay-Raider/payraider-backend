@@ -48,7 +48,7 @@ impl AdminAuditLogger {
         };
         let mut hasher = Sha256::new();
         hasher.update(hash_input.as_bytes());
-        let hash = format!("{:x}", hasher.finalize());
+        let hash = hex::encode(hasher.finalize());
 
         sqlx::query(
             r"

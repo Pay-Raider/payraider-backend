@@ -1,10 +1,18 @@
 use std::sync::Arc;
 use std::time::Duration;
+
 use anyhow::Context;
 use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
     HeaderValue, Method,
 };
+use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
+    timeout::TimeoutLayer,
+};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
+
 use stellar_insights_backend::{
     api::v1::routes,
     backup::{BackupConfig, BackupManager},
@@ -24,10 +32,6 @@ use stellar_insights_backend::{
     },
     state::AppState,
     websocket::WsState,
-};
-use tower_http::{
-    cors::{AllowOrigin, CorsLayer},
-    timeout::TimeoutLayer,
 };
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
