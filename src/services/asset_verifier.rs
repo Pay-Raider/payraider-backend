@@ -359,9 +359,9 @@ impl AssetVerifier {
         }
 
         // Transaction count (up to 10 points)
-        if result.transaction_count > 100000 {
+        if result.transaction_count > 100_000 {
             score += 10.0;
-        } else if result.transaction_count > 10000 {
+        } else if result.transaction_count > 10_000 {
             score += 7.0;
         } else if result.transaction_count > 1000 {
             score += 5.0;

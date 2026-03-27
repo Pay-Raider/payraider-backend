@@ -43,8 +43,8 @@ pub async fn metrics_overview(
         || async {
             // Placeholder: Replace with real data aggregation logic
             Ok(MetricsOverview {
-                total_volume: 1234567.89,
-                total_transactions: 98765,
+                total_volume: 1_234_567.89,
+                total_transactions: 98_765,
                 active_users: 4321,
                 average_transaction_value: 28.56,
                 corridor_count: 12,

@@ -65,7 +65,7 @@ mod tests {
             successful_transactions: 995,
             failed_transactions: 5,
             avg_settlement_time_ms: Some(500),
-            volume_usd: Some(10000.0),
+            volume_usd: Some(10_000.0),
             status: "green".to_string(),
         }
     }
@@ -82,9 +82,9 @@ mod tests {
             successful_transactions: 475,
             failed_transactions: 25,
             success_rate: 95.0,
-            volume_usd: 50000.0,
+            volume_usd: 50_000.0,
             avg_settlement_latency_ms: Some(250),
-            liquidity_depth_usd: 100000.0,
+            liquidity_depth_usd: 100_000.0,
         }
     }
 

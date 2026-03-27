@@ -279,7 +279,7 @@ use crate::cache::keys;
 use crate::database::Database;
 use crate::rpc::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
-    error::{with_retry, RetryConfig, RpcError},
+    error::{with_retry as other_with_retry, RetryConfig, RpcError},
     StellarRpcClient,
 };
 use crate::services::price_feed::PriceFeedClient;
