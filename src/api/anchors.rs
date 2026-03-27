@@ -1,9 +1,3 @@
-
-use axum::{
-    extract::{Path, Query, State},
-    http::HeaderMap,
-    response::Response,
-    routing::{get, post},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -17,11 +11,10 @@ use anyhow::Context;
 use crate::broadcast::broadcast_anchor_update;
 use crate::cache::CacheManager;
 use crate::error::{ApiError, ApiResult};
-use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
 use crate::state::AppState;
 use crate::rpc::error::{RetryConfig, with_retry, RpcError};
-use tracing::{warn, info, error};
+use tracing::warn;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnchorMetrics {
@@ -288,11 +281,9 @@ use crate::cache::keys;
 use crate::database::Database;
 use crate::rpc::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
-    error::{with_retry as other_with_retry, RetryConfig, RpcError},
     StellarRpcClient,
 };
 use crate::services::price_feed::PriceFeedClient;
-use std::future::Future;
 use std::time::Duration;
 
 #[derive(Debug, Deserialize, IntoParams)]
