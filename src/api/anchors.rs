@@ -311,7 +311,7 @@ pub async fn get_anchor_metrics_with_rpc(
     rpc_client: Arc<StellarRpcClient>,
 ) -> anyhow::Result<AnchorMetrics> {
     let circuit_breaker = rpc_circuit_breaker();
-    
+
     // Use with_retry with circuit_breaker for resilience
     with_retry(
         || async {

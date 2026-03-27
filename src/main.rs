@@ -1,5 +1,6 @@
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::Context;
 use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
@@ -13,6 +14,7 @@ use stellar_insights_backend::{
     database::{Database, PoolConfig},
     env_config,
     ingestion::DataIngestionService,
+    openapi::ApiDoc,
     rate_limit::RateLimiter,
     rpc::StellarRpcClient,
     services::{
@@ -23,7 +25,6 @@ use stellar_insights_backend::{
         webhook_dispatcher::WebhookDispatcher,
     },
     state::AppState,
-    openapi::ApiDoc,
     websocket::WsState,
 };
 use utoipa::OpenApi;
@@ -33,9 +34,8 @@ use utoipa_swagger_ui::SwaggerUi;
 async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
     env_config::log_env_config();
-    let _tracing_guard = stellar_insights_backend::observability::tracing::init_tracing(
-        "stellar-insights-backend",
-    )?;
+    let _tracing_guard =
+        stellar_insights_backend::observability::tracing::init_tracing("stellar-insights-backend")?;
     tracing::info!("Stellar Insights Backend - Initializing Server");
 
     let db_url = std::env::var("DATABASE_URL")
@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
-    let app_state = AppState::new(db.clone(), ws_state, ingestion);
+    let app_state = AppState::new(db.clone(), cache.clone(), ws_state, ingestion);
     let cached_state = (
         db.clone(),
         cache.clone(),
@@ -117,9 +117,7 @@ async fn main() -> anyhow::Result<()> {
         pool,
         cache,
     )
-    .merge(
-        SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
-    );
+    .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
@@ -131,4 +129,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

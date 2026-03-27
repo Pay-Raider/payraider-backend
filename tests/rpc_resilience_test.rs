@@ -80,11 +80,7 @@ async fn test_anchor_metrics_with_retry() {
     let anchor_id = Uuid::new_v4();
 
     // Test the new function with retry
-    let metrics = get_anchor_metrics_with_rpc(
-        anchor_id,
-        Arc::new(client),
-    )
-    .await;
+    let metrics = get_anchor_metrics_with_rpc(anchor_id, Arc::new(client)).await;
 
     assert!(metrics.is_ok());
     let metrics = metrics.unwrap();
