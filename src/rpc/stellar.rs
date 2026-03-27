@@ -11,9 +11,11 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::fmt::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 const MAX_RETRIES: u32 = 3;
 const INITIAL_BACKOFF_MS: u64 = 100;
@@ -865,7 +867,7 @@ impl StellarRpcClient {
     ) -> Result<Vec<Payment>, RpcError> {
         let mut url = format!("{}/payments?order=desc&limit={}", self.horizon_url, limit);
         if let Some(c) = cursor {
-            url.push_str(&format!("&cursor={c}"));
+            write!(url, "&cursor={c}").unwrap();
         }
         let response = self
             .client
@@ -912,7 +914,7 @@ impl StellarRpcClient {
     ) -> Result<Vec<Trade>, RpcError> {
         let mut url = format!("{}/trades?order=desc&limit={}", self.horizon_url, limit);
         if let Some(c) = cursor {
-            url.push_str(&format!("&cursor={c}"));
+            write!(url, "&cursor={c}").unwrap();
         }
         let response = self
             .client
@@ -1398,7 +1400,7 @@ impl StellarRpcClient {
             );
 
             if let Some(ref cursor_val) = cursor {
-                url.push_str(&format!("&cursor={cursor_val}"));
+                write!(url, "&cursor={cursor_val}").unwrap();
             }
 
             let response = self
@@ -1974,7 +1976,7 @@ impl StellarRpcClient {
             self.horizon_url, limit
         );
         if let Some(c) = cursor {
-            url.push_str(&format!("&cursor={c}"));
+            write!(url, "&cursor={c}").unwrap();
         }
         let response = self
             .client
@@ -2277,6 +2279,22 @@ impl StellarRpcClient {
             });
         }
         assets
+    }
+
+    /// Fetch anchor metrics from RPC
+    pub async fn fetch_anchor_metrics(
+        &self,
+        _anchor_id: Uuid,
+    ) -> Result<crate::api::anchors::AnchorMetrics, RpcError> {
+        // TODO: Implement actual RPC call to fetch anchor metrics
+        // For now, return mock data
+        Ok(crate::api::anchors::AnchorMetrics {
+            anchor_id: _anchor_id,
+            total_payments: 1000,
+            successful_payments: 950,
+            failed_payments: 50,
+            total_volume: 1000000.0,
+        })
     }
 }
 

@@ -1,26 +1,30 @@
 use axum::{
     extract::{Path, Query, State},
+    routing::{get, post},
+    http::HeaderMap,
+    response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
+use anyhow::Context;
 
 use crate::broadcast::broadcast_anchor_update;
 use crate::error::{ApiError, ApiResult};
+use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize)]
-pub struct ListAnchorsQuery {
-    #[serde(default = "default_limit")]
-    pub limit: i64,
-    #[serde(default)]
-    pub offset: i64,
-}
-
-const fn default_limit() -> i64 {
-    50
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnchorMetrics {
+    pub anchor_id: Uuid,
+    pub total_payments: u64,
+    pub successful_payments: u64,
+    pub failed_payments: u64,
+    pub total_volume: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -30,9 +34,11 @@ pub struct ListAnchorsResponse {
 }
 
 /// GET /api/analytics/muxed - Muxed account usage analytics
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct MuxedAnalyticsQuery {
     #[serde(default = "default_muxed_limit")]
+    #[param(example = 20, minimum = 1, maximum = 100)]
     pub limit: i64,
 }
 
@@ -41,6 +47,20 @@ const fn default_muxed_limit() -> i64 {
 }
 
 /// GET /api/anchors/:id - Get detailed anchor information
+#[utoipa::path(
+    get,
+    path = "/api/anchors/{id}",
+    params(
+        ("id" = String, Path, description = "Anchor UUID")
+    ),
+    responses(
+        (status = 200, description = "Anchor details retrieved successfully"),
+        (status = 404, description = "Anchor not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Anchors"
+)]
+#[tracing::instrument(skip(app_state), fields(anchor_id = %id))]
 pub async fn get_anchor(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -59,6 +79,20 @@ pub async fn get_anchor(
 }
 
 /// GET /api/anchors/account/:stellar_account - Get anchor by Stellar account (G- or M-address)
+#[utoipa::path(
+    get,
+    path = "/api/anchors/account/{stellar_account}",
+    params(
+        ("stellar_account" = String, Path, description = "Anchor Stellar account address (G... or M...)")
+    ),
+    responses(
+        (status = 200, description = "Anchor retrieved successfully"),
+        (status = 404, description = "Anchor not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Anchors"
+)]
+#[tracing::instrument(skip(app_state), fields(stellar_account = %stellar_account))]
 pub async fn get_anchor_by_account(
     State(app_state): State<AppState>,
     Path(stellar_account): Path<String>,
@@ -92,6 +126,17 @@ pub async fn get_anchor_by_account(
     Ok(Json(anchor))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/analytics/muxed",
+    params(MuxedAnalyticsQuery),
+    responses(
+        (status = 200, description = "Muxed account analytics retrieved successfully"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Anchors"
+)]
+#[tracing::instrument(skip(app_state), fields(limit = params.limit))]
 pub async fn get_muxed_analytics(
     State(app_state): State<AppState>,
     Query(params): Query<MuxedAnalyticsQuery>,
@@ -102,27 +147,19 @@ pub async fn get_muxed_analytics(
 }
 
 /// POST /api/anchors - Create a new anchor
+#[tracing::instrument(skip(app_state, req), fields(anchor_name = %req.name))]
 pub async fn create_anchor(
     State(app_state): State<AppState>,
     Json(req): Json<CreateAnchorRequest>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
-    if req.name.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Name cannot be empty",
-        ));
-    }
+    // Struct-level field validation (lengths)
+    crate::validation::validate_request(&req)?;
 
-    if req.stellar_account.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Stellar account cannot be empty",
-        ));
-    }
+    // Business logic: stellar account must start with 'G'
+    crate::validation::validate_stellar_account(&req.stellar_account)?;
 
     let anchor = app_state.db.create_anchor(req).await?;
 
-    // Broadcast the new anchor to WebSocket clients
     broadcast_anchor_update(&app_state.ws_state, &anchor);
 
     Ok(Json(anchor))
@@ -138,6 +175,7 @@ pub struct UpdateMetricsRequest {
     pub volume_usd: Option<f64>,
 }
 
+#[tracing::instrument(skip(app_state, req), fields(anchor_id = %id))]
 pub async fn update_anchor_metrics(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -156,14 +194,14 @@ pub async fn update_anchor_metrics(
 
     let anchor = app_state
         .db
-        .update_anchor_metrics(
-            id,
-            req.total_transactions,
-            req.successful_transactions,
-            req.failed_transactions,
-            req.avg_settlement_time_ms,
-            req.volume_usd,
-        )
+        .update_anchor_metrics(crate::database::AnchorMetricsUpdate {
+            anchor_id: id,
+            total_transactions: req.total_transactions,
+            successful_transactions: req.successful_transactions,
+            failed_transactions: req.failed_transactions,
+            avg_settlement_time_ms: req.avg_settlement_time_ms,
+            volume_usd: req.volume_usd,
+        })
         .await?;
 
     // Broadcast the anchor update to WebSocket clients
@@ -173,6 +211,7 @@ pub async fn update_anchor_metrics(
 }
 
 /// GET /api/anchors/:id/assets - Get assets for an anchor
+#[tracing::instrument(skip(app_state), fields(anchor_id = %id))]
 pub async fn get_anchor_assets(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -194,17 +233,24 @@ pub async fn get_anchor_assets(
 }
 
 /// POST /api/anchors/:id/assets - Add asset to anchor
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, validator::Validate)]
 pub struct CreateAssetRequest {
+    #[validate(length(min = 1, max = 12, message = "Asset code must be between 1 and 12 characters"))]
     pub asset_code: String,
+
+    #[validate(length(min = 1, max = 56, message = "Asset issuer must be at most 56 characters"))]
     pub asset_issuer: String,
 }
 
+#[tracing::instrument(skip(app_state, req), fields(anchor_id = %id, asset_code = %req.asset_code))]
 pub async fn create_anchor_asset(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<CreateAssetRequest>,
 ) -> ApiResult<Json<crate::models::Asset>> {
+    // Field validation
+    crate::validation::validate_request(&req)?;
+
     // Verify anchor exists
     if app_state.db.get_anchor_by_id(id).await?.is_none() {
         let mut details = HashMap::new();
@@ -227,9 +273,9 @@ pub async fn create_anchor_asset(
 use crate::cache::helpers::cached_query;
 use crate::cache::{keys, CacheManager};
 use crate::database::Database;
-use crate::error::ApiResult;
 use crate::rpc::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
+    error::{with_retry, RetryConfig, RpcError},
     StellarRpcClient,
 };
 use crate::services::price_feed::PriceFeedClient;
@@ -261,6 +307,32 @@ fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
             ))
         })
         .clone()
+}
+
+
+pub async fn get_anchor_metrics_with_rpc(
+    anchor_id: Uuid,
+    rpc_client: Arc<StellarRpcClient>,
+) -> anyhow::Result<AnchorMetrics> {
+    let circuit_breaker = rpc_circuit_breaker();
+
+    // Use with_retry with circuit_breaker for resilience
+    with_retry(
+        || async {
+            rpc_client
+                .fetch_anchor_metrics(anchor_id)
+                .await
+                .map_err(|e| RpcError::categorize(&e.to_string()))
+        },
+        RetryConfig {
+            max_attempts: 4,
+            base_delay_ms: 100,
+            max_delay_ms: 5000,
+        },
+        circuit_breaker,
+    )
+    .await
+    .context("Failed to fetch anchor metrics from RPC")
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
@@ -324,6 +396,7 @@ pub struct AnchorsResponse {
     ),
     tag = "Anchors"
 )]
+#[tracing::instrument(skip(db, cache, rpc_client, _price_feed, params, headers), fields(limit = params.limit, offset = params.offset))]
 pub async fn get_anchors(
     State((db, cache, rpc_client, _price_feed)): State<(
         Arc<Database>,

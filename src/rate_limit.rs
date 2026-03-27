@@ -1,6 +1,7 @@
+use anyhow::Context;
 use axum::{
     extract::{ConnectInfo, Request, State},
-    http::{header, StatusCode},
+    http::{header, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -196,12 +197,66 @@ impl RateLimiter {
 
     /// Get client tier (check for premium status)
     async fn get_client_tier(&self, client: &ClientIdentifier) -> ClientTier {
-        // For now, use basic tier logic
-        // TODO: Implement premium tier detection from database
         match client {
-            ClientIdentifier::ApiKey(_) => ClientTier::Authenticated,
-            ClientIdentifier::User(_) => ClientTier::Authenticated,
+            ClientIdentifier::ApiKey(id) => {
+                // For API keys, we check if the associated user/wallet has a premium subscription
+                // If we have a DB pool, query the user_subscriptions table
+                if let Some(pool) = &self.db_pool {
+                    match self.get_subscription_tier_by_client_id(pool, id).await {
+                        Ok(tier) => tier,
+                        Err(e) => {
+                            tracing::error!("Failed to fetch subscription tier for API key {}: {}", id, e);
+                            ClientTier::Authenticated
+                        }
+                    }
+                } else {
+                    ClientTier::Authenticated
+                }
+            }
+            ClientIdentifier::User(user_id) => {
+                if let Some(pool) = &self.db_pool {
+                    match self.get_subscription_tier_by_client_id(pool, user_id).await {
+                        Ok(tier) => tier,
+                        Err(e) => {
+                            tracing::error!("Failed to fetch subscription tier for user {}: {}", user_id, e);
+                            ClientTier::Authenticated
+                        }
+                    }
+                } else {
+                    ClientTier::Authenticated
+                }
+            }
             ClientIdentifier::IpAddress(_) => ClientTier::Anonymous,
+        }
+    }
+
+    /// Query database for subscription tier
+    async fn get_subscription_tier_by_client_id(
+        &self,
+        pool: &sqlx::SqlitePool,
+        client_id: &str,
+    ) -> Result<ClientTier, sqlx::Error> {
+        let record = sqlx::query_as::<_, UserSubscriptionRecord>(
+            "SELECT tier, expires_at FROM user_subscriptions 
+             WHERE (user_id = ? OR api_key_id = ?) 
+             AND (expires_at IS NULL OR expires_at > datetime('now'))
+             ORDER BY CASE WHEN tier = 'Premium' THEN 1 ELSE 2 END
+             LIMIT 1"
+        )
+        .bind(client_id)
+        .bind(client_id)
+        .fetch_optional(pool)
+        .await?;
+
+        match record {
+            Some(r) => {
+                if r.tier == "Premium" {
+                    Ok(ClientTier::Premium)
+                } else {
+                    Ok(ClientTier::Authenticated)
+                }
+            }
+            None => Ok(ClientTier::Authenticated),
         }
     }
 
@@ -244,7 +299,13 @@ impl RateLimiter {
                 RateLimitInfo {
                     limit: config.requests_per_minute,
                     remaining: config.requests_per_minute,
-                    reset_after: 60,
+                    reset_at: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64
+                        + 60,
+                    reset_after_seconds: 60,
+                    window_seconds: 60,
                     is_whitelisted: true,
                     client_id: Some(client.as_key()),
                 },
@@ -268,7 +329,13 @@ impl RateLimiter {
                     RateLimitInfo {
                         limit,
                         remaining,
-                        reset_after: reset,
+                        reset_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64
+                            + reset as i64,
+                        reset_after_seconds: reset,
+                        window_seconds: 60,
                         is_whitelisted: false,
                         client_id: Some(client.as_key()),
                     },
@@ -283,7 +350,13 @@ impl RateLimiter {
             RateLimitInfo {
                 limit,
                 remaining,
-                reset_after: reset,
+                reset_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64
+                    + reset as i64,
+                reset_after_seconds: reset,
+                window_seconds: 60,
                 is_whitelisted: false,
                 client_id: Some(client.as_key()),
             },
@@ -328,7 +401,7 @@ impl RateLimiter {
     async fn check_memory_limit(&self, key: &str, limit: u32) -> (bool, u32, u32) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs() as i64;
 
         let mut store = self.fallback_memory_store.write().await;
@@ -355,9 +428,72 @@ impl RateLimiter {
 pub struct RateLimitInfo {
     pub limit: u32,
     pub remaining: u32,
-    pub reset_after: u32,
+    pub reset_at: i64,
+    pub reset_after_seconds: u32,
+    pub window_seconds: u32,
     pub is_whitelisted: bool,
     pub client_id: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct UserSubscriptionRecord {
+    pub tier: String,
+    pub expires_at: Option<String>,
+}
+
+/// Add rate limit headers to a response according to standards
+pub fn add_rate_limit_headers(
+    mut response: Response,
+    info: &RateLimitInfo,
+) -> anyhow::Result<Response> {
+    // Standard rate limit headers (draft RFC)
+    response.headers_mut().insert(
+        "RateLimit-Limit",
+        HeaderValue::from_str(&info.limit.to_string())
+            .context("Failed to create RateLimit-Limit header")?,
+    );
+
+    response.headers_mut().insert(
+        "RateLimit-Remaining",
+        HeaderValue::from_str(&info.remaining.to_string())
+            .context("Failed to create RateLimit-Remaining header")?,
+    );
+
+    response.headers_mut().insert(
+        "RateLimit-Reset",
+        HeaderValue::from_str(&info.reset_at.to_string())
+            .context("Failed to create RateLimit-Reset header")?,
+    );
+
+    // Add Retry-After when rate limited
+    if info.remaining == 0 {
+        response.headers_mut().insert(
+            header::RETRY_AFTER,
+            HeaderValue::from_str(&info.reset_after_seconds.to_string())
+                .context("Failed to create Retry-After header")?,
+        );
+    }
+
+    // Add custom header for rate limit policy
+    response.headers_mut().insert(
+        "X-RateLimit-Policy",
+        HeaderValue::from_str(&format!(
+            "{} requests per {} seconds",
+            info.limit, info.window_seconds
+        ))
+        .context("Failed to create X-RateLimit-Policy header")?,
+    );
+
+    // Add optional client identifier for debugging (sanitized)
+    if let Some(client_id) = &info.client_id {
+        if let Ok(header_value) = HeaderValue::from_str(client_id) {
+            response
+                .headers_mut()
+                .insert("X-RateLimit-Client", header_value);
+        }
+    }
+
+    Ok(response)
 }
 
 /// Rate limit error response
@@ -371,19 +507,19 @@ impl IntoResponse for RateLimitError {
         let body = serde_json::json!({
             "error": "Rate limit exceeded",
             "limit": self.info.limit,
-            "reset_after": self.info.reset_after,
+            "reset_after": self.info.reset_after_seconds,
         });
 
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            [
-                ("RateLimit-Limit", self.info.limit.to_string()),
-                ("RateLimit-Remaining", self.info.remaining.to_string()),
-                ("RateLimit-Reset", self.info.reset_after.to_string()),
-            ],
-            axum::Json(body),
-        )
-            .into_response()
+        let response = (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
+
+        match add_rate_limit_headers(response, &self.info) {
+            Ok(res) => res,
+            Err(e) => {
+                tracing::error!("Failed to add rate limit headers to error response: {}", e);
+                // Return basic error response if header addition fails
+                (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response()
+            }
+        }
     }
 }
 
@@ -429,27 +565,67 @@ pub async fn rate_limit_middleware(
 
     let mut response = next.run(req).await;
 
-    // Add rate limit headers
-    response
-        .headers_mut()
-        .insert("RateLimit-Limit", info.limit.to_string().parse().unwrap());
-    response.headers_mut().insert(
-        "RateLimit-Remaining",
-        info.remaining.to_string().parse().unwrap(),
-    );
-    response.headers_mut().insert(
-        "RateLimit-Reset",
-        info.reset_after.to_string().parse().unwrap(),
-    );
-
-    // Optionally add client identifier for debugging (sanitized)
-    if let Some(client_id) = &info.client_id {
-        if let Ok(header_value) = client_id.parse() {
-            response
-                .headers_mut()
-                .insert("X-RateLimit-Client", header_value);
+    match add_rate_limit_headers(response, &info) {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::error!("Failed to add rate limit headers: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to add rate limit headers",
+            )
+                .into_response()
         }
     }
+}
 
-    response
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::Row;
+
+    async fn setup_test_db() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        
+        sqlx::query(
+            "CREATE TABLE user_subscriptions (
+                user_id TEXT,
+                api_key_id TEXT,
+                tier TEXT,
+                expires_at DATETIME
+            )"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_premium_user_tier() {
+        let db = setup_test_db().await;
+        let rate_limiter = RateLimiter::new_with_db(Some(db.clone())).await.unwrap();
+        
+        // Insert premium user correctly using SQLite datetime function
+        sqlx::query("INSERT INTO user_subscriptions (user_id, tier, expires_at) VALUES (?, ?, datetime('now', '+30 days'))")
+            .bind("user123")
+            .bind("Premium")
+            .execute(&db)
+            .await
+            .unwrap();
+        
+        let client = ClientIdentifier::User("user123".to_string());
+        let tier = rate_limiter.get_client_tier(&client).await;
+        assert_eq!(tier, ClientTier::Premium);
+    }
+
+    #[tokio::test]
+    async fn test_free_user_tier() {
+        let db = setup_test_db().await;
+        let rate_limiter = RateLimiter::new_with_db(Some(db.clone())).await.unwrap();
+        
+        let client = ClientIdentifier::User("user456".to_string());
+        let tier = rate_limiter.get_client_tier(&client).await;
+        assert_eq!(tier, ClientTier::Authenticated);
+    }
 }

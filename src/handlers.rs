@@ -7,6 +7,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
+use axum::{extract::State, response::IntoResponse, Json};
 
 use crate::state::AppState;
 use crate::database::Database;
@@ -143,4 +144,3 @@ pub async fn ingestion_status(
     let status = app_state.ingestion.get_ingestion_status().await?;
     Ok(Json(status))
 }
-
