@@ -13,10 +13,12 @@ use uuid::Uuid;
 use anyhow::Context;
 
 use crate::broadcast::broadcast_anchor_update;
+use crate::cache::CacheManager;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
 use crate::state::AppState;
+use tracing::warn;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnchorMetrics {
@@ -297,18 +299,56 @@ const fn default_limit() -> i64 {
     50
 }
 
-fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
+pub(crate) fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
     static CIRCUIT_BREAKER: OnceLock<Arc<CircuitBreaker>> = OnceLock::new();
     CIRCUIT_BREAKER
         .get_or_init(|| {
             Arc::new(CircuitBreaker::new(
-                CircuitBreakerConfig::default(),
+                CircuitBreakerConfig {
+                    failure_threshold: 5,
+                    success_threshold: 2,
+                    timeout_duration: Duration::from_secs(30),
+                    half_open_max_calls: 3,
+                },
                 "horizon",
             ))
         })
         .clone()
 }
 
+#[cfg(test)]
+pub(crate) fn rpc_circuit_breaker_instance() -> Arc<CircuitBreaker> {
+    rpc_circuit_breaker()
+}
+
+// Add retry helper
+async fn with_retry<F, Fut, T>(
+    mut operation: F,
+    max_retries: u32,
+    initial_backoff: Duration,
+) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = anyhow::Result<T>>,
+{
+    let mut backoff = initial_backoff;
+    let mut last_error = None;
+    
+    for attempt in 0..=max_retries {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                last_error = Some(e);
+                if attempt < max_retries {
+                    tokio::time::sleep(backoff).await;
+                    backoff *= 2;  // Exponential backoff
+                }
+            }
+        }
+    }
+    
+    Err(last_error.unwrap())
+}
 
 pub async fn get_anchor_metrics_with_rpc(
     anchor_id: Uuid,
@@ -316,6 +356,8 @@ pub async fn get_anchor_metrics_with_rpc(
 ) -> anyhow::Result<AnchorMetrics> {
     let circuit_breaker = rpc_circuit_breaker();
 
+    let result = circuit_breaker
+        .call(|| async {
     // Use with_retry with circuit_breaker for resilience
     with_retry(
         || async {
@@ -323,16 +365,36 @@ pub async fn get_anchor_metrics_with_rpc(
                 .fetch_anchor_metrics(anchor_id)
                 .await
                 .map_err(|e| RpcError::categorize(&e.to_string()))
-        },
-        RetryConfig {
-            max_attempts: 4,
-            base_delay_ms: 100,
-            max_delay_ms: 5000,
-        },
-        circuit_breaker,
-    )
-    .await
-    .context("Failed to fetch anchor metrics from RPC")
+        })
+        .await;
+
+    let metrics = match result {
+        Ok(metrics) => metrics,
+        Err(RpcError::CircuitBreakerOpen) => {
+            return Err(anyhow::anyhow!("Circuit breaker open - RPC service unavailable"));
+        }
+        Err(err) => return Err(anyhow::anyhow!(err.to_string())),
+    };
+
+    Ok(metrics)
+}
+
+pub async fn get_anchor_metrics_with_fallback(
+    anchor_id: Uuid,
+    rpc_client: Arc<StellarRpcClient>,
+    cache: Arc<CacheManager>,
+) -> anyhow::Result<AnchorMetrics> {
+    match get_anchor_metrics_with_rpc(anchor_id, rpc_client).await {
+        Ok(metrics) => Ok(metrics),
+        Err(e) if e.to_string().contains("Circuit breaker open") => {
+            warn!("Circuit breaker open, using cached data");
+            cache
+                .get(&format!("anchor_metrics:{}", anchor_id))
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("No cached data available"))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
