@@ -17,7 +17,7 @@ pub struct AppState {
 
 impl AppState {
     #[must_use]
-    pub const fn new(
+    pub fn new(
         db: Arc<Database>,
         cache: Arc<CacheManager>,
         ws_state: Arc<WsState>,
@@ -29,7 +29,6 @@ impl AppState {
             cache,
             ws_state,
             ingestion,
-            cache,
             rpc_client,
         }
     }

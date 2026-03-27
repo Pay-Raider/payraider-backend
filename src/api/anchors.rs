@@ -275,7 +275,7 @@ pub async fn create_anchor_asset(
 }
 
 use crate::cache::helpers::cached_query;
-use crate::cache::{keys, CacheManager};
+use crate::cache::keys;
 use crate::database::Database;
 use crate::rpc::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
@@ -283,6 +283,8 @@ use crate::rpc::{
     StellarRpcClient,
 };
 use crate::services::price_feed::PriceFeedClient;
+use std::future::Future;
+use std::time::Duration;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -323,35 +325,6 @@ pub(crate) fn rpc_circuit_breaker_instance() -> Arc<CircuitBreaker> {
     rpc_circuit_breaker()
 }
 
-// Add retry helper
-async fn with_retry<F, Fut, T>(
-    mut operation: F,
-    max_retries: u32,
-    initial_backoff: Duration,
-) -> anyhow::Result<T>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = anyhow::Result<T>>,
-{
-    let mut backoff = initial_backoff;
-    let mut last_error = None;
-    
-    for attempt in 0..=max_retries {
-        match operation().await {
-            Ok(result) => return Ok(result),
-            Err(e) => {
-                last_error = Some(e);
-                if attempt < max_retries {
-                    tokio::time::sleep(backoff).await;
-                    backoff *= 2;  // Exponential backoff
-                }
-            }
-        }
-    }
-    
-    Err(last_error.unwrap())
-}
-
 pub async fn get_anchor_metrics_with_rpc(
     anchor_id: Uuid,
     rpc_client: Arc<StellarRpcClient>,
@@ -365,8 +338,11 @@ pub async fn get_anchor_metrics_with_rpc(
                 .fetch_anchor_metrics(anchor_id)
                 .await
                 .map_err(|e| RpcError::categorize(&e.to_string()))
-        })
-        .await;
+        },
+        RetryConfig::default(),
+        circuit_breaker,
+    )
+    .await;
 
     let metrics = match result {
         Ok(metrics) => metrics,
