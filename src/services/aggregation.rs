@@ -167,7 +167,7 @@ impl AggregationService {
             hourly_map
                 .entry(key)
                 .and_modify(|existing| Self::merge_hourly_metric(existing, &metric))
-                .or_insert_with(|| Self::new_hourly_metric(&metric, hour_bucket));
+                .or_insert_with(|| Self::new_hourly_metric(&metric, hour_bucket))
                 .and_modify(|existing| {
                     existing.total_transactions += metric.total_transactions;
                     existing.successful_transactions += metric.successful_transactions;
