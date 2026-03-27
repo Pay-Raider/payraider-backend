@@ -88,18 +88,47 @@ async fn main() -> anyhow::Result<()> {
             tracing::error!("Webhook dispatcher stopped: {}", e);
         }
     });
-
     let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
         .unwrap_or_else(|_| "http://localhost:3000,https://stellar-insights.com".to_string());
 
     let origins: Vec<HeaderValue> = allowed_origins
         .split(',')
-        .filter_map(|origin| origin.trim().parse::<HeaderValue>().ok())
+        .filter_map(|origin| {
+            let trimmed = origin.trim();
+            match trimmed.parse::<HeaderValue>() {
+                Ok(value) => {
+                    tracing::info!("CORS: allowing origin '{}'", trimmed);
+                    Some(value)
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "CORS: skipping invalid origin '{}' — check CORS_ALLOWED_ORIGINS",
+                        trimmed
+                    );
+                    None
+                }
+            }
+        })
         .collect();
+
+    if origins.is_empty() {
+        tracing::warn!(
+            "CORS: no valid origins parsed from CORS_ALLOWED_ORIGINS='{}'. \
+             All cross-origin requests will be rejected.",
+            allowed_origins
+        );
+    }
 
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+            Method::PATCH,
+        ])
         .allow_headers([AUTHORIZATION, CONTENT_TYPE])
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
