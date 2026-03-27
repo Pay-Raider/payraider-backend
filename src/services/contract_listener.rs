@@ -4,6 +4,7 @@
 //! indexes them, and provides verification capabilities for snapshot submissions.
 
 use crate::database::Database;
+use crate::services::alert_service::AlertService;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use reqwest::Client;
@@ -91,18 +92,21 @@ pub struct ContractEventListener {
     client: Client,
     config: ListenerConfig,
     db: Arc<Database>,
+    alert_service: Arc<AlertService>,
     last_ledger: u64,
 }
 
 impl ContractEventListener {
     /// Create a new contract event listener
-    pub fn new(config: ListenerConfig, db: Arc<Database>) -> Result<Self> {
+    pub fn new(
+        config: ListenerConfig,
+        db: Arc<Database>,
+        alert_service: Arc<AlertService>,
+    ) -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .context("Failed to create HTTP client")?;
-
-        let last_ledger = config.start_ledger.unwrap_or(0);
 
         info!(
             "Initialized ContractEventListener for contract {} on RPC {}",
@@ -368,8 +372,16 @@ impl ContractEventListener {
                 let calculated_hash = self.calculate_hash(&canonical_json)?;
                 error!("Recalculated hash: {}", calculated_hash);
 
-                // TODO: Send alert via AlertService
-                // This would require passing AlertService to the listener
+                // Send alert via AlertService
+                let expected = backend_hash.clone();
+                let actual = on_chain_hash.clone();
+                
+                let alert_service = self.alert_service.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = alert_service.alert_verification_failed(epoch, expected, actual).await {
+                        error!("Failed to send verification failure alert: {}", e);
+                    }
+                });
             }
 
             // Update verification status
@@ -378,7 +390,14 @@ impl ContractEventListener {
             Ok(is_verified)
         } else {
             warn!("No snapshot found in database for epoch {}", epoch);
-            // TODO: Send missing snapshot alert
+            
+            let alert_service = self.alert_service.clone();
+            tokio::spawn(async move {
+                if let Err(e) = alert_service.alert_missing_snapshot(epoch).await {
+                    error!("Failed to send missing snapshot alert: {}", e);
+                }
+            });
+
             Ok(false)
         }
     }
