@@ -44,6 +44,14 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "sqlite://stellar_insights.db".to_string());
     let pool = PoolConfig::from_env().create_pool(&db_url).await
         .context("Failed to create database pool")?;
+
+    // Run migrations on startup
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .context("Failed to run database migrations")?;
+    tracing::info!("Database migrations completed successfully");
+
     let db = Arc::new(Database::new(pool.clone()));
 
     // Pool exhaustion monitoring: warn at >90% utilization, update Prometheus gauges
