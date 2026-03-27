@@ -306,6 +306,7 @@ impl Database {
     /// };
     /// let anchor = db.create_anchor(req).await?;
     /// ```
+    #[tracing::instrument(skip(self, req), fields(anchor_name = %req.name, stellar_account = %req.stellar_account))]
     pub async fn create_anchor(&self, req: CreateAnchorRequest) -> Result<Anchor> {
         self.execute_with_timing("create_anchor", async {
             let id = Uuid::new_v4().to_string();
@@ -354,6 +355,7 @@ impl Database {
     /// # Performance
     ///
     /// Indexed query on primary key, typically <1ms.
+    #[tracing::instrument(skip(self), fields(anchor_id = %id))]
     pub async fn get_anchor_by_id(&self, id: Uuid) -> Result<Option<Anchor>> {
         self.execute_with_timing("get_anchor_by_id", async {
             let anchor = sqlx::query_as::<_, Anchor>(
@@ -387,6 +389,7 @@ impl Database {
     /// let account = "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H";
     /// let anchor = db.get_anchor_by_stellar_account(account).await?;
     /// ```
+    #[tracing::instrument(skip(self), fields(stellar_account = %stellar_account))]
     pub async fn get_anchor_by_stellar_account(
         &self,
         stellar_account: &str,
@@ -429,6 +432,7 @@ impl Database {
     /// # Performance
     ///
     /// Query is indexed and metrics are recorded. Typical response time <10ms for limit ≤ 100.
+    #[tracing::instrument(skip(self), fields(limit = limit, offset = offset))]
     pub async fn list_anchors(&self, limit: i64, offset: i64) -> Result<Vec<Anchor>> {
         self.execute_with_timing("list_anchors", async {
             let anchors = sqlx::query_as::<_, Anchor>(
@@ -486,6 +490,7 @@ impl Database {
     /// - Updates anchor's `updated_at` timestamp
     /// - Records entry in `anchor_metrics_history` table
     /// - Computes and updates `reliability_score` and status
+    #[tracing::instrument(skip(self, update), fields(anchor_id = %update.anchor_id))]
     pub async fn update_anchor_metrics(&self, update: AnchorMetricsUpdate) -> Result<Anchor> {
         // Compute metrics
         let metrics = compute_anchor_metrics(
@@ -842,6 +847,7 @@ impl Database {
     }
 
     // Corridor operations
+    #[tracing::instrument(skip(self, req), fields(source = %req.source_asset_code, dest = %req.dest_asset_code))]
     pub async fn create_corridor(
         &self,
         req: crate::models::CreateCorridorRequest,
@@ -876,6 +882,7 @@ impl Database {
         .await
     }
 
+    #[tracing::instrument(skip(self), fields(limit = limit, offset = offset))]
     pub async fn list_corridors(
         &self,
         limit: i64,
@@ -908,6 +915,7 @@ impl Database {
         .await
     }
 
+    #[tracing::instrument(skip(self), fields(corridor_id = %id))]
     pub async fn get_corridor_by_id(
         &self,
         id: Uuid,
