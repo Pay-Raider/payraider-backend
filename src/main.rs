@@ -5,7 +5,10 @@ use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
     HeaderValue, Method,
 };
-use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
+    timeout::TimeoutLayer,
+};
 
 use stellar_insights_backend::{
     api::v1::routes,
@@ -104,6 +107,11 @@ async fn main() -> anyhow::Result<()> {
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 
+    let timeout_seconds = std::env::var("REQUEST_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+
     let app = routes(
         app_state,
         cached_state,
@@ -119,7 +127,10 @@ async fn main() -> anyhow::Result<()> {
     )
     .merge(
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
-    );
+    )
+    .layer(TimeoutLayer::new(Duration::from_secs(timeout_seconds)));
+
+    tracing::info!("Request timeout set to {} seconds", timeout_seconds);
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
