@@ -44,6 +44,29 @@ async fn main() -> anyhow::Result<()> {
         .context("Failed to create database pool")?;
     let db = Arc::new(Database::new(pool.clone()));
 
+    // Pool exhaustion monitoring: warn at >90% utilization, update Prometheus gauges
+    {
+        let monitor_pool = pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                let size = monitor_pool.size();
+                let idle = monitor_pool.num_idle() as u32;
+                let active = size.saturating_sub(idle);
+                if size > 0 && active as f64 / size as f64 > 0.9 {
+                    tracing::warn!(
+                        "Database pool nearly exhausted: {}/{} connections active",
+                        active, size
+                    );
+                }
+                stellar_insights_backend::observability::metrics::set_pool_size(size as i64);
+                stellar_insights_backend::observability::metrics::set_pool_idle(idle as i64);
+                stellar_insights_backend::observability::metrics::set_pool_active(active as i64);
+            }
+        });
+    }
+
     let cache = Arc::new(
         CacheManager::new(CacheConfig::default())
             .await
