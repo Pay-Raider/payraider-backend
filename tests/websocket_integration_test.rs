@@ -102,3 +102,51 @@ async fn test_new_payment_message_serialization() {
     assert!(json.contains("1000.5"));
     assert!(json.contains("true"));
 }
+
+#[tokio::test]
+async fn test_websocket_rate_limit_enforcement() {
+    use stellar_insights_backend::websocket::WsState;
+
+    let state = WsState::new();
+    let client_id = "integration-test-client";
+
+    // Allow up to the limit.
+    for i in 0..100u32 {
+        assert!(
+            state.check_rate_limit(client_id),
+            "message {} should be within rate limit",
+            i + 1
+        );
+    }
+
+    // 101st message must be blocked.
+    assert!(
+        !state.check_rate_limit(client_id),
+        "101st message should exceed rate limit"
+    );
+}
+
+#[tokio::test]
+async fn test_websocket_connection_limit_boundary() {
+    use stellar_insights_backend::websocket::{WsMessage, WsState};
+
+    let state = std::sync::Arc::new(WsState::new());
+
+    // Fill to one below the limit.
+    for _ in 0..999 {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<WsMessage>(1);
+        state.connections.insert(uuid::Uuid::new_v4(), tx);
+    }
+
+    assert_eq!(state.connection_count(), 999);
+    // One more should still be within limit.
+    assert!(state.connection_count() < 1000);
+
+    // Add the 1000th.
+    let (tx, _rx) = tokio::sync::mpsc::channel::<WsMessage>(1);
+    state.connections.insert(uuid::Uuid::new_v4(), tx);
+    assert_eq!(state.connection_count(), 1000);
+
+    // Now at capacity — handler would reject.
+    assert!(state.connection_count() >= 1000);
+}
