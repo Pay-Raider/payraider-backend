@@ -38,6 +38,15 @@ pub struct ErrorResponse {
 }
 
 /// Health check for Stellar RPC
+#[utoipa::path(
+    get,
+    path = "/api/rpc/health",
+    responses(
+        (status = 200, description = "RPC health status"),
+        (status = 503, description = "RPC service unavailable", body = ErrorResponse)
+    ),
+    tag = "RPC"
+)]
 #[tracing::instrument(skip(client))]
 pub async fn rpc_health_check(
     State(client): State<Arc<StellarRpcClient>>,
@@ -54,6 +63,15 @@ pub async fn rpc_health_check(
 }
 
 /// Get latest ledger information
+#[utoipa::path(
+    get,
+    path = "/api/rpc/ledger",
+    responses(
+        (status = 200, description = "Latest ledger information"),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "RPC"
+)]
 #[tracing::instrument(skip(client))]
 pub async fn get_latest_ledger(
     State(client): State<Arc<StellarRpcClient>>,
@@ -70,6 +88,19 @@ pub async fn get_latest_ledger(
 }
 
 /// Get recent payments
+#[utoipa::path(
+    get,
+    path = "/api/rpc/payments",
+    params(
+        ("limit" = Option<u32>, Query, description = "Maximum number of payments to return (default 20)"),
+        ("cursor" = Option<String>, Query, description = "Pagination cursor for next page")
+    ),
+    responses(
+        (status = 200, description = "List of recent payments"),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "RPC"
+)]
 #[tracing::instrument(skip(client))]
 pub async fn get_payments(
     State(client): State<Arc<StellarRpcClient>>,
@@ -88,6 +119,19 @@ pub async fn get_payments(
 }
 
 /// Get payments for a specific account
+#[utoipa::path(
+    get,
+    path = "/api/rpc/accounts/{account_id}/payments",
+    params(
+        ("account_id" = String, Path, description = "Stellar account ID"),
+        ("limit" = Option<u32>, Query, description = "Maximum number of payments to return (default 20)")
+    ),
+    responses(
+        (status = 200, description = "List of account payments"),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "RPC"
+)]
 #[tracing::instrument(skip(client))]
 pub async fn get_account_payments(
     State(client): State<Arc<StellarRpcClient>>,
@@ -109,6 +153,19 @@ pub async fn get_account_payments(
 }
 
 /// Get recent trades
+#[utoipa::path(
+    get,
+    path = "/api/rpc/trades",
+    params(
+        ("limit" = Option<u32>, Query, description = "Maximum number of trades to return (default 20)"),
+        ("cursor" = Option<String>, Query, description = "Pagination cursor for next page")
+    ),
+    responses(
+        (status = 200, description = "List of recent trades"),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "RPC"
+)]
 #[tracing::instrument(skip(client))]
 pub async fn get_trades(
     State(client): State<Arc<StellarRpcClient>>,
@@ -127,6 +184,24 @@ pub async fn get_trades(
 }
 
 /// Get order book for a trading pair
+#[utoipa::path(
+    get,
+    path = "/api/rpc/orderbook",
+    params(
+        ("selling_asset_type" = String, Query, description = "Selling asset type (e.g., 'native', 'credit_alphanum4')"),
+        ("selling_asset_code" = Option<String>, Query, description = "Selling asset code (e.g., 'USDC')"),
+        ("selling_asset_issuer" = Option<String>, Query, description = "Selling asset issuer"),
+        ("buying_asset_type" = String, Query, description = "Buying asset type"),
+        ("buying_asset_code" = Option<String>, Query, description = "Buying asset code"),
+        ("buying_asset_issuer" = Option<String>, Query, description = "Buying asset issuer"),
+        ("limit" = Option<u32>, Query, description = "Maximum number of price levels to return (default 20)")
+    ),
+    responses(
+        (status = 200, description = "Order book for trading pair"),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "RPC"
+)]
 #[tracing::instrument(skip(client))]
 pub async fn get_order_book(
     State(client): State<Arc<StellarRpcClient>>,

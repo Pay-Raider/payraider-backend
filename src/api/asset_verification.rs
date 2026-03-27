@@ -25,8 +25,21 @@ pub fn routes(pool: SqlitePool) -> Router {
         .with_state(Arc::new(pool))
 }
 
-/// Verify an asset and return its verification status
-/// GET /api/assets/verify/:code/:issuer
+/// GET /api/assets/verify/:code/:issuer - Verify an asset and return its verification status
+#[utoipa::path(
+    get,
+    path = "/api/assets/verify/{code}/{issuer}",
+    params(
+        ("code" = String, Path, description = "Asset code"),
+        ("issuer" = String, Path, description = "Asset issuer public key")
+    ),
+    responses(
+        (status = 200, description = "Asset verification result"),
+        (status = 400, description = "Invalid asset code or issuer"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Asset Verification"
+)]
 async fn verify_asset(
     State(pool): State<Arc<SqlitePool>>,
     Path((code, issuer)): Path<(String, String)>,
@@ -97,8 +110,22 @@ async fn verify_asset(
     }
 }
 
-/// Get verification details for an asset
-/// GET /api/assets/:code/:issuer/verification
+/// GET /api/assets/:code/:issuer/verification - Get verification details for an asset
+#[utoipa::path(
+    get,
+    path = "/api/assets/{code}/{issuer}/verification",
+    params(
+        ("code" = String, Path, description = "Asset code"),
+        ("issuer" = String, Path, description = "Asset issuer public key")
+    ),
+    responses(
+        (status = 200, description = "Asset verification details"),
+        (status = 400, description = "Invalid asset code or issuer"),
+        (status = 404, description = "Asset verification not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Asset Verification"
+)]
 async fn get_verification(
     State(pool): State<Arc<SqlitePool>>,
     Path((code, issuer)): Path<(String, String)>,
@@ -160,8 +187,23 @@ async fn get_verification(
     }
 }
 
-/// List verified assets with optional filters
-/// GET /`api/assets/verified?status=verified&min_reputation=60&limit=50&offset=0`
+/// GET /api/assets/verified - List verified assets with optional filters
+#[utoipa::path(
+    get,
+    path = "/api/assets/verified",
+    params(
+        ("status" = Option<String>, Query, description = "Filter by status"),
+        ("min_reputation" = Option<f64>, Query, description = "Minimum reputation score (0-100)"),
+        ("limit" = Option<i64>, Query, description = "Maximum results (1-100, default 50)"),
+        ("offset" = Option<i64>, Query, description = "Results offset (default 0)")
+    ),
+    responses(
+        (status = 200, description = "List of verified assets"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Asset Verification"
+)]
 async fn list_verified_assets(
     State(pool): State<Arc<SqlitePool>>,
     Query(query): Query<ListVerifiedAssetsQuery>,
@@ -225,8 +267,18 @@ async fn list_verified_assets(
     }
 }
 
-/// Report a suspicious asset
-/// POST /api/assets/report
+/// POST /api/assets/report - Report a suspicious asset
+#[utoipa::path(
+    post,
+    path = "/api/assets/report",
+    request_body = ReportAssetRequest,
+    responses(
+        (status = 201, description = "Report submitted successfully"),
+        (status = 400, description = "Invalid request"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Asset Verification"
+)]
 async fn report_suspicious_asset(
     State(pool): State<Arc<SqlitePool>>,
     Json(request): Json<ReportAssetRequest>,

@@ -21,6 +21,15 @@ pub struct MetricsOverview {
 }
 
 /// Handler for GET /api/metrics/overview (cached with 1 min TTL)
+#[utoipa::path(
+    get,
+    path = "/api/metrics/overview",
+    responses(
+        (status = 200, description = "Metrics overview", body = MetricsOverview),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Metrics"
+)]
 pub async fn metrics_overview(
     State(cache): State<Arc<CacheManager>>,
     headers: HeaderMap,
