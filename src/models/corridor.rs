@@ -139,7 +139,7 @@ pub fn compute_median(values: &mut [i64]) -> Option<i64> {
     }
     values.sort_unstable();
     let len = values.len();
-    if len.is_multiple_of(2) {
+    if len % 2 == 0 {
         // Average of two middle values
         Some((values[len / 2 - 1] + values[len / 2]) / 2)
     } else {

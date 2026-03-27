@@ -34,7 +34,7 @@ pub async fn metrics_overview(State(cache): State<Arc<CacheManager>>) -> Json<Me
         },
     )
     .await
-    .unwrap_or(MetricsOverview {
+    .unwrap_or_else(|_| MetricsOverview {
         total_volume: 0.0,
         total_transactions: 0,
         active_users: 0,

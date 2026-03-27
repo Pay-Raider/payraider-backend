@@ -102,18 +102,19 @@ impl RateLimiter {
         // Try Redis first
         if let Some(conn) = self.redis_connection.read().await.as_ref() {
             let mut conn = conn.clone();
-            if let Ok((allowed, remaining, reset)) =
-                self.check_redis_limit(&mut conn, &key, limit).await
-            {
-                return (
-                    allowed,
-                    RateLimitInfo {
-                        limit,
-                        remaining,
-                        reset_after: reset,
-                        is_whitelisted: false,
-                    },
-                );
+            match self.check_redis_limit(&mut conn, &key, limit).await {
+                Ok((allowed, remaining, reset)) => {
+                    return (
+                        allowed,
+                        RateLimitInfo {
+                            limit,
+                            remaining,
+                            reset_after: reset,
+                            is_whitelisted: false,
+                        },
+                    );
+                }
+                Err(_) => {}
             }
         }
 
@@ -153,7 +154,11 @@ impl RateLimiter {
             conn.expire::<_, ()>(key, 60).await?;
         }
 
-        let remaining = limit.saturating_sub(new_count);
+        let remaining = if new_count >= limit {
+            0
+        } else {
+            limit - new_count
+        };
         Ok((new_count < limit, remaining, 60))
     }
 
@@ -177,7 +182,11 @@ impl RateLimiter {
         } else {
             let new_count = count + 1;
             store.insert(key.to_string(), (new_count, expiry));
-            let remaining = limit.saturating_sub(new_count);
+            let remaining = if new_count >= limit {
+                0
+            } else {
+                limit - new_count
+            };
             (new_count < limit, remaining, (expiry - now) as u32)
         }
     }

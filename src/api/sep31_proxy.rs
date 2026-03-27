@@ -46,12 +46,6 @@ impl Sep31State {
     }
 }
 
-impl Default for Sep31State {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 fn base_url(transfer_server: &str) -> String {
     transfer_server.trim().trim_end_matches('/').to_string()
 }
@@ -215,10 +209,7 @@ pub async fn get_transactions(
     if let Some(jwt) = &q.jwt {
         req = req.header("Authorization", format!("Bearer {}", jwt));
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| Sep31Error::Proxy(e.to_string()))?;
+    let resp = req.send().await.map_err(|e| Sep31Error::Proxy(e.to_string()))?;
 
     let status = resp.status();
     let data = resp
@@ -250,20 +241,13 @@ pub async fn get_transaction(
             "Transfer server not in allowed list".to_string(),
         ));
     }
-    let url = format!(
-        "{}/transactions/{}",
-        base_url(&q.transfer_server),
-        urlencoding::encode(&id)
-    );
+    let url = format!("{}/transactions/{}", base_url(&q.transfer_server), urlencoding::encode(&id));
 
     let mut req = state.client.get(&url);
     if let Some(jwt) = &q.jwt {
         req = req.header("Authorization", format!("Bearer {}", jwt));
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| Sep31Error::Proxy(e.to_string()))?;
+    let resp = req.send().await.map_err(|e| Sep31Error::Proxy(e.to_string()))?;
 
     let status = resp.status();
     let data = resp
@@ -305,10 +289,7 @@ pub async fn get_customer(
     if let Some(jwt) = &q.jwt {
         req = req.header("Authorization", format!("Bearer {}", jwt));
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| Sep31Error::Proxy(e.to_string()))?;
+    let resp = req.send().await.map_err(|e| Sep31Error::Proxy(e.to_string()))?;
 
     let status = resp.status();
     let data = resp
@@ -439,10 +420,7 @@ mod tests {
             base_url("https://api.example.com/sep31"),
             "https://api.example.com/sep31"
         );
-        assert_eq!(
-            base_url("https://api.example.com/"),
-            "https://api.example.com"
-        );
+        assert_eq!(base_url("https://api.example.com/"), "https://api.example.com");
     }
 
     #[test]

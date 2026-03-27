@@ -2,14 +2,13 @@ use crate::cache::CacheManager;
 use std::sync::Arc;
 
 /// Helper trait for cache-aware operations
-#[allow(async_fn_in_trait)]
 pub trait CacheAware {
-    async fn get_or_fetch<T, F>(
+    fn get_or_fetch<T, F>(
         cache: &Arc<CacheManager>,
         key: &str,
         ttl: usize,
         fetch_fn: F,
-    ) -> anyhow::Result<T>
+    ) -> impl std::future::Future<Output = anyhow::Result<T>>
     where
         T: serde::Serialize + serde::de::DeserializeOwned,
         F: std::future::Future<Output = anyhow::Result<T>>;
@@ -17,28 +16,30 @@ pub trait CacheAware {
 
 /// Implement for unit type to provide static methods
 impl CacheAware for () {
-    async fn get_or_fetch<T, F>(
+    fn get_or_fetch<T, F>(
         cache: &Arc<CacheManager>,
         key: &str,
         ttl: usize,
         fetch_fn: F,
-    ) -> anyhow::Result<T>
+    ) -> impl std::future::Future<Output = anyhow::Result<T>>
     where
         T: serde::Serialize + serde::de::DeserializeOwned,
         F: std::future::Future<Output = anyhow::Result<T>>,
     {
-        // Try to get from cache first
-        if let Ok(Some(cached)) = cache.get::<T>(key).await {
-            return Ok(cached);
+        async move {
+            // Try to get from cache first
+            if let Ok(Some(cached)) = cache.get::<T>(key).await {
+                return Ok(cached);
+            }
+
+            // Cache miss or error, fetch from source
+            let data = fetch_fn.await?;
+
+            // Store in cache (ignore errors, cache is optional)
+            let _ = cache.set(key, &data, ttl).await;
+
+            Ok(data)
         }
-
-        // Cache miss or error, fetch from source
-        let data = fetch_fn.await?;
-
-        // Store in cache (ignore errors, cache is optional)
-        let _ = cache.set(key, &data, ttl).await;
-
-        Ok(data)
     }
 }
 
