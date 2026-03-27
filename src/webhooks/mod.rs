@@ -1,5 +1,6 @@
 /// Webhooks module for Zapier integration
 /// Manages webhook registrations, event definitions, and dispatching
+pub mod channel;
 pub mod events;
 
 use hmac::{Hmac, Mac};
@@ -9,6 +10,8 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 type HmacSha256 = Hmac<Sha256>;
+
+pub use channel::{WebhookChannel, WebhookEndpoint};
 
 /// Webhook signature - for verifying webhook requests
 pub struct WebhookSignature;

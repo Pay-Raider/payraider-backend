@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::NaiveDate;
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -20,7 +20,7 @@ impl CorridorAggregates {
         analytics: &CorridorAnalytics,
         date: NaiveDate,
     ) -> Result<CorridorMetrics> {
-        let date_datetime = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let date_datetime = start_of_day_utc(date)?;
         let corridor_key = analytics.corridor.to_string_key();
 
         let metrics = sqlx::query_as::<_, CorridorMetrics>(
@@ -42,10 +42,10 @@ impl CorridorAggregates {
             ",
         )
         .bind(&corridor_key)
-        .bind(&analytics.corridor.asset_a_code)
-        .bind(&analytics.corridor.asset_a_issuer)
-        .bind(&analytics.corridor.asset_b_code)
-        .bind(&analytics.corridor.asset_b_issuer)
+        .bind(&analytics.corridor.source_asset_code)
+        .bind(&analytics.corridor.source_asset_issuer)
+        .bind(&analytics.corridor.destination_asset_code)
+        .bind(&analytics.corridor.destination_asset_issuer)
         .bind(date_datetime)
         .bind(analytics.total_transactions)
         .bind(analytics.successful_transactions)
@@ -65,8 +65,8 @@ impl CorridorAggregates {
         end_date: NaiveDate,
     ) -> Result<Vec<CorridorMetrics>> {
         let corridor_key = corridor.to_string_key();
-        let start_datetime = start_date.and_hms_opt(0, 0, 0).unwrap().and_utc();
-        let end_datetime = end_date.and_hms_opt(23, 59, 59).unwrap().and_utc();
+        let start_datetime = start_of_day_utc(start_date)?;
+        let end_datetime = end_of_day_utc(end_date)?;
 
         let metrics = sqlx::query_as::<_, CorridorMetrics>(
             r"
@@ -88,7 +88,7 @@ impl CorridorAggregates {
         &self,
         date: NaiveDate,
     ) -> Result<Vec<CorridorMetrics>> {
-        let date_datetime = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let date_datetime = start_of_day_utc(date)?;
         let next_day = date_datetime + chrono::Duration::days(1);
 
         let metrics = sqlx::query_as::<_, CorridorMetrics>(
@@ -111,8 +111,8 @@ impl CorridorAggregates {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> Result<Vec<AggregatedCorridorMetrics>> {
-        let start_datetime = start_date.and_hms_opt(0, 0, 0).unwrap().and_utc();
-        let end_datetime = end_date.and_hms_opt(23, 59, 59).unwrap().and_utc();
+        let start_datetime = start_of_day_utc(start_date)?;
+        let end_datetime = end_of_day_utc(end_date)?;
 
         let metrics = sqlx::query_as::<_, AggregatedCorridorMetrics>(
             r"
@@ -147,7 +147,7 @@ impl CorridorAggregates {
         date: NaiveDate,
         limit: i64,
     ) -> Result<Vec<CorridorMetrics>> {
-        let date_datetime = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let date_datetime = start_of_day_utc(date)?;
         let next_day = date_datetime + chrono::Duration::days(1);
 
         let metrics = sqlx::query_as::<_, CorridorMetrics>(
@@ -172,7 +172,7 @@ impl CorridorAggregates {
         date: NaiveDate,
         limit: i64,
     ) -> Result<Vec<CorridorMetrics>> {
-        let date_datetime = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let date_datetime = start_of_day_utc(date)?;
         let next_day = date_datetime + chrono::Duration::days(1);
 
         let metrics = sqlx::query_as::<_, CorridorMetrics>(
@@ -198,7 +198,7 @@ impl CorridorAggregates {
         min_success_rate: f64,
         min_transactions: i64,
     ) -> Result<Vec<CorridorMetrics>> {
-        let date_datetime = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let date_datetime = start_of_day_utc(date)?;
         let next_day = date_datetime + chrono::Duration::days(1);
 
         let metrics = sqlx::query_as::<_, CorridorMetrics>(
@@ -225,8 +225,8 @@ impl CorridorAggregates {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> Result<CorridorSummaryStats> {
-        let start_datetime = start_date.and_hms_opt(0, 0, 0).unwrap().and_utc();
-        let end_datetime = end_date.and_hms_opt(23, 59, 59).unwrap().and_utc();
+        let start_datetime = start_of_day_utc(start_date)?;
+        let end_datetime = end_of_day_utc(end_date)?;
 
         let stats = sqlx::query_as::<_, CorridorSummaryStats>(
             r"
@@ -250,7 +250,7 @@ impl CorridorAggregates {
     }
 
     pub async fn delete_old_metrics(&self, cutoff_date: NaiveDate) -> Result<u64> {
-        let cutoff_datetime = cutoff_date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let cutoff_datetime = start_of_day_utc(cutoff_date)?;
 
         let result: sqlx::sqlite::SqliteQueryResult = sqlx::query(
             r"
@@ -266,13 +266,29 @@ impl CorridorAggregates {
     }
 }
 
+fn start_of_day_utc(date: NaiveDate) -> Result<chrono::DateTime<chrono::Utc>> {
+    date.and_hms_opt(0, 0, 0)
+        .ok_or_else(|| anyhow!("Invalid date at start of day: {date}"))
+        .map(|dt| dt.and_utc())
+}
+
+fn end_of_day_utc(date: NaiveDate) -> Result<chrono::DateTime<chrono::Utc>> {
+    date.and_hms_opt(23, 59, 59)
+        .ok_or_else(|| anyhow!("Invalid date at end of day: {date}"))
+        .map(|dt| dt.and_utc())
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct AggregatedCorridorMetrics {
     pub corridor_key: String,
-    pub asset_a_code: String,
-    pub asset_a_issuer: String,
-    pub asset_b_code: String,
-    pub asset_b_issuer: String,
+    #[sqlx(rename = "asset_a_code")]
+    pub source_asset_code: String,
+    #[sqlx(rename = "asset_a_issuer")]
+    pub source_asset_issuer: String,
+    #[sqlx(rename = "asset_b_code")]
+    pub destination_asset_code: String,
+    #[sqlx(rename = "asset_b_issuer")]
+    pub destination_asset_issuer: String,
     pub total_transactions: i64,
     pub successful_transactions: i64,
     pub failed_transactions: i64,

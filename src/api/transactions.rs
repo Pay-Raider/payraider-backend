@@ -36,6 +36,17 @@ pub fn routes() -> Router<AppState> {
 }
 
 // Handlers
+/// POST /api/transactions - Create a new pending transaction
+#[utoipa::path(
+    post,
+    path = "/api/transactions/",
+    request_body = CreateTransactionRequest,
+    responses(
+        (status = 200, description = "Transaction created", body = PendingTransaction),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Transactions"
+)]
 pub async fn create_transaction(
     State(state): State<AppState>,
     Json(req): Json<CreateTransactionRequest>,
@@ -55,6 +66,20 @@ pub async fn create_transaction(
     Ok(Json(pending_transaction))
 }
 
+/// GET /api/transactions/{id} - Get a pending transaction by ID
+#[utoipa::path(
+    get,
+    path = "/api/transactions/{id}",
+    params(
+        ("id" = String, Path, description = "Transaction ID")
+    ),
+    responses(
+        (status = 200, description = "Transaction details", body = PendingTransactionWithSignatures),
+        (status = 404, description = "Transaction not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Transactions"
+)]
 pub async fn get_transaction(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -74,6 +99,22 @@ pub async fn get_transaction(
     }
 }
 
+/// POST /api/transactions/{id}/signatures - Add a signature to a transaction
+#[utoipa::path(
+    post,
+    path = "/api/transactions/{id}/signatures",
+    params(
+        ("id" = String, Path, description = "Transaction ID")
+    ),
+    request_body = AddSignatureRequest,
+    responses(
+        (status = 201, description = "Signature added"),
+        (status = 400, description = "Signature already exists from this signer"),
+        (status = 404, description = "Transaction not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Transactions"
+)]
 pub async fn add_signature(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -123,6 +164,21 @@ pub async fn add_signature(
     Ok(StatusCode::CREATED)
 }
 
+/// POST /api/transactions/{id}/submit - Submit a transaction to the Stellar network
+#[utoipa::path(
+    post,
+    path = "/api/transactions/{id}/submit",
+    params(
+        ("id" = String, Path, description = "Transaction ID")
+    ),
+    responses(
+        (status = 200, description = "Transaction submitted", body = TransactionResult),
+        (status = 400, description = "Not enough signatures"),
+        (status = 404, description = "Transaction not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Transactions"
+)]
 pub async fn submit_transaction(
     State(state): State<AppState>,
     Path(id): Path<String>,

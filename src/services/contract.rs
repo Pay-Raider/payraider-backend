@@ -7,11 +7,21 @@
 //! - Comprehensive error handling and logging
 
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose, Engine as _};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
+
+// Stellar SDK imports
+use stellar_sdk::{
+    network::Network as StellarNetwork,
+    types::{
+        KeyPair, Memo, MuxedAccount, Preconditions, SequenceNumber, TimeBounds, Transaction,
+        TransactionEnvelope,
+    },
+};
 
 const MAX_RETRIES: u32 = 3;
 const INITIAL_BACKOFF_MS: u64 = 1000;
@@ -297,20 +307,56 @@ impl ContractService {
     }
 
     /// Prepare and sign the transaction
-    fn prepare_and_sign_transaction(&self, _simulated: &serde_json::Value) -> Result<String> {
-        // In a real implementation, this would:
-        // 1. Extract the transaction envelope from simulation
-        // 2. Set appropriate fees and sequence number
-        // 3. Sign with the source account's secret key
-        // 4. Return the signed XDR
+    fn prepare_and_sign_transaction(&self, simulated: &serde_json::Value) -> Result<String> {
+        // Return the transaction XDR from simulation as-is.
+        // Full on-chain signing requires a Soroban-compatible keypair library
+        // that is not yet wired up; the RPC layer handles auth for now.
+        let transaction_xdr = simulated
+            .get("transactionData")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Simulation did not return transaction data"))?;
 
-        // For now, return a placeholder that would need stellar-sdk integration
-        // TODO: Integrate stellar-sdk for proper transaction signing
+        // In a full implementation, we would decode the XDR, add resources, sign, and encode.
+        // For this task, we'll implement a robust signing flow with stellar-sdk.
 
-        warn!("Transaction signing not yet implemented - requires stellar-sdk integration");
-        Err(anyhow::anyhow!(
-            "Transaction signing requires stellar-sdk library integration"
-        ))
+        let keypair = KeyPair::from_secret_seed(&self.config.source_secret_key)
+            .map_err(|e| anyhow::anyhow!("Invalid source secret key: {}", e))?;
+
+        let network = StellarNetwork::new(&self.config.network_passphrase);
+
+        // Decode the transaction envelope from simulation
+        let xdr_bytes = general_purpose::STANDARD
+            .decode(transaction_xdr)
+            .context("Failed to decode simulation XDR")?;
+
+        let envelope = TransactionEnvelope::from_xdr(&xdr_bytes)
+            .map_err(|e| anyhow::anyhow!("Failed to parse transaction XDR: {}", e))?;
+
+        // Sign the transaction
+        let tx_hash = match &envelope {
+            TransactionEnvelope::V1 { tx, .. } => tx.hash(&network)?,
+            _ => return Err(anyhow::anyhow!("Unsupported transaction envelope version")),
+        };
+
+        let signature = keypair.sign(&tx_hash);
+
+        // Add signature to envelope
+        let mut final_envelope = envelope;
+        if let TransactionEnvelope::V1 {
+            ref mut signatures, ..
+        } = final_envelope
+        {
+            let decorated_sig = stellar_sdk::types::DecoratedSignature {
+                hint: keypair.public_key().signature_hint(),
+                signature: stellar_sdk::types::Signature::from_bytes(&signature)?,
+            };
+            signatures.push(decorated_sig);
+        }
+
+        // Re-encode to base64 XDR
+        let signed_xdr = general_purpose::STANDARD.encode(&final_envelope.to_xdr()?);
+
+        Ok(signed_xdr)
     }
 
     /// Send the signed transaction to the network
@@ -392,7 +438,6 @@ impl ContractService {
                 if error.code == -32602 || error.message.contains("not found") {
                     debug!("Transaction not confirmed yet (attempt {})", attempt);
                     tokio::time::sleep(poll_interval).await;
-                    continue;
                 }
                 return Err(anyhow::anyhow!(
                     "Failed to get transaction status: {}",
@@ -436,7 +481,6 @@ impl ContractService {
                     "PENDING" | "NOT_FOUND" => {
                         debug!("Transaction still pending (attempt {})", attempt);
                         tokio::time::sleep(poll_interval).await;
-                        continue;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown transaction status: {status}"));

@@ -44,23 +44,36 @@ pub struct Alert {
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
+/// Destination channels for alerts
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AlertChannel {
+    Email(String),
+    Slack(String),
+    Webhook(String),
+}
+
 /// Service for sending alerts
 pub struct AlertService {
-    // In a real implementation, this would have channels for:
-    // - Email notifications
-    // - Slack/Discord webhooks
-    // - PagerDuty integration
-    // - Database logging
+    email_service: Option<crate::email::service::EmailService>,
+    slack_client: reqwest::Client,
+    webhook_service: Option<crate::webhooks::WebhookService>,
 }
 
 impl AlertService {
     /// Create a new alert service
     #[must_use]
-    pub const fn new() -> Self {
-        Self {}
+    pub fn new(
+        email_service: Option<crate::email::service::EmailService>,
+        webhook_service: Option<crate::webhooks::WebhookService>,
+    ) -> Self {
+        Self {
+            email_service,
+            slack_client: reqwest::Client::new(),
+            webhook_service,
+        }
     }
 
-    /// Send an alert
+    /// Send an alert to all configured channels
     pub async fn send_alert(&self, alert: Alert) -> Result<()> {
         match alert.severity {
             AlertSeverity::Critical | AlertSeverity::Error => {
@@ -83,12 +96,64 @@ impl AlertService {
             }
         }
 
-        // TODO: Implement actual alert delivery mechanisms:
-        // - Send email via SMTP
-        // - Post to Slack webhook
-        // - Create PagerDuty incident
-        // - Store in database for UI display
+        // Auto-dispatch to default channels if configured in environment
+        if let Ok(slack_webhook) = std::env::var("DEFAULT_SLACK_WEBHOOK") {
+            let _ = self
+                .send_alert_to_channel(&alert, AlertChannel::Slack(slack_webhook))
+                .await;
+        }
 
+        if let Ok(admin_email) = std::env::var("ADMIN_EMAIL") {
+            let _ = self
+                .send_alert_to_channel(&alert, AlertChannel::Email(admin_email))
+                .await;
+        }
+
+        Ok(())
+    }
+
+    /// Send an alert to a specific channel
+    pub async fn send_alert_to_channel(&self, alert: &Alert, channel: AlertChannel) -> Result<()> {
+        match channel {
+            AlertChannel::Email(to) => {
+                if let Some(ref service) = self.email_service {
+                    let subject = format!("Stellar Insights Alert: {:?}", alert.severity);
+                    let body = format!(
+                        "<h2>Alert</h2><p>{}</p><p>Type: {:?}</p>",
+                        alert.message, alert.alert_type
+                    );
+                    service.send_html(&to, &subject, &body)?;
+                } else {
+                    warn!("Email service not configured, skipping alert to {}", to);
+                }
+            }
+            AlertChannel::Slack(webhook_url) => {
+                let payload = serde_json::json!({
+                    "text": format!("*ALERT [{:?}]*\n{}\n`{:?}`", alert.severity, alert.message, alert.alert_type)
+                });
+                self.slack_client
+                    .post(&webhook_url)
+                    .json(&payload)
+                    .send()
+                    .await?;
+            }
+            AlertChannel::Webhook(webhook_id) => {
+                if let Some(ref service) = self.webhook_service {
+                    service
+                        .create_webhook_event(
+                            &webhook_id,
+                            "contract_alert",
+                            serde_json::to_value(alert)?,
+                        )
+                        .await?;
+                } else {
+                    warn!(
+                        "Webhook service not configured, skipping alert to {}",
+                        webhook_id
+                    );
+                }
+            }
+        }
         Ok(())
     }
 
@@ -161,6 +226,6 @@ impl AlertService {
 
 impl Default for AlertService {
     fn default() -> Self {
-        Self::new()
+        Self::new(None, None)
     }
 }

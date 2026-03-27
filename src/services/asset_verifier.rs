@@ -3,6 +3,7 @@ use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::fmt::Write;
 use std::time::Duration;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -358,9 +359,9 @@ impl AssetVerifier {
         }
 
         // Transaction count (up to 10 points)
-        if result.transaction_count > 100000 {
+        if result.transaction_count > 100_000 {
             score += 10.0;
-        } else if result.transaction_count > 10000 {
+        } else if result.transaction_count > 10_000 {
             score += 7.0;
         } else if result.transaction_count > 1000 {
             score += 5.0;
@@ -567,15 +568,15 @@ impl AssetVerifier {
         let mut query = String::from("SELECT * FROM verified_assets WHERE 1=1");
 
         if let Some(status) = status {
-            query.push_str(&format!(" AND verification_status = '{}'", status.as_str()));
+            write!(query, " AND verification_status = '{}'", status.as_str()).unwrap();
         }
 
         if let Some(min_rep) = min_reputation {
-            query.push_str(&format!(" AND reputation_score >= {min_rep}"));
+            write!(query, " AND reputation_score >= {min_rep}").unwrap();
         }
 
         query.push_str(" ORDER BY reputation_score DESC, updated_at DESC");
-        query.push_str(&format!(" LIMIT {limit} OFFSET {offset}"));
+        write!(query, " LIMIT {limit} OFFSET {offset}").unwrap();
 
         let assets = sqlx::query_as::<_, VerifiedAsset>(&query)
             .fetch_all(&self.pool)

@@ -1,5 +1,6 @@
 use crate::models::corridor::{Corridor, CorridorAnalytics, PaymentRecord};
 use chrono::{DateTime, Utc};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 #[must_use]
@@ -31,7 +32,11 @@ pub fn compute_corridor_analytics(payments: &[PaymentRecord]) -> Vec<CorridorAna
             0.0
         };
 
-        let volume_usd: f64 = corridor_payment_records.iter().map(|p| p.amount).sum();
+        let volume_usd: f64 = corridor_payment_records
+            .iter()
+            .filter(|p| p.successful)
+            .map(|p| p.amount)
+            .sum();
 
         let corridor = parse_corridor_key(&corridor_key);
 
@@ -69,7 +74,11 @@ pub fn get_top_corridors_by_volume(
     limit: usize,
 ) -> Vec<&CorridorAnalytics> {
     let mut sorted_analytics = analytics.iter().collect::<Vec<_>>();
-    sorted_analytics.sort_by(|a, b| b.volume_usd.partial_cmp(&a.volume_usd).unwrap());
+    sorted_analytics.sort_by(|a, b| {
+        b.volume_usd
+            .partial_cmp(&a.volume_usd)
+            .unwrap_or(Ordering::Equal)
+    });
     sorted_analytics.truncate(limit);
     sorted_analytics
 }
@@ -156,7 +165,7 @@ mod tests {
         assert_eq!(corridor_analytics.successful_transactions, 2);
         assert_eq!(corridor_analytics.failed_transactions, 1);
         assert!((corridor_analytics.success_rate - 66.66666666666667).abs() < 0.0001);
-        assert_eq!(corridor_analytics.volume_usd, 225.0);
+        assert_eq!(corridor_analytics.volume_usd, 150.0);
     }
 
     #[test]
