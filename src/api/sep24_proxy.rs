@@ -51,6 +51,12 @@ impl Sep24State {
     }
 }
 
+impl Default for Sep24State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn base_url(transfer_server: &str) -> String {
     let s = transfer_server.trim().trim_end_matches('/');
     s.to_string()
@@ -278,7 +284,10 @@ pub async fn get_transactions(
     if let Some(jwt) = &q.jwt {
         req = req.header("Authorization", format!("Bearer {}", jwt));
     }
-    let resp = req.send().await.map_err(|e| Sep24Error::Proxy(e.to_string()))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| Sep24Error::Proxy(e.to_string()))?;
 
     let status = resp.status();
     let data = resp
@@ -320,7 +329,10 @@ pub async fn get_transaction(
     if let Some(jwt) = &q.jwt {
         req = req.header("Authorization", format!("Bearer {}", jwt));
     }
-    let resp = req.send().await.map_err(|e| Sep24Error::Proxy(e.to_string()))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| Sep24Error::Proxy(e.to_string()))?;
 
     let status = resp.status();
     let data = resp
@@ -394,8 +406,14 @@ pub fn routes() -> axum::Router {
             "/api/sep24/withdraw/interactive",
             axum::routing::post(post_withdraw_interactive),
         )
-        .route("/api/sep24/transactions", axum::routing::get(get_transactions))
-        .route("/api/sep24/transaction", axum::routing::get(get_transaction))
+        .route(
+            "/api/sep24/transactions",
+            axum::routing::get(get_transactions),
+        )
+        .route(
+            "/api/sep24/transaction",
+            axum::routing::get(get_transaction),
+        )
         .route("/api/sep24/anchors", axum::routing::get(list_anchors))
         .with_state(state)
 }
@@ -406,13 +424,22 @@ mod tests {
 
     #[test]
     fn test_base_url() {
-        assert_eq!(base_url("https://api.example.com"), "https://api.example.com");
-        assert_eq!(base_url("https://api.example.com/"), "https://api.example.com");
+        assert_eq!(
+            base_url("https://api.example.com"),
+            "https://api.example.com"
+        );
+        assert_eq!(
+            base_url("https://api.example.com/"),
+            "https://api.example.com"
+        );
     }
 
     #[test]
     fn test_base_url_trim() {
-        assert_eq!(base_url("  https://api.example.com  "), "https://api.example.com");
+        assert_eq!(
+            base_url("  https://api.example.com  "),
+            "https://api.example.com"
+        );
     }
 
     #[test]

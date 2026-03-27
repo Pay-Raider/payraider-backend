@@ -5,7 +5,7 @@ use axum::{
 };
 use dotenv::dotenv;
 use std::sync::Arc;
-use tower_http::compression::{CompressionLayer, predicate::SizeAbove};
+use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
@@ -99,7 +99,10 @@ async fn main() -> Result<()> {
     );
 
     let rpc_client = if mock_mode {
-        Arc::new(StellarRpcClient::new_with_network(network_config.network, true))
+        Arc::new(StellarRpcClient::new_with_network(
+            network_config.network,
+            true,
+        ))
     } else {
         Arc::new(StellarRpcClient::new(
             network_config.rpc_url.clone(),
@@ -426,12 +429,12 @@ async fn main() -> Result<()> {
         .ok()
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(1024);
-    
+
     let compression = CompressionLayer::new()
         .gzip(true)
         .br(true)
         .compress_when(SizeAbove::new(compression_min_size));
-    
+
     tracing::info!(
         "Compression enabled (gzip, brotli) for responses > {} bytes",
         compression_min_size
@@ -572,7 +575,10 @@ async fn main() -> Result<()> {
 
     // Build network routes
     let network_routes = Router::new()
-        .nest("/api/network", stellar_insights_backend::api::network::routes())
+        .nest(
+            "/api/network",
+            stellar_insights_backend::api::network::routes(),
+        )
         .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
             rate_limiter.clone(),
             rate_limit_middleware,
@@ -594,13 +600,13 @@ async fn main() -> Result<()> {
     // Merge routers
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
-    
+
     // Build WebSocket routes
     let ws_routes = Router::new()
         .route("/ws", get(stellar_insights_backend::websocket::ws_handler))
         .with_state(Arc::clone(&ws_state))
         .layer(cors.clone());
-    
+
     let app = Router::new()
         .merge(swagger_routes)
         .merge(auth_routes)
@@ -616,7 +622,7 @@ async fn main() -> Result<()> {
         .merge(network_routes)
         .merge(cache_routes)
         .merge(metrics_routes)
-        .merge(ws_routes);
+        .merge(ws_routes)
         .layer(compression); // Apply compression to all routes
 
     // Start server

@@ -14,6 +14,13 @@ use crate::models::SortBy;
 use crate::rpc::StellarRpcClient;
 use crate::services::price_feed::PriceFeedClient;
 
+type CorridorApiState = (
+    Arc<Database>,
+    Arc<CacheManager>,
+    Arc<StellarRpcClient>,
+    Arc<PriceFeedClient>,
+);
+
 /// Represents an asset pair (source -> destination) for a corridor
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct AssetPair {
@@ -31,7 +38,7 @@ impl AssetPair {
 /// Handles regular payments, path_payment_strict_send, and path_payment_strict_receive
 fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<AssetPair> {
     let operation_type = payment.operation_type.as_deref().unwrap_or("payment");
-    
+
     match operation_type {
         "path_payment_strict_send" | "path_payment_strict_receive" => {
             // Path payments have explicit source and destination assets
@@ -48,7 +55,7 @@ fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<Asse
             } else {
                 return None;
             };
-            
+
             let destination_asset = if payment.asset_type == "native" {
                 "XLM:native".to_string()
             } else {
@@ -58,13 +65,13 @@ fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<Asse
                     payment.asset_issuer.as_deref().unwrap_or("unknown")
                 )
             };
-            
+
             Some(AssetPair {
                 source_asset,
                 destination_asset,
             })
         }
-        "payment" | _ => {
+        _ => {
             // Regular payments: same asset for source and destination
             let asset = if payment.asset_type == "native" {
                 "XLM:native".to_string()
@@ -75,7 +82,7 @@ fn extract_asset_pair_from_payment(payment: &crate::rpc::Payment) -> Option<Asse
                     payment.asset_issuer.as_deref().unwrap_or("unknown")
                 )
             };
-            
+
             Some(AssetPair {
                 source_asset: asset.clone(),
                 destination_asset: asset,
@@ -294,12 +301,7 @@ fn generate_corridor_list_cache_key(params: &ListCorridorsQuery) -> String {
     tag = "Corridors"
 )]
 pub async fn list_corridors(
-    State((_db, cache, rpc_client, price_feed)): State<(
-        Arc<Database>,
-        Arc<CacheManager>,
-        Arc<StellarRpcClient>,
-        Arc<PriceFeedClient>,
-    )>,
+    State((_db, cache, rpc_client, price_feed)): State<CorridorApiState>,
     Query(params): Query<ListCorridorsQuery>,
 ) -> ApiResult<Json<Vec<CorridorResponse>>> {
     let cache_key = generate_corridor_list_cache_key(&params);
@@ -335,15 +337,9 @@ pub async fn list_corridors(
                 // Extract the actual asset pair from the payment
                 if let Some(asset_pair) = extract_asset_pair_from_payment(payment) {
                     let corridor_key = asset_pair.to_corridor_key();
-                    corridor_map
-                        .entry(corridor_key)
-                        .or_insert_with(Vec::new)
-                        .push(payment);
+                    corridor_map.entry(corridor_key).or_default().push(payment);
                 } else {
-                    tracing::warn!(
-                        "Failed to extract asset pair from payment: {}",
-                        payment.id
-                    );
+                    tracing::warn!("Failed to extract asset pair from payment: {}", payment.id);
                 }
             }
 
@@ -374,7 +370,7 @@ pub async fn list_corridors(
                 // Calculate volume from payment amounts and convert to USD
                 let mut volume_usd: f64 = 0.0;
                 let source_asset_key = parts[0];
-                
+
                 // Get price for source asset
                 if let Ok(price) = price_feed.get_price(source_asset_key).await {
                     for payment in corridor_payments.iter() {
@@ -384,7 +380,10 @@ pub async fn list_corridors(
                     }
                 } else {
                     // Fallback: use raw amounts if price unavailable
-                    tracing::warn!("Price unavailable for {}, using raw amounts", source_asset_key);
+                    tracing::warn!(
+                        "Price unavailable for {}, using raw amounts",
+                        source_asset_key
+                    );
                     volume_usd = corridor_payments
                         .iter()
                         .filter_map(|p| p.amount.parse::<f64>().ok())
@@ -484,12 +483,7 @@ pub async fn list_corridors(
     tag = "Corridors"
 )]
 pub async fn get_corridor_detail(
-    State((_db, _cache, _rpc_client, _price_feed)): State<(
-        Arc<Database>,
-        Arc<CacheManager>,
-        Arc<StellarRpcClient>,
-        Arc<PriceFeedClient>,
-    )>,
+    State((_db, _cache, _rpc_client, _price_feed)): State<CorridorApiState>,
     Path(_corridor_key): Path<String>,
 ) -> ApiResult<Json<CorridorDetailResponse>> {
     // TODO: Implement RPC-based corridor detail
@@ -683,4 +677,3 @@ mod tests {
         assert_eq!(pair.destination_asset, "NGNT:GNGNTISSUER");
     }
 }
-

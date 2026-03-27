@@ -84,7 +84,7 @@ impl SnapshotService {
 
         // Step 3: Compute SHA-256 hash
         let hash = Self::compute_sha256_hash_bytes(&canonical_json);
-        let hash_hex = hex::encode(&hash);
+        let hash_hex = hex::encode(hash);
 
         info!("Generated snapshot hash: {}", hash_hex);
 

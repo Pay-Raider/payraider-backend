@@ -37,7 +37,7 @@ impl SimpleMLModel {
     }
 
     pub fn predict(&self, features: PredictionFeatures) -> PredictionResult {
-        let input = vec![
+        let input = [
             features.corridor_hash,
             features.amount_usd,
             features.hour_of_day,
@@ -56,7 +56,11 @@ impl SimpleMLModel {
 
         PredictionResult {
             success_probability: prob,
-            confidence: if prob > 0.7 || prob < 0.3 { 0.9 } else { 0.7 },
+            confidence: if !(0.3..=0.7).contains(&prob) {
+                0.9
+            } else {
+                0.7
+            },
             model_version: self.version.clone(),
         }
     }
@@ -68,6 +72,12 @@ impl SimpleMLModel {
 
         // Update version after training
         self.version = format!("1.0.{}", chrono::Utc::now().timestamp() % 1000);
+    }
+}
+
+impl Default for SimpleMLModel {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -130,7 +140,7 @@ impl MLService {
     ) -> anyhow::Result<PredictionResult> {
         let parts: Vec<&str> = corridor.split('-').collect();
         let corridor_hash = self.hash_corridor(
-            &Some(parts.get(0).unwrap_or(&"").to_string()),
+            &Some(parts.first().unwrap_or(&"").to_string()),
             &Some(parts.get(1).unwrap_or(&"").to_string()),
         );
 

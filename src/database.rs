@@ -840,7 +840,7 @@ impl Database {
         signature: &str,
     ) -> Result<()> {
         let id = Uuid::new_v4().to_string();
-        
+
         sqlx::query(
             r#"
             INSERT INTO transaction_signatures (id, transaction_id, signer, signature)
@@ -857,11 +857,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn update_transaction_status(
-        &self,
-        id: &str,
-        status: &str,
-    ) -> Result<()> {
+    pub async fn update_transaction_status(&self, id: &str, status: &str) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE pending_transactions
@@ -875,18 +871,5 @@ impl Database {
         .await?;
 
         Ok(())
-    }
-
-    // =========================
-    // Muxed Account Analytics
-    // =========================
-
-    pub async fn get_muxed_analytics(&self, limit: i64) -> Result<crate::models::MuxedAccountAnalytics> {
-        // Stub implementation - returns empty analytics
-        Ok(crate::models::MuxedAccountAnalytics {
-            total_muxed_accounts: 0,
-            active_accounts: 0,
-            top_accounts: vec![],
-        })
     }
 }
