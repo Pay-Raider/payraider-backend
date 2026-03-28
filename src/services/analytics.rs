@@ -2,7 +2,7 @@ use crate::models::corridor::{compute_median, CorridorMetrics, PaymentRecord};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub struct CorridorTransaction {
+pub struct CorridorPayment {
     pub successful: bool,
     pub settlement_latency_ms: Option<i32>,
     pub amount_usd: f64,
@@ -60,7 +60,7 @@ pub fn compute_liquidity_depth(order_book: &OrderBookSnapshot, max_slippage_perc
 /// Computes corridor metrics from transactions, calculating average and median settlement latency with optional liquidity depth.
 #[must_use]
 pub fn compute_corridor_metrics(
-    txns: &[CorridorTransaction],
+    txns: &[CorridorPayment],
     order_book: Option<&OrderBookSnapshot>, // Optional snapshot for liquidity depth
     slippage_percent: f64,                  // e.g., 1.0 = 1% slippage
 ) -> CorridorMetrics {
@@ -336,17 +336,17 @@ mod tests {
     #[test]
     fn test_compute_corridor_metrics_basic() {
         let txns = vec![
-            CorridorTransaction {
+            CorridorPayment {
                 successful: true,
                 settlement_latency_ms: Some(1000),
                 amount_usd: 100.0,
             },
-            CorridorTransaction {
+            CorridorPayment {
                 successful: true,
                 settlement_latency_ms: Some(3000),
                 amount_usd: 200.0,
             },
-            CorridorTransaction {
+            CorridorPayment {
                 successful: false,
                 settlement_latency_ms: None,
                 amount_usd: 50.0,
@@ -399,12 +399,12 @@ mod tests {
     #[test]
     fn test_compute_corridor_metrics_all_failed() {
         let txns = vec![
-            CorridorTransaction {
+            CorridorPayment {
                 successful: false,
                 settlement_latency_ms: None,
                 amount_usd: 10.0,
             },
-            CorridorTransaction {
+            CorridorPayment {
                 successful: false,
                 settlement_latency_ms: None,
                 amount_usd: 20.0,
