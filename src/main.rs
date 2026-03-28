@@ -250,9 +250,7 @@ async fn main() -> anyhow::Result<()> {
         pool,
         cache,
     )
-    .merge(
-        SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
-    )
+    .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
     .layer(TimeoutLayer::new(Duration::from_secs(timeout_seconds)));
 
         .layer(middleware::from_fn_with_state(

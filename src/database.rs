@@ -8,6 +8,7 @@ use std::time::Instant;
 use uuid::Uuid;
 
 use crate::analytics::compute_anchor_metrics;
+use crate::cache::CacheManager;
 use crate::models::api_key::{
     generate_api_key, hash_api_key, ApiKey, ApiKeyInfo, CreateApiKeyRequest, CreateApiKeyResponse,
 };
@@ -15,7 +16,6 @@ use crate::models::{
     Anchor, AnchorDetailResponse, AnchorMetricsHistory, Asset, CorridorRecord, CreateAnchorRequest,
     MetricRecord, MuxedAccountAnalytics, MuxedAccountUsage, SnapshotRecord,
 };
-use crate::cache::CacheManager;
 
 /// Configuration for database connection pool
 #[derive(Debug, Clone)]
@@ -467,6 +467,18 @@ impl Database {
         .await
     }
 
+    /// Retrieves all anchors from the database, sorted by name.
+    pub async fn get_all_anchors(&self) -> Result<Vec<Anchor>> {
+        self.execute_with_timing("get_all_anchors", async {
+            let anchors = sqlx::query_as::<_, Anchor>("SELECT * FROM anchors ORDER BY name ASC")
+                .fetch_all(&self.pool)
+                .await
+                .context("Failed to get all anchors")?;
+            Ok(anchors)
+        })
+        .await
+    }
+
     /// Updates anchor metrics and records history.
     ///
     /// Computes reliability score and status from transaction metrics, updates the anchor,
@@ -732,19 +744,6 @@ impl Database {
     /// # Performance
     ///
     /// Uses dynamic SQL with IN clause. Efficient for batch operations.
-    /// Get all anchors from the database
-    pub async fn get_all_anchors(&self) -> Result<Vec<Anchor>> {
-        self.execute_with_timing("get_all_anchors", async {
-            let anchors = sqlx::query_as::<_, Anchor>("SELECT * FROM anchors ORDER BY name ASC")
-                .fetch_all(&self.pool)
-                .await
-                .context("Failed to get all anchors")?;
-            Ok(anchors)
-        })
-        .await
-    }
-
-    /// Returns empty `HashMap` if `anchor_ids` is empty.
     pub async fn get_assets_by_anchors(
         &self,
         anchor_ids: &[Uuid],
@@ -914,19 +913,18 @@ impl Database {
     }
 
     pub async fn get_anchor_detail(&self, anchor_id: Uuid) -> Result<Option<AnchorDetailResponse>> {
-        let anchor = match self
-            .get_anchor_by_id(anchor_id)
-            .await
-            .context(format!("Failed to fetch anchor for detail view: {}", anchor_id))?
-        {
+        let anchor = match self.get_anchor_by_id(anchor_id).await.context(format!(
+            "Failed to fetch anchor for detail view: {}",
+            anchor_id
+        ))? {
             Some(a) => a,
             None => return Ok(None),
         };
 
-        let assets = self
-            .get_assets_by_anchor(anchor_id)
-            .await
-            .context(format!("Failed to fetch assets for anchor detail: {}", anchor_id))?;
+        let assets = self.get_assets_by_anchor(anchor_id).await.context(format!(
+            "Failed to fetch assets for anchor detail: {}",
+            anchor_id
+        ))?;
         let metrics_history = self
             .get_anchor_metrics_history(anchor_id, 30)
             .await
@@ -1076,7 +1074,11 @@ impl Database {
             // Invalidate cache
             let corridor_key = corridor.to_string_key();
             let _ = cache.invalidate_corridor(&corridor_key).await.map_err(|e| {
-                tracing::warn!("Failed to invalidate cache for corridor {}: {}", corridor_key, e);
+                tracing::warn!(
+                    "Failed to invalidate cache for corridor {}: {}",
+                    corridor_key,
+                    e
+                );
             });
 
             Ok(corridor)
@@ -1745,7 +1747,7 @@ impl Database {
                     .execute(&self.pool)
                     .await
                     .map_err(|e| {
-                        log::warn!("Failed to update last_used_at for API key {}: {}", k.id, e);
+                        tracing::warn!("Failed to update last_used_at for API key {}: {}", k.id, e);
                     });
             }
 
@@ -1843,7 +1845,10 @@ impl Database {
             .await?;
         self.revoke_api_key(id, wallet_address)
             .await
-            .context(format!("Failed to revoke old API key during rotation: {}", id))?;
+            .context(format!(
+                "Failed to revoke old API key during rotation: {}",
+                id
+            ))?;
 
         let new_key = self
             .create_api_key(
@@ -1884,8 +1889,8 @@ impl Database {
                     SUM(CASE WHEN successful = 1 THEN 1 ELSE 0 END) as successful,
                     AVG(amount) as avg_latency
                 FROM payments
-                WHERE (source_account = ? OR destination_account = ?)
-                AND created_at >= ?
+                WHERE (source_account = $1 OR destination_account = $2)
+                AND created_at >= $3
                 ",
             )
             .bind(anchor_id)
