@@ -18,6 +18,10 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 const MAX_CONCURRENT_CONNECTIONS: usize = 1_000;
+const MAX_PENDING_OUTGOING_MESSAGES: usize = 32;
+const MAX_TEXT_MESSAGE_SIZE: usize = 64 * 1024;
+const MAX_BINARY_MESSAGE_SIZE: usize = 64 * 1024;
+const WS_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_MESSAGES_PER_WINDOW: u32 = 100;
 const MESSAGE_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 
@@ -130,8 +134,8 @@ impl WsState {
 
         for connection_id in target_connections {
             if let Some(sender) = self.connections.get(&connection_id) {
-                if let Err(e) = sender.send(message.clone()).await {
-                    warn!("Failed to send message to connection {}: {}", connection_id, e);
+                if sender.try_send(message.clone()).is_err() {
+                    warn!("Outgoing queue full for connection {}, dropping message", connection_id);
                 }
             }
         }
@@ -223,6 +227,14 @@ impl WsState {
             self.cleanup_connection(connection_id);
         }
         info!("All WebSocket connections have been closed");
+    }
+}
+
+fn is_oversized_message(message: &Message) -> bool {
+    match message {
+        Message::Text(text) => text.len() > MAX_TEXT_MESSAGE_SIZE,
+        Message::Binary(data) => data.len() > MAX_BINARY_MESSAGE_SIZE,
+        _ => false,
     }
 }
 
@@ -350,7 +362,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsState>, connection_permit
 
     let (sender, receiver) = socket.split();
     let sender = Arc::new(tokio::sync::Mutex::new(sender));
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<WsMessage>(32);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<WsMessage>(MAX_PENDING_OUTGOING_MESSAGES);
 
     state.connections.insert(connection_id, tx);
     crate::observability::metrics::set_active_connections(state.connection_count() as i64);
@@ -370,7 +382,33 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsState>, connection_permit
         let client_id = client_id.clone();
         tokio::spawn(async move {
             let mut receiver = receiver;
-            while let Some(Ok(msg)) = receiver.next().await {
+            loop {
+                let next_message = tokio::time::timeout(WS_IDLE_TIMEOUT, receiver.next()).await;
+                let msg = match next_message {
+                    Ok(Some(Ok(msg))) => msg,
+                    Ok(Some(Err(err))) => {
+                        error!("WebSocket receive error for {}: {}", connection_id, err);
+                        break;
+                    }
+                    Ok(None) => break,
+                    Err(_) => {
+                        warn!("WebSocket idle timeout for {}", connection_id);
+                        let mut guard = recv_sender.lock().await;
+                        let _ = guard.send(Message::Close(None)).await;
+                        break;
+                    }
+                };
+
+                if is_oversized_message(&msg) {
+                    warn!("Oversized WebSocket message received from {}", connection_id);
+                    let _ = send_ws_message(&recv_sender, &WsMessage::Error {
+                        message: "Message size exceeds allowed limit.".to_string(),
+                    }).await;
+                    let mut guard = recv_sender.lock().await;
+                    let _ = guard.send(Message::Close(None)).await;
+                    break;
+                }
+
                 if should_rate_limit_message(&msg)
                     && !state_clone.check_message_rate_limit(connection_id)
                 {
