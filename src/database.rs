@@ -745,7 +745,7 @@ impl Database {
 
     pub async fn upsert_hourly_corridor_metric(
         &self,
-        metric: &crate::services::aggregation::HourlyCorridorMetrics,
+        metric: &crate::models::corridor::HourlyCorridorMetrics,
     ) -> Result<()> {
         self.aggregation_db()
             .upsert_hourly_corridor_metric(metric)
@@ -756,7 +756,7 @@ impl Database {
         &self,
         start_time: chrono::DateTime<chrono::Utc>,
         end_time: chrono::DateTime<chrono::Utc>,
-    ) -> Result<Vec<crate::services::aggregation::HourlyCorridorMetrics>> {
+    ) -> Result<Vec<crate::models::corridor::HourlyCorridorMetrics>> {
         self.aggregation_db()
             .fetch_hourly_metrics_by_timerange(start_time, end_time)
             .await

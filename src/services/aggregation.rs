@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::database::Database;
-use crate::models::corridor::CorridorMetrics;
+use crate::models::corridor::{CorridorMetrics, HourlyCorridorMetrics, VolumeTrend};
 use crate::services::analytics::compute_metrics_from_payments;
 
 const MAX_RETRIES: i32 = 3;
@@ -393,34 +393,6 @@ impl Clone for AggregationService {
             config: self.config.clone(),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct HourlyCorridorMetrics {
-    pub id: String,
-    pub corridor_key: String,
-    pub asset_a_code: String,
-    pub asset_a_issuer: String,
-    pub asset_b_code: String,
-    pub asset_b_issuer: String,
-    pub hour_bucket: DateTime<Utc>,
-    pub total_transactions: i64,
-    pub successful_transactions: i64,
-    pub failed_transactions: i64,
-    pub success_rate: f64,
-    pub volume_usd: f64,
-    pub avg_slippage_bps: f64,
-    pub avg_settlement_latency_ms: Option<i32>,
-    pub liquidity_depth_usd: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct VolumeTrend {
-    pub corridor_key: String,
-    pub total_volume: f64,
-    pub avg_volume: f64,
-    pub trend_percentage: f64,
-    pub data_points: usize,
 }
 
 // Tests commented out - require mock database implementation
