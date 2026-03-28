@@ -8,6 +8,7 @@ use dotenv::dotenv;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
+use tower::timeout::TimeoutLayer;
 use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -819,6 +820,19 @@ async fn main() -> Result<()> {
         compression_min_size
     );
 
+    // Request timeout configuration
+    let request_timeout_seconds = std::env::var("REQUEST_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(60); // Default 60 seconds
+
+    let request_timeout = TimeoutLayer::new(Duration::from_secs(request_timeout_seconds));
+
+    tracing::info!(
+        "Request timeout configured: {} seconds",
+        request_timeout_seconds
+    );
+
     // Import middleware
     use axum::middleware;
     use tower::ServiceBuilder;
@@ -1175,6 +1189,7 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
         .layer(middleware::from_fn(request_id_middleware))
+        .layer(request_timeout) // Apply request timeout to all routes
         .layer(compression); // Apply compression to all routes
 
     // Start server
