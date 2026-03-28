@@ -7,18 +7,26 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use anyhow::Context;
 
 use crate::broadcast::broadcast_anchor_update;
+use crate::cache::helpers::cached_query;
+use crate::cache::keys;
 use crate::cache::CacheManager;
+use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
+use crate::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
+use crate::rpc::StellarRpcClient;
+use crate::services::price_feed::PriceFeedClient;
 use crate::state::AppState;
 use tracing::{error, info, warn};
 
@@ -281,18 +289,6 @@ pub async fn create_anchor_asset(
 
     Ok(Json(asset))
 }
-
-use crate::cache::helpers::cached_query;
-use crate::cache::keys;
-use crate::database::Database;
-use crate::rpc::{
-    circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
-    error::{with_retry as other_with_retry, RetryConfig, RpcError},
-    StellarRpcClient,
-};
-use crate::services::price_feed::PriceFeedClient;
-use std::future::Future;
-use std::time::Duration;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
