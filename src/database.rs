@@ -467,6 +467,18 @@ impl Database {
         .await
     }
 
+    /// Retrieves all anchors from the database, sorted by name.
+    pub async fn get_all_anchors(&self) -> Result<Vec<Anchor>> {
+        self.execute_with_timing("get_all_anchors", async {
+            let anchors = sqlx::query_as::<_, Anchor>("SELECT * FROM anchors ORDER BY name ASC")
+                .fetch_all(&self.pool)
+                .await
+                .context("Failed to get all anchors")?;
+            Ok(anchors)
+        })
+        .await
+    }
+
     /// Updates anchor metrics and records history.
     ///
     /// Computes reliability score and status from transaction metrics, updates the anchor,
@@ -698,19 +710,6 @@ impl Database {
     /// # Performance
     ///
     /// Uses dynamic SQL with IN clause. Efficient for batch operations.
-    /// Get all anchors from the database
-    pub async fn get_all_anchors(&self) -> Result<Vec<Anchor>> {
-        self.execute_with_timing("get_all_anchors", async {
-            let anchors = sqlx::query_as::<_, Anchor>("SELECT * FROM anchors ORDER BY name ASC")
-                .fetch_all(&self.pool)
-                .await
-                .context("Failed to get all anchors")?;
-            Ok(anchors)
-        })
-        .await
-    }
-
-    /// Returns empty `HashMap` if `anchor_ids` is empty.
     pub async fn get_assets_by_anchors(
         &self,
         anchor_ids: &[Uuid],
@@ -1679,7 +1678,7 @@ impl Database {
                     .execute(&self.pool)
                     .await
                     .map_err(|e| {
-                        log::warn!("Failed to update last_used_at for API key {}: {}", k.id, e);
+                        tracing::warn!("Failed to update last_used_at for API key {}: {}", k.id, e);
                     });
             }
 
@@ -1770,8 +1769,8 @@ impl Database {
                     SUM(CASE WHEN successful = 1 THEN 1 ELSE 0 END) as successful,
                     AVG(amount) as avg_latency
                 FROM payments
-                WHERE (source_account = ? OR destination_account = ?)
-                AND created_at >= ?
+                WHERE (source_account = $1 OR destination_account = $2)
+                AND created_at >= $3
                 ",
             )
             .bind(anchor_id)
