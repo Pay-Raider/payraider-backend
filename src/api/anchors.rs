@@ -492,27 +492,30 @@ pub async fn get_anchors(
 
             // Process anchors with pre-fetched data
             for anchor in anchors {
-                let anchor_id =
-                    uuid::Uuid::parse_str(&anchor.id).unwrap_or_else(|_| uuid::Uuid::nil());
-
                 // Get pre-fetched assets (no additional query needed)
                 let assets = asset_map.get(&anchor.id).cloned().unwrap_or_default();
 
                 // **RPC DATA**: Fetch real-time payment data for this anchor with pagination
-                let payments = match rpc_client
-                    .fetch_all_account_payments(&anchor.stellar_account, Some(500))
-                    .await
-                {
-                    Ok(p) => p,
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to fetch payments for anchor {}: {}",
-                            anchor.stellar_account,
-                            e
-                        );
-                        vec![]
-                    }
-                };
+                // Wrapped in circuit breaker for resilience against RPC failures
+                let payments = with_retry(
+                    || async {
+                        rpc_client
+                            .fetch_all_account_payments(&anchor.stellar_account, Some(500))
+                            .await
+                            .map_err(|e| RpcError::categorize(&e.to_string()))
+                    },
+                    RetryConfig::default(),
+                    circuit_breaker.clone(),
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        "Failed to fetch payments for anchor {}: {}",
+                        anchor.stellar_account,
+                        e
+                    );
+                    vec![]
+                });
 
                 // Calculate metrics from RPC payment data
                 let (total_transactions, successful_transactions, failed_transactions) =
