@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::NaiveDate;
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -290,7 +290,10 @@ impl CorridorAggregates {
         .bind(cutoff_datetime)
         .execute(&self.pool)
         .await
-        .context(format!("Failed to delete metrics older than: {}", cutoff_date))?;
+        .context(format!(
+            "Failed to delete metrics older than: {}",
+            cutoff_date
+        ))?;
 
         Ok(result.rows_affected())
     }
