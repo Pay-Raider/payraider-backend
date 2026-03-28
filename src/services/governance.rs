@@ -267,12 +267,16 @@ impl GovernanceService {
         voter_address: &str,
         request: CastVoteRequest,
     ) -> Result<VoteResponse> {
-        // Verify proposal is active
+        // Run the active-status check and the vote insert in a single
+        // transaction to prevent a race where the proposal is closed between
+        // the check and the insert.
+        let mut tx = self.db.pool().begin().await?;
+
         let status: String = sqlx::query_scalar(
             "SELECT status FROM governance_proposals WHERE id = ?",
         )
         .bind(proposal_id)
-        .fetch_one(self.db.pool())
+        .fetch_one(&mut *tx)
         .await
         .context("Proposal not found")?;
 
@@ -295,9 +299,11 @@ impl GovernanceService {
         .bind(&request.choice)
         .bind(&request.tx_hash)
         .bind(&now)
-        .execute(self.db.pool())
+        .execute(&mut *tx)
         .await
         .context("Failed to cast vote (may have already voted)")?;
+
+        tx.commit().await?;
 
         info!(
             "Vote cast on proposal {} by {}: {}",
