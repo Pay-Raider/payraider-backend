@@ -87,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
     env_config::log_env_config();
     let _tracing_guard =
         stellar_insights_backend::observability::tracing::init_tracing("stellar-insights-backend")?;
+    stellar_insights_backend::observability::metrics::init_metrics();
     tracing::info!("Stellar Insights Backend - Initializing Server");
 
     let db_url = std::env::var("DATABASE_URL")
