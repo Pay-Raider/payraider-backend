@@ -1,14 +1,65 @@
 use std::sync::Arc;
 use std::time::Duration;
-use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_http::timeout::TimeoutLayer;
 
 use anyhow::Context;
 use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
     HeaderValue, Method,
 };
+use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
+    timeout::TimeoutLayer,
+};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
+use stellar_insights_backend::api::account_merges;
+use stellar_insights_backend::api::anchors_cached::get_anchors;
+use stellar_insights_backend::api::api_analytics;
+use stellar_insights_backend::api::api_keys;
+use stellar_insights_backend::api::cache_stats;
+use stellar_insights_backend::api::corridors_cached::{get_corridor_detail, list_corridors};
+use stellar_insights_backend::api::cost_calculator;
+use stellar_insights_backend::api::fee_bump;
+use stellar_insights_backend::api::liquidity_pools;
+use stellar_insights_backend::api::metrics_cached;
+use stellar_insights_backend::api::oauth;
+use stellar_insights_backend::api::verification_rewards;
+use stellar_insights_backend::api::webhooks;
+use stellar_insights_backend::auth::AuthService;
+use stellar_insights_backend::auth_middleware::auth_middleware;
+use stellar_insights_backend::cache::{CacheConfig, CacheManager};
+use stellar_insights_backend::cache_invalidation::CacheInvalidationService;
+use stellar_insights_backend::database::Database;
+use stellar_insights_backend::gdpr::{GdprService, handlers as gdpr_handlers};
+use stellar_insights_backend::handlers::*;
+use stellar_insights_backend::ingestion::ledger::LedgerIngestionService;
+use stellar_insights_backend::ingestion::DataIngestionService;
+use stellar_insights_backend::ip_whitelist_middleware::{ip_whitelist_middleware, IpWhitelistConfig};
+use stellar_insights_backend::jobs::JobScheduler;
+use stellar_insights_backend::network::NetworkConfig;
+use stellar_insights_backend::openapi::ApiDoc;
+use stellar_insights_backend::observability::{metrics as obs_metrics, tracing as obs_tracing};
+use stellar_insights_backend::observability::tracing::trace_propagation_middleware;
+use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
+use stellar_insights_backend::request_id::request_id_middleware;
+use stellar_insights_backend::rpc::StellarRpcClient;
+use stellar_insights_backend::rpc_handlers;
+use stellar_insights_backend::services::account_merge_detector::AccountMergeDetector;
+use stellar_insights_backend::services::fee_bump_tracker::FeeBumpTrackerService;
+use stellar_insights_backend::services::liquidity_pool_analyzer::LiquidityPoolAnalyzer;
+use stellar_insights_backend::services::price_feed::{
+    default_asset_mapping, PriceFeedClient, PriceFeedConfig,
+};
+use stellar_insights_backend::services::realtime_broadcaster::RealtimeBroadcaster;
+use stellar_insights_backend::services::trustline_analyzer::TrustlineAnalyzer;
+use stellar_insights_backend::services::webhook_dispatcher::WebhookDispatcher;
+use stellar_insights_backend::alerts::AlertManager;
+use stellar_insights_backend::monitor::CorridorMonitor;
+use stellar_insights_backend::telegram;
+use stellar_insights_backend::shutdown::{
+    flush_cache, log_shutdown_summary, shutdown_background_tasks, shutdown_database,
+    shutdown_websockets, wait_for_signal, ShutdownConfig, ShutdownCoordinator,
 use stellar_insights_backend::{
     api::v1::routes,
     backup::{BackupConfig, BackupManager},
@@ -29,8 +80,6 @@ use stellar_insights_backend::{
     state::AppState,
     websocket::WsState,
 };
-use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -38,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
     env_config::log_env_config();
     let _tracing_guard =
         stellar_insights_backend::observability::tracing::init_tracing("stellar-insights-backend")?;
+    stellar_insights_backend::observability::metrics::init_metrics();
     tracing::info!("Stellar Insights Backend - Initializing Server");
 
     let db_url = std::env::var("DATABASE_URL")
@@ -99,9 +149,9 @@ async fn main() -> anyhow::Result<()> {
 
     let app_state = AppState::new(
         db.clone(),
+        cache.clone(),
         ws_state,
         ingestion,
-        cache.clone(),
         rpc_client.clone(),
     );
     let cached_state = (
@@ -178,18 +228,14 @@ async fn main() -> anyhow::Result<()> {
             Method::OPTIONS,
             Method::PATCH,
         ])
-        .allow_header(AUTHORIZATION)
-        .allow_header(CONTENT_TYPE)
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 
-    // Configure request timeout
-    let timeout_seconds = std::env::var("REQUEST_TIMEOUT_SECONDS")
+    let timeout_seconds: u64 = std::env::var("REQUEST_TIMEOUT_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(30);
-    let timeout_duration = Duration::from_secs(timeout_seconds);
-    tracing::info!("Request timeout set to {} seconds", timeout_seconds);
 
     let app = routes(
         app_state,
@@ -204,16 +250,53 @@ async fn main() -> anyhow::Result<()> {
         pool,
         cache,
     )
-    .layer(TimeoutLayer::new(timeout_duration))
-    .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
+    .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+    .layer(TimeoutLayer::new(Duration::from_secs(timeout_seconds)));
+
+        .layer(middleware::from_fn_with_state(
+            db.clone(),
+            stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
+        ))
+        .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(trace_propagation_middleware))
+        .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
+        .layer(middleware::from_fn(request_id_middleware))
+        .layer(compression); // Apply compression to all routes
+    tracing::info!("Request timeout set to {} seconds", timeout_seconds);
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
     tracing::info!(address = %addr, "Server listening");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     stellar_insights_backend::observability::tracing::shutdown_tracing();
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => { tracing::info!("Received Ctrl+C, shutting down"); },
+        _ = terminate => { tracing::info!("Received SIGTERM, shutting down"); },
+    }
 }

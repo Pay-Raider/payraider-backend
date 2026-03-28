@@ -1,5 +1,5 @@
 use crate::database::Database;
-use crate::services::alerts::AlertService;
+use crate::services::alert_service::AlertService;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use reqwest::Client;
@@ -71,7 +71,6 @@ struct RpcError {
     code: i32,
     message: String,
 }
-
 
 pub struct ContractEventListener {
     client: Client,
@@ -360,7 +359,7 @@ impl ContractEventListener {
 
                 // Send alert via AlertService
                 let expected = backend_hash.clone();
-                let actual = on_chain_hash.clone();
+                let actual = on_chain_hash.to_string();
 
                 let alert_service = self.alert_service.clone();
                 tokio::spawn(async move {
@@ -631,4 +630,3 @@ mod tests {
         std::env::remove_var("CONTRACT_EVENT_START_LEDGER");
     }
 }
-

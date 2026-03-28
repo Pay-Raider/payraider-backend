@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::database::Database;
-use crate::models::corridor::CorridorMetrics;
+use crate::models::corridor::{CorridorMetrics, HourlyCorridorMetrics, VolumeTrend};
 use crate::services::analytics::compute_metrics_from_payments;
 
 const MAX_RETRIES: i32 = 3;
@@ -191,6 +191,20 @@ impl AggregationService {
             metric.total_transactions,
         );
 
+        // Merge average slippage (weighted by transaction counts)
+        if previous_total + metric.total_transactions > 0 {
+            let existing_avg = existing.avg_slippage_bps;
+            let existing_weight = previous_total as f64;
+            let new_avg = metric.avg_slippage_bps;
+            let new_weight = metric.total_transactions as f64;
+
+            existing.avg_slippage_bps = ((existing_avg * existing_weight)
+                + (new_avg * new_weight))
+                / (existing_weight + new_weight);
+        } else {
+            existing.avg_slippage_bps = metric.avg_slippage_bps;
+        }
+
         // Calculate midpoint for liquidity depth manually as f64 doesn't have .midpoint()
         existing.liquidity_depth_usd =
             (existing.liquidity_depth_usd + metric.liquidity_depth_usd) / 2.0;
@@ -221,17 +235,17 @@ impl AggregationService {
         HourlyCorridorMetrics {
             id: Uuid::new_v4().to_string(),
             corridor_key: metric.corridor_key.clone(),
-            source_asset_code: metric.reserve_asset_a_code.clone(),
-            source_asset_issuer: metric.reserve_asset_a_issuer.clone(),
-            destination_asset_code: metric.reserve_asset_b_code.clone(),
-            destination_asset_issuer: metric.reserve_asset_b_issuer.clone(),
+            source_asset_code: metric.source_asset_code.clone(),
+            source_asset_issuer: metric.source_asset_issuer.clone(),
+            destination_asset_code: metric.destination_asset_code.clone(),
+            destination_asset_issuer: metric.destination_asset_issuer.clone(),
             hour_bucket,
             total_transactions: metric.total_transactions,
             successful_transactions: metric.successful_transactions,
             failed_transactions: metric.failed_transactions,
             success_rate: metric.success_rate,
             volume_usd: metric.volume_usd,
-            avg_slippage_bps: 0.0,
+            avg_slippage_bps: metric.avg_slippage_bps,
             avg_settlement_latency_ms: metric.avg_settlement_latency_ms,
             liquidity_depth_usd: metric.liquidity_depth_usd,
         }
@@ -467,6 +481,12 @@ mod tests {
 
         let pool = SqlitePool::connect_with(options).await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    use crate::database::Database;
+
+    #[tokio::test]
+    async fn test_truncate_to_hour() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        let service = AggregationService::new(Arc::new(Database::new(pool)), AggregationConfig::default());
 
         (Arc::new(Database::new(pool)), temp_dir)
     }
@@ -564,6 +584,9 @@ mod tests {
             .get::<Option<String>, _>("last_processed_hour")
             .is_some());
     }
+    async fn test_compute_volume_trends() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        let service = AggregationService::new(Arc::new(Database::new(pool)), AggregationConfig::default());
 
     #[tokio::test]
     async fn test_aggregate_with_no_data() {
