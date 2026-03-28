@@ -1,4 +1,3 @@
-
 use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
@@ -19,9 +18,9 @@ use crate::cache::CacheManager;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
+use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::state::AppState;
-use crate::rpc::error::{RetryConfig, with_retry, RpcError};
-use tracing::{warn, info, error};
+use tracing::{error, info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnchorMetrics {
@@ -333,9 +332,6 @@ pub(crate) fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
 pub(crate) fn rpc_circuit_breaker_instance() -> Arc<CircuitBreaker> {
     rpc_circuit_breaker()
 }
-
-
-
 
 pub async fn get_anchor_metrics_with_rpc(
     anchor_id: Uuid,
