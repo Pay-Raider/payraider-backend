@@ -41,6 +41,7 @@ use stellar_insights_backend::jobs::JobScheduler;
 use stellar_insights_backend::network::NetworkConfig;
 use stellar_insights_backend::openapi::ApiDoc;
 use stellar_insights_backend::observability::{metrics as obs_metrics, tracing as obs_tracing};
+use stellar_insights_backend::observability::tracing::trace_propagation_middleware;
 use stellar_insights_backend::rate_limit::{rate_limit_middleware, RateLimitConfig, RateLimiter};
 use stellar_insights_backend::request_id::request_id_middleware;
 use stellar_insights_backend::rpc::StellarRpcClient;
@@ -1153,6 +1154,7 @@ async fn main() -> Result<()> {
             stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
         ))
         .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(trace_propagation_middleware))
         .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
         .layer(middleware::from_fn(request_id_middleware))
         .layer(compression); // Apply compression to all routes
