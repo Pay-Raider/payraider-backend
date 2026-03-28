@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::NaiveDate;
 use serde::Serialize;
 use sqlx::SqlitePool;
