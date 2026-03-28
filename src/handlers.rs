@@ -235,19 +235,12 @@ pub async fn get_pool_metrics(
     Json(app_state.db.pool_metrics())
 }
 
-/// GET /metrics - Prometheus-style database pool metrics
-pub async fn get_prometheus_metrics(State(app_state): State<AppState>) -> impl IntoResponse {
-    let metrics = app_state.db.pool_metrics();
-    (
-        StatusCode::OK,
-        [(
-            header::CONTENT_TYPE,
-            "text/plain; version=0.0.4; charset=utf-8",
-        )],
-        render_pool_metrics_prometheus(&metrics),
-    )
+/// GET /metrics - Prometheus metrics endpoint (all registered metrics via global registry)
+pub async fn get_prometheus_metrics() -> impl IntoResponse {
+    crate::observability::metrics::metrics_handler().await
 }
 
+#[cfg(test)]
 fn render_pool_metrics_prometheus(metrics: &crate::database::PoolMetrics) -> String {
     format!(
         "# HELP stellar_insights_db_pool_size Database pool size\n\
