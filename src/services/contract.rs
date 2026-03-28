@@ -14,14 +14,15 @@ use serde_json::json;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
+// TODO: Fix stellar_sdk imports - version 0.1 has different API
 // Stellar SDK imports
-use stellar_sdk::{
-    network::Network as StellarNetwork,
-    types::{
-        KeyPair, Memo, MuxedAccount, Preconditions, SequenceNumber, TimeBounds, Transaction,
-        TransactionEnvelope,
-    },
-};
+// use stellar_sdk::{
+//     network::Network as StellarNetwork,
+//     types::{
+//         KeyPair, Memo, MuxedAccount, Preconditions, SequenceNumber, TimeBounds, Transaction,
+//         TransactionEnvelope,
+//     },
+// };
 
 const MAX_RETRIES: u32 = 3;
 const INITIAL_BACKOFF_MS: u64 = 1000;
@@ -307,6 +308,8 @@ impl ContractService {
     }
 
     /// Prepare and sign the transaction
+    /// 
+    /// TODO: Fix this function - stellar_sdk 0.1 has different API
     fn prepare_and_sign_transaction(&self, simulated: &serde_json::Value) -> Result<String> {
         // Return the transaction XDR from simulation as-is.
         // Full on-chain signing requires a Soroban-compatible keypair library
@@ -316,6 +319,10 @@ impl ContractService {
             .and_then(|t| t.as_str())
             .ok_or_else(|| anyhow::anyhow!("Simulation did not return transaction data"))?;
 
+        warn!("Transaction signing is currently disabled - stellar_sdk API mismatch");
+        Ok(transaction_xdr.to_string())
+        
+        /* Original implementation - commented out due to stellar_sdk API changes
         // In a full implementation, we would decode the XDR, add resources, sign, and encode.
         // For this task, we'll implement a robust signing flow with stellar-sdk.
 
@@ -357,6 +364,7 @@ impl ContractService {
         let signed_xdr = general_purpose::STANDARD.encode(&final_envelope.to_xdr()?);
 
         Ok(signed_xdr)
+        */
     }
 
     /// Send the signed transaction to the network
