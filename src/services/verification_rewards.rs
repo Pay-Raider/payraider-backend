@@ -212,16 +212,19 @@ impl VerificationRewardsService {
         .await
         .context("Failed to fetch leaderboard")?;
 
-        let mut leaderboard = Vec::new();
-        for (rank, row) in rows.iter().enumerate() {
-            leaderboard.push(LeaderboardEntry {
-                rank: (rank + 1) as i32,
-                username: row.try_get::<String, _>("username")?,
-                total_points: row.try_get::<i32, _>("total_points")?,
-                successful_verifications: row.try_get::<i32, _>("successful_verifications")?,
-                success_rate: row.try_get("success_rate").unwrap_or(0.0),
-            });
-        }
+        let leaderboard = rows
+            .iter()
+            .enumerate()
+            .map(|(rank, row)| -> Result<LeaderboardEntry> {
+                Ok(LeaderboardEntry {
+                    rank: (rank + 1) as i32,
+                    username: row.try_get::<String, _>("username")?,
+                    total_points: row.try_get::<i32, _>("total_points")?,
+                    successful_verifications: row.try_get::<i32, _>("successful_verifications")?,
+                    success_rate: row.try_get("success_rate").unwrap_or(0.0),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(leaderboard)
     }

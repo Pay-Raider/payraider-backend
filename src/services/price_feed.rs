@@ -285,15 +285,21 @@ impl PriceFeedClient {
             return result;
         }
 
-        // Map to provider asset IDs
-        let provider_ids: Vec<String> = to_fetch
+        // Map to provider asset IDs, keeping only assets that have a mapping
+        let mapped: Vec<(String, String)> = to_fetch
             .iter()
-            .filter_map(|asset| self.asset_mapping.get(asset).cloned())
+            .filter_map(|asset| {
+                self.asset_mapping
+                    .get(asset)
+                    .map(|id| (asset.clone(), id.clone()))
+            })
             .collect();
 
-        if provider_ids.is_empty() {
+        if mapped.is_empty() {
             return result;
         }
+
+        let provider_ids: Vec<String> = mapped.iter().map(|(_, id)| id.clone()).collect();
 
         // Fetch from provider
         match self.provider.fetch_prices(&provider_ids).await {
@@ -301,7 +307,7 @@ impl PriceFeedClient {
                 let mut cache = self.cache.write().await;
 
                 // Map back to Stellar assets and update cache
-                for (stellar_asset, provider_id) in to_fetch.iter().zip(provider_ids.iter()) {
+                for (stellar_asset, provider_id) in &mapped {
                     if let Some(&price) = prices.get(provider_id) {
                         cache.insert(
                             stellar_asset.clone(),
