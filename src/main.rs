@@ -280,11 +280,6 @@ async fn main() -> anyhow::Result<()> {
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 
-    let timeout_seconds: u64 = std::env::var("REQUEST_TIMEOUT_SECONDS")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(1024);
-
     // Compression configuration
     let compression_min_size: usize = std::env::var("COMPRESSION_MIN_SIZE")
         .ok()
