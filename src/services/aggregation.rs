@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::database::Database;
-use crate::models::corridor::CorridorMetrics;
+use crate::models::corridor::{CorridorMetrics, HourlyCorridorMetrics, VolumeTrend};
 use crate::services::analytics::compute_metrics_from_payments;
 
 const MAX_RETRIES: i32 = 3;
@@ -166,58 +166,97 @@ impl AggregationService {
 
             hourly_map
                 .entry(key)
-                .and_modify(|existing| {
-                    existing.total_transactions += metric.total_transactions;
-                    existing.successful_transactions += metric.successful_transactions;
-                    existing.failed_transactions += metric.failed_transactions;
-                    existing.volume_usd += metric.volume_usd;
-
-                    // Update averages (weighted by transaction count)
-                    if let Some(latency) = metric.avg_settlement_latency_ms {
-                        let total_latency =
-                            i64::from(existing.avg_settlement_latency_ms.unwrap_or(0))
-                                * existing.total_transactions
-                                + i64::from(latency) * metric.total_transactions;
-                        existing.avg_settlement_latency_ms = Some(
-                            (total_latency
-                                / (existing.total_transactions + metric.total_transactions))
-                                as i32,
-                        );
-                    }
-
-                    existing.liquidity_depth_usd =
-                        f64::midpoint(existing.liquidity_depth_usd, metric.liquidity_depth_usd);
-                })
-                .or_insert_with(|| HourlyCorridorMetrics {
-                    id: Uuid::new_v4().to_string(),
-                    corridor_key: metric.corridor_key.clone(),
-                    asset_a_code: metric.asset_a_code.clone(),
-                    asset_a_issuer: metric.asset_a_issuer.clone(),
-                    asset_b_code: metric.asset_b_code.clone(),
-                    asset_b_issuer: metric.asset_b_issuer.clone(),
-                    hour_bucket,
-                    total_transactions: metric.total_transactions,
-                    successful_transactions: metric.successful_transactions,
-                    failed_transactions: metric.failed_transactions,
-                    success_rate: metric.success_rate,
-                    volume_usd: metric.volume_usd,
-                    avg_slippage_bps: 0.0, // TODO: Calculate from order book data
-                    avg_settlement_latency_ms: metric.avg_settlement_latency_ms,
-                    liquidity_depth_usd: metric.liquidity_depth_usd,
-                });
+                .and_modify(|existing| Self::merge_hourly_metric(existing, &metric))
+                .or_insert_with(|| Self::new_hourly_metric(&metric, hour_bucket));
         }
 
         // Recalculate success rates
         hourly_map
             .into_values()
-            .map(|mut m| {
-                if m.total_transactions > 0 {
-                    m.success_rate =
-                        (m.successful_transactions as f64 / m.total_transactions as f64) * 100.0;
-                }
-                m
-            })
+            .map(Self::recalculate_success_rate)
             .collect()
+    }
+
+    fn merge_hourly_metric(existing: &mut HourlyCorridorMetrics, metric: &CorridorMetrics) {
+        let previous_total = existing.total_transactions;
+        existing.total_transactions += metric.total_transactions;
+        existing.successful_transactions += metric.successful_transactions;
+        existing.failed_transactions += metric.failed_transactions;
+        existing.volume_usd += metric.volume_usd;
+
+        existing.avg_settlement_latency_ms = Self::merge_latency(
+            existing.avg_settlement_latency_ms,
+            previous_total,
+            metric.avg_settlement_latency_ms,
+            metric.total_transactions,
+        );
+
+        // Merge average slippage (weighted by transaction counts)
+        if previous_total + metric.total_transactions > 0 {
+            let existing_avg = existing.avg_slippage_bps;
+            let existing_weight = previous_total as f64;
+            let new_avg = metric.avg_slippage_bps;
+            let new_weight = metric.total_transactions as f64;
+
+            existing.avg_slippage_bps = ((existing_avg * existing_weight)
+                + (new_avg * new_weight))
+                / (existing_weight + new_weight);
+        } else {
+            existing.avg_slippage_bps = metric.avg_slippage_bps;
+        }
+
+        // Calculate midpoint for liquidity depth manually as f64 doesn't have .midpoint()
+        existing.liquidity_depth_usd =
+            (existing.liquidity_depth_usd + metric.liquidity_depth_usd) / 2.0;
+    }
+
+    fn merge_latency(
+        current_latency: Option<i32>,
+        current_weight: i64,
+        new_latency: Option<i32>,
+        new_weight: i64,
+    ) -> Option<i32> {
+        let incoming = new_latency?;
+        let existing = i64::from(current_latency.unwrap_or(0));
+        let weighted_sum = existing * current_weight + i64::from(incoming) * new_weight;
+        let total_weight = current_weight + new_weight;
+
+        if total_weight > 0 {
+            Some((weighted_sum / total_weight) as i32)
+        } else {
+            Some(incoming)
+        }
+    }
+
+    fn new_hourly_metric(
+        metric: &CorridorMetrics,
+        hour_bucket: DateTime<Utc>,
+    ) -> HourlyCorridorMetrics {
+        HourlyCorridorMetrics {
+            id: Uuid::new_v4().to_string(),
+            corridor_key: metric.corridor_key.clone(),
+            source_asset_code: metric.source_asset_code.clone(),
+            source_asset_issuer: metric.source_asset_issuer.clone(),
+            destination_asset_code: metric.destination_asset_code.clone(),
+            destination_asset_issuer: metric.destination_asset_issuer.clone(),
+            hour_bucket,
+            total_transactions: metric.total_transactions,
+            successful_transactions: metric.successful_transactions,
+            failed_transactions: metric.failed_transactions,
+            success_rate: metric.success_rate,
+            volume_usd: metric.volume_usd,
+            avg_slippage_bps: metric.avg_slippage_bps,
+            avg_settlement_latency_ms: metric.avg_settlement_latency_ms,
+            liquidity_depth_usd: metric.liquidity_depth_usd,
+        }
+    }
+
+    fn recalculate_success_rate(mut metric: HourlyCorridorMetrics) -> HourlyCorridorMetrics {
+        if metric.total_transactions > 0 {
+            metric.success_rate =
+                (metric.successful_transactions as f64 / metric.total_transactions as f64) * 100.0;
+        }
+        metric
     }
 
     /// Store hourly metrics in the database
@@ -401,10 +440,10 @@ impl Clone for AggregationService {
 pub struct HourlyCorridorMetrics {
     pub id: String,
     pub corridor_key: String,
-    pub asset_a_code: String,
-    pub asset_a_issuer: String,
-    pub asset_b_code: String,
-    pub asset_b_issuer: String,
+    pub source_asset_code: String,
+    pub source_asset_issuer: String,
+    pub destination_asset_code: String,
+    pub destination_asset_issuer: String,
     pub hour_bucket: DateTime<Utc>,
     pub total_transactions: i64,
     pub successful_transactions: i64,
@@ -425,79 +464,150 @@ pub struct VolumeTrend {
     pub data_points: usize,
 }
 
-// Tests commented out - require mock database implementation
-// TODO: Add Database::new_mock() or use a test database
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::sqlite::SqliteConnectOptions;
+    use sqlx::{Row, SqlitePool};
+    use std::str::FromStr;
+    use tempfile::TempDir;
 
-    #[test]
-    #[ignore = "Requires Database::new_mock implementation"]
-    fn test_truncate_to_hour() {
-        let service = AggregationService::new(
-            Arc::new(Database::new_mock()),
-            AggregationConfig::default(),
-        );
+    async fn setup_test_db() -> (Arc<Database>, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("aggregation-tests.db");
+        let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.display()))
+            .unwrap()
+            .create_if_missing(true);
 
-        let dt = Utc::now();
-        let truncated = service.truncate_to_hour(dt);
+        let pool = SqlitePool::connect_with(options).await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    use crate::database::Database;
 
-        assert_eq!(truncated.minute(), 0);
-        assert_eq!(truncated.second(), 0);
-        assert_eq!(truncated.nanosecond(), 0);
+    #[tokio::test]
+    async fn test_truncate_to_hour() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        let service = AggregationService::new(Arc::new(Database::new(pool)), AggregationConfig::default());
+
+        (Arc::new(Database::new(pool)), temp_dir)
     }
 
-    #[test]
-    fn test_compute_volume_trends() {
-        let service = AggregationService::new(
-            Arc::new(Database::new_mock()),
-            AggregationConfig::default(),
-        );
+    async fn insert_test_payment(
+        db: &Database,
+        created_at: DateTime<Utc>,
+        amount: f64,
+        asset_code: &str,
+        asset_issuer: &str,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO payments (
+                id,
+                transaction_hash,
+                source_account,
+                destination_account,
+                asset_type,
+                asset_code,
+                asset_issuer,
+                amount,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(format!("tx-{}", Uuid::new_v4()))
+        .bind("G_SOURCE")
+        .bind("G_DESTINATION")
+        .bind("credit_alphanum4")
+        .bind(asset_code)
+        .bind(asset_issuer)
+        .bind(amount)
+        .bind(created_at.to_rfc3339())
+        .execute(db.pool())
+        .await
+        .unwrap();
+    }
 
+    #[tokio::test]
+    async fn test_aggregate_hourly_metrics() {
+        let (db, _temp_dir) = setup_test_db().await;
         let now = Utc::now();
-        let metrics = vec![
-            HourlyCorridorMetrics {
-                id: "1".to_string(),
-                corridor_key: "USDC:issuer1->EURC:issuer2".to_string(),
-                asset_a_code: "USDC".to_string(),
-                asset_a_issuer: "issuer1".to_string(),
-                asset_b_code: "EURC".to_string(),
-                asset_b_issuer: "issuer2".to_string(),
-                hour_bucket: now - Duration::hours(2),
-                total_transactions: 100,
-                successful_transactions: 95,
-                failed_transactions: 5,
-                success_rate: 95.0,
-                volume_usd: 1000.0,
-                avg_slippage_bps: 10.0,
-                avg_settlement_latency_ms: Some(500),
-                liquidity_depth_usd: 50000.0,
-            },
-            HourlyCorridorMetrics {
-                id: "2".to_string(),
-                corridor_key: "USDC:issuer1->EURC:issuer2".to_string(),
-                asset_a_code: "USDC".to_string(),
-                asset_a_issuer: "issuer1".to_string(),
-                asset_b_code: "EURC".to_string(),
-                asset_b_issuer: "issuer2".to_string(),
-                hour_bucket: now - Duration::hours(1),
-                total_transactions: 150,
-                successful_transactions: 145,
-                failed_transactions: 5,
-                success_rate: 96.7,
-                volume_usd: 1500.0,
-                avg_slippage_bps: 12.0,
-                avg_settlement_latency_ms: Some(450),
-                liquidity_depth_usd: 55000.0,
-            },
-        ];
+        let start_time = now - Duration::minutes(30);
+        let older_time = now - Duration::minutes(90);
 
-        let trends = service.compute_volume_trends(metrics);
-        assert_eq!(trends.len(), 1);
-        assert_eq!(trends[0].corridor_key, "USDC:issuer1->EURC:issuer2");
-        assert_eq!(trends[0].total_volume, 2500.0);
-        assert_eq!(trends[0].data_points, 2);
+        insert_test_payment(&db, start_time, 125.0, "USDC", "issuer1").await;
+        insert_test_payment(&db, older_time, 75.0, "USDC", "issuer1").await;
+
+        let service = AggregationService::new(Arc::clone(&db), AggregationConfig::default());
+        let result = service.run_hourly_aggregation().await;
+
+        assert!(result.is_ok());
+
+        let metrics_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM corridor_metrics_hourly")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert!(metrics_count > 0);
+
+        let metric = sqlx::query(
+            r#"
+            SELECT corridor_key, total_transactions, successful_transactions, volume_usd
+            FROM corridor_metrics_hourly
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+
+        assert_eq!(
+            metric.get::<String, _>("corridor_key"),
+            "USDC:issuer1->USDC:issuer1"
+        );
+        assert_eq!(metric.get::<i64, _>("total_transactions"), 2);
+        assert_eq!(metric.get::<i64, _>("successful_transactions"), 2);
+        assert_eq!(metric.get::<f64, _>("volume_usd"), 200.0);
+
+        let job = sqlx::query(
+            r#"
+            SELECT status, last_processed_hour
+            FROM aggregation_jobs
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+
+        assert_eq!(job.get::<String, _>("status"), "completed");
+        assert!(job
+            .get::<Option<String>, _>("last_processed_hour")
+            .is_some());
+    }
+    async fn test_compute_volume_trends() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        let service = AggregationService::new(Arc::new(Database::new(pool)), AggregationConfig::default());
+
+    #[tokio::test]
+    async fn test_aggregate_with_no_data() {
+        let (db, _temp_dir) = setup_test_db().await;
+        let service = AggregationService::new(Arc::clone(&db), AggregationConfig::default());
+
+        let result = service.run_hourly_aggregation().await;
+        assert!(result.is_ok());
+
+        let metrics_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM corridor_metrics_hourly")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(metrics_count, 0);
+
+        let status: String = sqlx::query_scalar(
+            "SELECT status FROM aggregation_jobs ORDER BY created_at DESC LIMIT 1",
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+        assert_eq!(status, "completed");
     }
 }
-*/

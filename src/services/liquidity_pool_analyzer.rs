@@ -33,13 +33,15 @@ impl LiquidityPoolAnalyzer {
         let mut count = 0u64;
 
         for hp in &horizon_pools {
-            let (asset_a_code, asset_a_issuer) = Self::parse_asset(&hp.reserves[0].asset);
-            let (asset_b_code, asset_b_issuer) = Self::parse_asset(&hp.reserves[1].asset);
-            let reserve_a: f64 = hp.reserves[0].amount.parse().unwrap_or(0.0);
-            let reserve_b: f64 = hp.reserves[1].amount.parse().unwrap_or(0.0);
+            let (primary_reserve_code, primary_reserve_issuer) =
+                Self::parse_asset(&hp.reserves[0].asset);
+            let (secondary_reserve_code, secondary_reserve_issuer) =
+                Self::parse_asset(&hp.reserves[1].asset);
+            let primary_reserve: f64 = hp.reserves[0].amount.parse().unwrap_or(0.0);
+            let secondary_reserve: f64 = hp.reserves[1].amount.parse().unwrap_or(0.0);
 
             // Estimate total value (simplified: assume both sides equivalent for AMM)
-            let total_value_usd = reserve_a + reserve_b; // Simplified valuation
+            let total_value_usd = primary_reserve + secondary_reserve; // Simplified valuation
 
             // Compute volume from recent trades
             let trades = self
@@ -70,7 +72,7 @@ impl LiquidityPoolAnalyzer {
 
             // Compute impermanent loss (requires initial reserves, use snapshot if available)
             let il = self
-                .compute_impermanent_loss_for_pool(&hp.id, reserve_a, reserve_b)
+                .compute_impermanent_loss_for_pool(&hp.id, primary_reserve, secondary_reserve)
                 .await;
 
             let now = Utc::now();
@@ -105,12 +107,12 @@ impl LiquidityPoolAnalyzer {
             .bind(hp.fee_bp as i32)
             .bind(hp.total_trustlines as i32)
             .bind(&hp.total_shares)
-            .bind(&asset_a_code)
-            .bind(&asset_a_issuer)
-            .bind(reserve_a)
-            .bind(&asset_b_code)
-            .bind(&asset_b_issuer)
-            .bind(reserve_b)
+            .bind(&primary_reserve_code)
+            .bind(&primary_reserve_issuer)
+            .bind(primary_reserve)
+            .bind(&secondary_reserve_code)
+            .bind(&secondary_reserve_issuer)
+            .bind(secondary_reserve)
             .bind(total_value_usd)
             .bind(volume_24h_usd)
             .bind(fees_earned_24h)
@@ -277,20 +279,24 @@ impl LiquidityPoolAnalyzer {
 
     /// Compute impermanent loss given initial and current reserves.
     /// IL = 2 * `sqrt(price_ratio)` / (1 + `price_ratio`) - 1
-    /// where `price_ratio` = (`current_a/current_b`) / (`initial_a/initial_b`)
+    /// where `price_ratio` = (`current_base_reserve/current_quote_reserve`) / (`initial_base_reserve/initial_quote_reserve`)
     #[must_use]
     pub fn compute_impermanent_loss(
-        initial_a: f64,
-        initial_b: f64,
-        current_a: f64,
-        current_b: f64,
+        initial_base_reserve: f64,
+        initial_quote_reserve: f64,
+        current_base_reserve: f64,
+        current_quote_reserve: f64,
     ) -> f64 {
-        if initial_a <= 0.0 || initial_b <= 0.0 || current_a <= 0.0 || current_b <= 0.0 {
+        if initial_base_reserve <= 0.0
+            || initial_quote_reserve <= 0.0
+            || current_base_reserve <= 0.0
+            || current_quote_reserve <= 0.0
+        {
             return 0.0;
         }
 
-        let initial_ratio = initial_a / initial_b;
-        let current_ratio = current_a / current_b;
+        let initial_ratio = initial_base_reserve / initial_quote_reserve;
+        let current_ratio = current_base_reserve / current_quote_reserve;
         let price_ratio = current_ratio / initial_ratio;
 
         let sqrt_ratio = price_ratio.sqrt();
@@ -304,8 +310,8 @@ impl LiquidityPoolAnalyzer {
     async fn compute_impermanent_loss_for_pool(
         &self,
         pool_id: &str,
-        current_a: f64,
-        current_b: f64,
+        current_base_reserve: f64,
+        current_quote_reserve: f64,
     ) -> f64 {
         let initial = sqlx::query_as::<_, (f64, f64)>(
             r"
@@ -323,9 +329,12 @@ impl LiquidityPoolAnalyzer {
         .flatten();
 
         match initial {
-            Some((initial_a, initial_b)) => {
-                Self::compute_impermanent_loss(initial_a, initial_b, current_a, current_b)
-            }
+            Some((initial_base_reserve, initial_quote_reserve)) => Self::compute_impermanent_loss(
+                initial_base_reserve,
+                initial_quote_reserve,
+                current_base_reserve,
+                current_quote_reserve,
+            ),
             None => 0.0, // No historical data yet
         }
     }

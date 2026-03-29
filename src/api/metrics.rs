@@ -21,6 +21,15 @@ pub struct MetricsOverview {
 }
 
 /// Handler for GET /api/metrics/overview (cached with 1 min TTL)
+#[utoipa::path(
+    get,
+    path = "/api/metrics/overview",
+    responses(
+        (status = 200, description = "Metrics overview", body = MetricsOverview),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Metrics"
+)]
 pub async fn metrics_overview(
     State(cache): State<Arc<CacheManager>>,
     headers: HeaderMap,
@@ -34,8 +43,8 @@ pub async fn metrics_overview(
         || async {
             // Placeholder: Replace with real data aggregation logic
             Ok(MetricsOverview {
-                total_volume: 1234567.89,
-                total_transactions: 98765,
+                total_volume: 1_234_567.89,
+                total_transactions: 98_765,
                 active_users: 4321,
                 average_transaction_value: 28.56,
                 corridor_count: 12,

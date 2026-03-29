@@ -64,12 +64,25 @@ fn base_url(transfer_server: &str) -> String {
     s.to_string()
 }
 
-/// GET /`api/sep24/info?transfer_server`=<url>
+/// GET /api/sep24/info - Get SEP-24 server information
 #[derive(Debug, Deserialize)]
 pub struct InfoQuery {
     pub transfer_server: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/sep24/info",
+    params(
+        ("transfer_server" = String, Query, description = "Transfer server URL")
+    ),
+    responses(
+        (status = 200, description = "SEP-24 server information"),
+        (status = 403, description = "Transfer server not allowed"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-24"
+)]
 pub async fn get_info(
     State(state): State<Sep24State>,
     Query(q): Query<InfoQuery>,
@@ -124,6 +137,18 @@ pub struct DepositInteractiveBody {
     pub extra: Value,
 }
 
+/// POST /api/sep24/deposit/interactive - Initiate interactive deposit
+#[utoipa::path(
+    post,
+    path = "/api/sep24/deposit/interactive",
+    request_body = DepositInteractiveBody,
+    responses(
+        (status = 200, description = "Interactive deposit started"),
+        (status = 403, description = "Transfer server not allowed"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-24"
+)]
 pub async fn post_deposit_interactive(
     State(state): State<Sep24State>,
     Json(body): Json<DepositInteractiveBody>,
@@ -195,6 +220,18 @@ pub struct WithdrawInteractiveBody {
     pub extra: Value,
 }
 
+/// POST /api/sep24/withdraw/interactive - Initiate interactive withdrawal
+#[utoipa::path(
+    post,
+    path = "/api/sep24/withdraw/interactive",
+    request_body = WithdrawInteractiveBody,
+    responses(
+        (status = 200, description = "Interactive withdrawal started"),
+        (status = 403, description = "Transfer server not allowed"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-24"
+)]
 pub async fn post_withdraw_interactive(
     State(state): State<Sep24State>,
     Json(body): Json<WithdrawInteractiveBody>,
@@ -257,6 +294,25 @@ pub struct TransactionsQuery {
     pub cursor: Option<String>,
 }
 
+/// GET /api/sep24/transactions - Get SEP-24 transactions
+#[utoipa::path(
+    get,
+    path = "/api/sep24/transactions",
+    params(
+        ("transfer_server" = String, Query, description = "Transfer server URL"),
+        ("jwt" = Option<String>, Query, description = "JWT token"),
+        ("asset_code" = Option<String>, Query, description = "Filter by asset code"),
+        ("kind" = Option<String>, Query, description = "Filter by transaction kind"),
+        ("limit" = Option<u32>, Query, description = "Maximum results"),
+        ("cursor" = Option<String>, Query, description = "Pagination cursor")
+    ),
+    responses(
+        (status = 200, description = "List of transactions"),
+        (status = 403, description = "Transfer server not allowed"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-24"
+)]
 pub async fn get_transactions(
     State(state): State<Sep24State>,
     Query(q): Query<TransactionsQuery>,
@@ -275,6 +331,7 @@ pub async fn get_transactions(
         write!(url, "kind={}&", urlencoding::encode(k)).unwrap();
     }
     if let Some(l) = q.limit {
+        write!(url, "limit={}&", l).unwrap();
         write!(url, "limit={l}&").unwrap();
     }
     if let Some(c) = &q.cursor {
@@ -312,6 +369,22 @@ pub struct TransactionQuery {
     pub jwt: Option<String>,
 }
 
+/// GET /api/sep24/transaction - Get a specific SEP-24 transaction
+#[utoipa::path(
+    get,
+    path = "/api/sep24/transaction",
+    params(
+        ("transfer_server" = String, Query, description = "Transfer server URL"),
+        ("id" = String, Query, description = "Transaction ID"),
+        ("jwt" = Option<String>, Query, description = "JWT token")
+    ),
+    responses(
+        (status = 200, description = "Transaction details"),
+        (status = 403, description = "Transfer server not allowed"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-24"
+)]
 pub async fn get_transaction(
     State(state): State<Sep24State>,
     Query(q): Query<TransactionQuery>,
@@ -357,6 +430,15 @@ pub struct Sep24AnchorInfo {
     pub home_domain: Option<String>,
 }
 
+/// GET /api/sep24/anchors - List known SEP-24-enabled anchors
+#[utoipa::path(
+    get,
+    path = "/api/sep24/anchors",
+    responses(
+        (status = 200, description = "List of SEP-24 anchors")
+    ),
+    tag = "SEP-24"
+)]
 pub async fn list_anchors() -> Json<Value> {
     // Env: SEP24_ANCHORS = JSON array of { "name", "transfer_server", "home_domain" }
     let anchors: Vec<Sep24AnchorInfo> = if let Ok(s) = std::env::var("SEP24_ANCHORS") {

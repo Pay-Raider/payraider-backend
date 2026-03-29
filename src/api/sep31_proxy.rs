@@ -64,6 +64,20 @@ pub struct InfoQuery {
     pub transfer_server: String,
 }
 
+/// GET /api/sep31/info - Get SEP-31 anchor info
+#[utoipa::path(
+    get,
+    path = "/api/sep31/info",
+    params(
+        ("transfer_server" = String, Query, description = "SEP-31 transfer server URL")
+    ),
+    responses(
+        (status = 200, description = "SEP-31 anchor info"),
+        (status = 403, description = "Transfer server not in allowed list"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-31"
+)]
 pub async fn get_info(
     State(state): State<Sep31State>,
     Query(q): Query<InfoQuery>,
@@ -103,6 +117,18 @@ pub struct QuoteBody {
     pub payload: Value,
 }
 
+/// POST /api/sep31/quote - Create a SEP-31 payment quote
+#[utoipa::path(
+    post,
+    path = "/api/sep31/quote",
+    request_body = QuoteBody,
+    responses(
+        (status = 200, description = "Quote created successfully"),
+        (status = 403, description = "Transfer server not in allowed list"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-31"
+)]
 pub async fn post_quote(
     State(state): State<Sep31State>,
     Json(body): Json<QuoteBody>,
@@ -145,6 +171,18 @@ pub struct CreateTransactionBody {
     pub payload: Value,
 }
 
+/// POST /api/sep31/transactions - Create a SEP-31 transaction
+#[utoipa::path(
+    post,
+    path = "/api/sep31/transactions",
+    request_body = CreateTransactionBody,
+    responses(
+        (status = 200, description = "Transaction created successfully"),
+        (status = 403, description = "Transfer server not in allowed list"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-31"
+)]
 pub async fn post_transaction(
     State(state): State<Sep31State>,
     Json(body): Json<CreateTransactionBody>,
@@ -191,6 +229,24 @@ pub struct ListTransactionsQuery {
     pub cursor: Option<String>,
 }
 
+/// GET /api/sep31/transactions - List SEP-31 transactions
+#[utoipa::path(
+    get,
+    path = "/api/sep31/transactions",
+    params(
+        ("transfer_server" = String, Query, description = "SEP-31 transfer server URL"),
+        ("jwt" = Option<String>, Query, description = "JWT authentication token"),
+        ("status" = Option<String>, Query, description = "Filter by transaction status"),
+        ("limit" = Option<u32>, Query, description = "Maximum number of transactions to return"),
+        ("cursor" = Option<String>, Query, description = "Pagination cursor")
+    ),
+    responses(
+        (status = 200, description = "List of transactions"),
+        (status = 403, description = "Transfer server not in allowed list"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-31"
+)]
 pub async fn get_transactions(
     State(state): State<Sep31State>,
     Query(q): Query<ListTransactionsQuery>,
@@ -206,6 +262,7 @@ pub async fn get_transactions(
         write!(url, "status={}&", urlencoding::encode(s)).unwrap();
     }
     if let Some(l) = q.limit {
+        write!(url, "limit={}&", l).unwrap();
         write!(url, "limit={l}&").unwrap();
     }
     if let Some(c) = &q.cursor {
@@ -242,6 +299,23 @@ pub struct GetTransactionQuery {
     pub jwt: Option<String>,
 }
 
+/// GET /api/sep31/transactions/{id} - Get a specific SEP-31 transaction
+#[utoipa::path(
+    get,
+    path = "/api/sep31/transactions/{id}",
+    params(
+        ("id" = String, Path, description = "Transaction ID"),
+        ("transfer_server" = String, Query, description = "SEP-31 transfer server URL"),
+        ("jwt" = Option<String>, Query, description = "JWT authentication token")
+    ),
+    responses(
+        (status = 200, description = "Transaction details"),
+        (status = 403, description = "Transfer server not in allowed list"),
+        (status = 404, description = "Transaction not found"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-31"
+)]
 pub async fn get_transaction(
     State(state): State<Sep31State>,
     Path(id): Path<String>,
@@ -288,6 +362,22 @@ pub struct CustomerQuery {
     pub id: String,
 }
 
+/// GET /api/sep31/customer - Get KYC customer information
+#[utoipa::path(
+    get,
+    path = "/api/sep31/customer",
+    params(
+        ("transfer_server" = String, Query, description = "SEP-31 transfer server URL"),
+        ("jwt" = Option<String>, Query, description = "JWT authentication token"),
+        ("id" = String, Query, description = "Customer ID")
+    ),
+    responses(
+        (status = 200, description = "Customer information"),
+        (status = 403, description = "Transfer server not in allowed list"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-31"
+)]
 pub async fn get_customer(
     State(state): State<Sep31State>,
     Query(q): Query<CustomerQuery>,
@@ -334,6 +424,18 @@ pub struct PutCustomerBody {
     pub payload: Value,
 }
 
+/// PUT /api/sep31/customer - Update KYC customer information
+#[utoipa::path(
+    put,
+    path = "/api/sep31/customer",
+    request_body = PutCustomerBody,
+    responses(
+        (status = 200, description = "Customer updated successfully"),
+        (status = 403, description = "Transfer server not in allowed list"),
+        (status = 502, description = "Proxy error")
+    ),
+    tag = "SEP-31"
+)]
 pub async fn put_customer(
     State(state): State<Sep31State>,
     Json(body): Json<PutCustomerBody>,
@@ -374,6 +476,15 @@ pub struct Sep31AnchorInfo {
     pub home_domain: Option<String>,
 }
 
+/// GET /api/sep31/anchors - List configured SEP-31 anchors
+#[utoipa::path(
+    get,
+    path = "/api/sep31/anchors",
+    responses(
+        (status = 200, description = "List of configured SEP-31 anchors")
+    ),
+    tag = "SEP-31"
+)]
 pub async fn list_anchors() -> Json<Value> {
     let anchors: Vec<Sep31AnchorInfo> = if let Ok(s) = std::env::var("SEP31_ANCHORS") {
         serde_json::from_str(&s).unwrap_or_default()

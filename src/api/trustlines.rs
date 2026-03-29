@@ -64,6 +64,16 @@ pub fn routes(analyzer: Arc<TrustlineAnalyzer>) -> Router {
         .with_state(analyzer)
 }
 
+/// GET /api/trustlines/stats - Get trustline metrics
+#[utoipa::path(
+    get,
+    path = "/api/trustlines/stats",
+    responses(
+        (status = 200, description = "Trustline metrics", body = TrustlineMetrics),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Trustlines"
+)]
 async fn get_trustline_metrics(
     State(analyzer): State<Arc<TrustlineAnalyzer>>,
 ) -> ApiResult<Json<TrustlineMetrics>> {
@@ -75,6 +85,19 @@ async fn get_trustline_metrics(
     Ok(Json(metrics))
 }
 
+/// GET /api/trustlines/rankings - Get trustline rankings
+#[utoipa::path(
+    get,
+    path = "/api/trustlines/rankings",
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum number of rankings to return (1-200, default 50)")
+    ),
+    responses(
+        (status = 200, description = "Trustline rankings", body = Vec<TrustlineStat>),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Trustlines"
+)]
 async fn get_trustline_rankings(
     State(analyzer): State<Arc<TrustlineAnalyzer>>,
     Query(params): Query<RankingsParams>,
@@ -87,6 +110,21 @@ async fn get_trustline_rankings(
     Ok(Json(rankings))
 }
 
+/// GET /api/trustlines/{asset_code}/{asset_issuer}/history - Get trustline history for an asset
+#[utoipa::path(
+    get,
+    path = "/api/trustlines/{asset_code}/{asset_issuer}/history",
+    params(
+        ("asset_code" = String, Path, description = "Asset code (e.g., 'USDC')"),
+        ("asset_issuer" = String, Path, description = "Asset issuer account ID"),
+        ("limit" = Option<i64>, Query, description = "Maximum number of history entries to return (1-365, default 30)")
+    ),
+    responses(
+        (status = 200, description = "Trustline history for asset", body = Vec<TrustlineSnapshot>),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Trustlines"
+)]
 async fn get_trustline_history(
     State(analyzer): State<Arc<TrustlineAnalyzer>>,
     Path((asset_code, asset_issuer)): Path<(String, String)>,

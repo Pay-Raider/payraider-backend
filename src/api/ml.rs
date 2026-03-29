@@ -50,6 +50,21 @@ impl From<PredictionResult> for PredictionResponse {
     }
 }
 
+/// POST /api/ml/predict - Get payment success prediction
+#[utoipa::path(
+    post,
+    path = "/api/ml/predict",
+    params(
+        ("corridor" = String, Query, description = "Corridor identifier (e.g., 'USD:GXXX → EUR:GYYY')"),
+        ("amount_usd" = f64, Query, description = "Payment amount in USD"),
+        ("timestamp" = Option<DateTime<Utc>>, Query, description = "Optional timestamp for prediction (defaults to current time)")
+    ),
+    responses(
+        (status = 200, description = "Payment prediction result", body = PredictionResponse),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "ML"
+)]
 pub async fn predict_payment_success(
     Query(query): Query<PredictionQuery>,
     Extension(ml_service): Extension<Arc<RwLock<MLService>>>,
@@ -73,6 +88,16 @@ pub struct ModelStatusResponse {
     pub total_predictions: u64,
 }
 
+/// GET /api/ml/status - Get ML model status
+#[utoipa::path(
+    get,
+    path = "/api/ml/status",
+    responses(
+        (status = 200, description = "ML model status", body = ModelStatusResponse),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "ML"
+)]
 pub async fn get_model_status(
     Extension(_ml_service): Extension<Arc<RwLock<MLService>>>,
 ) -> Json<ModelStatusResponse> {
@@ -84,6 +109,16 @@ pub async fn get_model_status(
     })
 }
 
+/// POST /api/ml/retrain - Retrain the ML model
+#[utoipa::path(
+    post,
+    path = "/api/ml/retrain",
+    responses(
+        (status = 200, description = "Model retraining initiated"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "ML"
+)]
 pub async fn retrain_model(
     Extension(ml_service): Extension<Arc<RwLock<MLService>>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {

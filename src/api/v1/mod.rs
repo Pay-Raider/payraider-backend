@@ -15,8 +15,7 @@ use crate::state::AppState;
 use axum::{
     middleware,
     routing::{get, put},
-    Json,
-    Router,
+    Json, Router,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -81,6 +80,7 @@ pub fn routes(
 
     // 2. Public anchor routes
     let public_anchor_routes = Router::new()
+        .route("/health", get(crate::handlers::health_check))
         .route("/db/pool-metrics", get(crate::handlers::pool_metrics))
         .route("/anchors/:id", get(anchors::get_anchor))
         .route(
@@ -99,7 +99,10 @@ pub fn routes(
             "/anchors/:id/assets",
             axum::routing::post(anchors::create_anchor_asset),
         )
-        .route("/corridors", axum::routing::post(corridors::create_corridor))
+        .route(
+            "/corridors",
+            axum::routing::post(corridors::create_corridor),
+        )
         .route(
             "/corridors/:id/metrics-from-transactions",
             put(corridors::update_corridor_metrics_from_transactions),
@@ -135,7 +138,11 @@ pub fn routes(
         .nest("/prices", price_feed_api::routes(price_feed.clone()))
         .nest("/cost-calculator", cost_calculator::routes(price_feed))
         .nest("/cache/stats", cache_stats::routes(cache.clone()))
-        .nest("/metrics", metrics::routes(cache));
+        .nest("/metrics", metrics::routes(cache))
+        .nest(
+            "/analytics",
+            stellar_insights_backend::api::analytics_dashboard::routes(cache),
+        );
 
     // 6. OAuth routes
     let oauth_routes = oauth::routes(pool);
@@ -158,7 +165,9 @@ pub fn routes(
         // Preserve existing unversioned endpoints for backward compatibility.
         .merge(v1_router)
         .layer(cors)
-        .layer(middleware::from_fn(crate::request_id::request_id_middleware))
+        .layer(middleware::from_fn(
+            crate::request_id::request_id_middleware,
+        ))
         .layer(middleware::from_fn(
             crate::api_v1_middleware::version_middleware,
         ))

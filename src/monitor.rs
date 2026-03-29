@@ -1,6 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
+
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::alerts::AlertManager;
 use crate::cache::CacheManager;
@@ -15,12 +19,22 @@ pub struct CorridorMonitor {
     webhook_event_service: Option<Arc<crate::services::webhook_event_service::WebhookEventService>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct CorridorState {
     success_rate: f64,
     latency: f64,
     liquidity: f64,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct HealthStatus {
+    pub success_rate: f64,
+    pub latency: f64,
+    pub liquidity: f64,
+}
+
+#[cfg(test)]
+static FETCH_CORRIDOR_METRICS_CALLS: AtomicU64 = AtomicU64::new(0);
 
 impl CorridorMonitor {
     #[must_use]
@@ -92,7 +106,14 @@ impl CorridorMonitor {
                 .filter_map(|p| p.get_amount().parse::<f64>().ok())
                 .sum();
 
-            if let Some(old_state) = prev_state.get(&corridor_id) {
+            let cache_key = format!("corridor_health:{}", corridor_id);
+            let cached_state: Option<CorridorState> =
+                self.cache.get(&cache_key).await.unwrap_or(None);
+            let effective_old = cached_state
+                .as_ref()
+                .or_else(|| prev_state.get(&corridor_id));
+
+            if let Some(old_state) = effective_old {
                 self.alert_manager.check_and_alert(
                     &corridor_id,
                     old_state.success_rate,
@@ -186,16 +207,91 @@ impl CorridorMonitor {
                 }
             }
 
-            prev_state.insert(
-                corridor_id,
-                CorridorState {
-                    success_rate,
-                    latency,
-                    liquidity,
-                },
-            );
+            let new_state = CorridorState {
+                success_rate,
+                latency,
+                liquidity,
+            };
+            let _ = self.cache.set(&cache_key, &new_state, 60).await;
+            prev_state.insert(corridor_id, new_state);
         }
 
         Ok(())
+    }
+
+    pub async fn check_health(&self, corridor_key: &str) -> anyhow::Result<HealthStatus> {
+        let cache_key = format!("corridor_health:{}", corridor_key);
+
+        if let Some(cached) = self.cache.get::<HealthStatus>(&cache_key).await? {
+            return Ok(cached);
+        }
+
+        let fresh = self.fetch_corridor_metrics(corridor_key).await?;
+        let _ = self.cache.set(&cache_key, &fresh, 60).await;
+        Ok(fresh)
+    }
+
+    async fn fetch_corridor_metrics(&self, corridor_key: &str) -> anyhow::Result<HealthStatus> {
+        #[cfg(test)]
+        {
+            FETCH_CORRIDOR_METRICS_CALLS.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let payments = self
+            .rpc_client
+            .fetch_payments(200, None)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let liquidity: f64 = payments
+            .iter()
+            .filter(|payment| {
+                let key = format!(
+                    "{}:{}->XLM:native",
+                    payment.get_asset_code().as_deref().unwrap_or("XLM"),
+                    payment.get_asset_issuer().as_deref().unwrap_or("native")
+                );
+                key == corridor_key
+            })
+            .filter_map(|p| p.get_amount().parse::<f64>().ok())
+            .sum();
+
+        Ok(HealthStatus {
+            success_rate: 100.0,
+            latency: 400.0,
+            liquidity,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::{CacheConfig, CacheManager};
+
+    #[tokio::test]
+    async fn test_health_check_caching() {
+        FETCH_CORRIDOR_METRICS_CALLS.store(0, Ordering::Relaxed);
+
+        let (alert_manager, _rx) = AlertManager::new();
+        let cache = Arc::new(CacheManager::new_in_memory_for_tests(CacheConfig::default()));
+        let rpc_client = Arc::new(StellarRpcClient::new_with_defaults(true));
+        let monitor = CorridorMonitor::new(Arc::new(alert_manager), cache, rpc_client);
+
+        let corridor_key = "USDC:native->XLM:native";
+
+        let _first = monitor.check_health(corridor_key).await.unwrap();
+        assert_eq!(
+            FETCH_CORRIDOR_METRICS_CALLS.load(Ordering::Relaxed),
+            1,
+            "first call should compute fresh metrics"
+        );
+
+        let _second = monitor.check_health(corridor_key).await.unwrap();
+        assert_eq!(
+            FETCH_CORRIDOR_METRICS_CALLS.load(Ordering::Relaxed),
+            1,
+            "second call should use cached metrics"
+        );
     }
 }

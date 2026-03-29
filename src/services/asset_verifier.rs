@@ -3,7 +3,6 @@ use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use std::fmt::Write;
 use std::time::Duration;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -359,9 +358,9 @@ impl AssetVerifier {
         }
 
         // Transaction count (up to 10 points)
-        if result.transaction_count > 100000 {
+        if result.transaction_count > 100_000 {
             score += 10.0;
-        } else if result.transaction_count > 10000 {
+        } else if result.transaction_count > 10_000 {
             score += 7.0;
         } else if result.transaction_count > 1000 {
             score += 5.0;
@@ -565,20 +564,29 @@ impl AssetVerifier {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<VerifiedAsset>> {
-        let mut query = String::from("SELECT * FROM verified_assets WHERE 1=1");
+        use sqlx::QueryBuilder;
+
+        let mut query_builder = QueryBuilder::new("SELECT * FROM verified_assets WHERE 1=1");
 
         if let Some(status) = status {
-            write!(query, " AND verification_status = '{}'", status.as_str()).unwrap();
+            let status_str = status.as_str().to_string();
+            query_builder.push(" AND verification_status = ");
+            query_builder.push_bind(status_str);
         }
 
         if let Some(min_rep) = min_reputation {
-            write!(query, " AND reputation_score >= {min_rep}").unwrap();
+            query_builder.push(" AND reputation_score >= ");
+            query_builder.push_bind(min_rep);
         }
 
-        query.push_str(" ORDER BY reputation_score DESC, updated_at DESC");
-        write!(query, " LIMIT {limit} OFFSET {offset}").unwrap();
+        query_builder.push(" ORDER BY reputation_score DESC, updated_at DESC");
+        query_builder.push(" LIMIT ");
+        query_builder.push_bind(limit);
+        query_builder.push(" OFFSET ");
+        query_builder.push_bind(offset);
 
-        let assets = sqlx::query_as::<_, VerifiedAsset>(&query)
+        let assets = query_builder
+            .build_query_as::<VerifiedAsset>()
             .fetch_all(&self.pool)
             .await?;
 

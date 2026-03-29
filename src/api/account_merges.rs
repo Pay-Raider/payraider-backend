@@ -38,6 +38,15 @@ pub fn routes(detector: Arc<AccountMergeDetector>) -> Router {
         .with_state(detector)
 }
 
+/// GET /api/account-merges/stats - Get account merge statistics
+#[utoipa::path(
+    get,
+    path = "/api/account-merges/stats",
+    responses(
+        (status = 200, description = "Account merge statistics")
+    ),
+    tag = "Account Merges"
+)]
 async fn get_account_merge_stats(
     State(detector): State<Arc<AccountMergeDetector>>,
 ) -> Json<AccountMergeStats> {
@@ -54,6 +63,18 @@ async fn get_account_merge_stats(
     Json(stats)
 }
 
+/// GET /api/account-merges/recent - Get recent account merges
+#[utoipa::path(
+    get,
+    path = "/api/account-merges/recent",
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum number of results (1-200, default 50)")
+    ),
+    responses(
+        (status = 200, description = "List of recent account merge events")
+    ),
+    tag = "Account Merges"
+)]
 async fn get_recent_account_merges(
     State(detector): State<Arc<AccountMergeDetector>>,
     Query(params): Query<RecentMergesParams>,
@@ -63,6 +84,18 @@ async fn get_recent_account_merges(
     Json(merges)
 }
 
+/// GET /api/account-merges/destinations - Get destination account patterns
+#[utoipa::path(
+    get,
+    path = "/api/account-merges/destinations",
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum number of results (1-100, default 20)")
+    ),
+    responses(
+        (status = 200, description = "List of destination account patterns")
+    ),
+    tag = "Account Merges"
+)]
 async fn get_destination_patterns(
     State(detector): State<Arc<AccountMergeDetector>>,
     Query(params): Query<DestinationParams>,

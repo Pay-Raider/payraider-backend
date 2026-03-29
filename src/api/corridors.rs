@@ -1,19 +1,32 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::HeaderMap,
     response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+use tracing::{error, info, instrument, warn};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::broadcast::broadcast_corridor_update;
+use crate::cache::helpers::cached_query;
+use crate::cache::keys;
+use crate::cache::CacheManager;
+use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::{Corridor, CorridorMetrics};
 use crate::models::{CreateCorridorRequest, SortBy};
-use crate::services::analytics::{compute_corridor_metrics, CorridorTransaction};
+use crate::request_id::RequestId;
+use crate::rpc::{
+    circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
+    error::{with_retry, RetryConfig, RpcError},
+    StellarRpcClient,
+};
+use crate::services::analytics::{compute_corridor_metrics, CorridorPayment};
+use crate::services::price_feed::PriceFeedClient;
 use crate::state::AppState;
 use crate::validation;
 
@@ -310,10 +323,11 @@ fn generate_corridor_list_cache_key(params: &ListCorridorsQuery) -> String {
     tag = "Corridors"
 )]
 #[tracing::instrument(
-    skip(_db, cache, rpc_client, price_feed, params, headers),
-    fields(request_id, query = ?params)
+    skip(_db, cache, rpc_client, price_feed, params),
+    fields(request_id = %request_id.0, query = ?params)
 )]
 pub async fn list_corridors(
+    Extension(request_id): Extension<RequestId>,
     State((_db, cache, rpc_client, price_feed)): State<(
         Arc<Database>,
         Arc<CacheManager>,
@@ -323,12 +337,7 @@ pub async fn list_corridors(
     Query(params): Query<ListCorridorsQuery>,
     headers: HeaderMap,
 ) -> ApiResult<Response> {
-    let request_id = headers
-        .get("X-Request-ID")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("unknown");
-    tracing::Span::current().record("request_id", request_id);
-    tracing::info!(request_id = %request_id, "Listing corridors");
+    info!("Listing corridors");
 
     validation::validate_corridor_filters(
         params.success_rate_min,
@@ -346,11 +355,11 @@ pub async fn list_corridors(
         || async {
             let circuit_breaker = rpc_circuit_breaker();
 
-            // **RPC DATA**: Fetch recent payments to identify active corridors
+            // **RPC DATA**: Fetch recent payments with pagination to identify active corridors
             let payments = with_retry(
                 || async {
                     rpc_client
-                        .fetch_payments(200, None)
+                        .fetch_all_payments(Some(1000))
                         .await
                         .map_err(|e| RpcError::categorize(&e.to_string()))
                 },
@@ -360,11 +369,11 @@ pub async fn list_corridors(
             .await
             .map_err(|e| anyhow::anyhow!("Failed to fetch payments from RPC: {e}"))?;
 
-            // **RPC DATA**: Fetch recent trades for volume data
+            // **RPC DATA**: Fetch recent trades with pagination for volume data
             let _trades = with_retry(
                 || async {
                     rpc_client
-                        .fetch_trades(200, None)
+                        .fetch_all_trades(Some(1000))
                         .await
                         .map_err(|e| RpcError::categorize(&e.to_string()))
                 },
@@ -373,33 +382,10 @@ pub async fn list_corridors(
             )
             .await
             .map_err(|e| anyhow::anyhow!("Failed to fetch trades from RPC: {e}"))?;
-            // **RPC DATA**: Fetch recent payments with pagination to identify active corridors
-            // Use paginated fetch to get more complete data (up to configured limit)
-            let payments = match rpc_client.fetch_all_payments(Some(1000)).await {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        "Failed to fetch payments from RPC"
-                    );
-                    return Ok(vec![]);
-                }
-            };
-
-            // **RPC DATA**: Fetch recent trades with pagination for volume data
-            let _trades = match rpc_client.fetch_all_trades(Some(1000)).await {
-                Ok(t) => t,
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to fetch trades from RPC"
-                    );
-                    vec![]
-                }
-            };
 
             // Group payments by asset pairs to identify corridors
             use std::collections::HashMap;
+            use std::sync::{Arc, OnceLock};
             let mut corridor_map: HashMap<String, Vec<&crate::rpc::Payment>> = HashMap::new();
 
             for payment in &payments {
@@ -408,7 +394,7 @@ pub async fn list_corridors(
                     let corridor_key = asset_pair.to_corridor_key();
                     corridor_map.entry(corridor_key).or_default().push(payment);
                 } else {
-                    tracing::warn!(
+                    warn!(
                         payment_id = crate::logging::redaction::redact_hash(&payment.id),
                         "Failed to extract asset pair from payment"
                     );
@@ -720,26 +706,21 @@ fn find_related_corridors(
     tag = "Corridors"
 )]
 #[tracing::instrument(
-    skip(db, cache, rpc_client, price_feed, headers),
-    fields(corridor_key = %corridor_key, request_id)
+    skip(_db, cache, rpc_client, price_feed),
+    fields(request_id = %request_id.0, corridor_key = %corridor_key)
 )]
 pub async fn get_corridor_detail(
-    State((db, cache, rpc_client, price_feed)): State<(
+    Extension(request_id): Extension<RequestId>,
+    State((_db, cache, rpc_client, price_feed)): State<(
         Arc<Database>,
         Arc<CacheManager>,
         Arc<StellarRpcClient>,
         Arc<PriceFeedClient>,
     )>,
     Path(corridor_key): Path<String>,
-    headers: HeaderMap,
 ) -> ApiResult<Json<CorridorDetailResponse>> {
     use std::collections::HashMap;
-    let request_id = headers
-        .get("X-Request-ID")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("unknown");
-    tracing::Span::current().record("request_id", request_id);
-    tracing::info!(request_id = %request_id, corridor_key = %corridor_key, "Fetching corridor");
+    info!("Fetching corridor");
 
     // Validate corridor_key format
     let parts: Vec<&str> = corridor_key.split("->").collect();
@@ -781,7 +762,7 @@ pub async fn get_corridor_detail(
         )
         .await
         .map_err(|e| {
-            tracing::error!(
+            error!(
                 error = %e,
                 "Failed to fetch payments from RPC"
             );
@@ -931,6 +912,13 @@ pub async fn get_corridor_detail(
     })
     .await?;
 
+    // Log successful corridor fetch
+    info!(
+        corridor_id = %response.corridor.id,
+        success_rate = response.corridor.success_rate,
+        "Corridor found"
+    );
+
     Ok(Json(response))
 }
 
@@ -939,34 +927,29 @@ pub async fn create_corridor(
     State(app_state): State<AppState>,
     Json(req): Json<CreateCorridorRequest>,
 ) -> ApiResult<Json<Corridor>> {
-    if req.source_asset_code.is_empty() || req.dest_asset_code.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Asset codes cannot be empty",
-        ));
-    }
-    if req.source_asset_issuer.is_empty() || req.dest_asset_issuer.is_empty() {
-        return Err(ApiError::bad_request(
-            "INVALID_INPUT",
-            "Asset issuers cannot be empty",
-        ));
-    }
+    // Struct-level field validation (lengths, formats)
+    crate::validation::validate_request(&req)?;
+
+    // Business logic: source and destination must differ
+    crate::validation::validate_corridor_not_self_referential(
+        &req.source_asset_code,
+        &req.source_asset_issuer,
+        &req.dest_asset_code,
+        &req.dest_asset_issuer,
+    )?;
+
     let corridor = app_state.db.create_corridor(req).await?;
-
-    // Broadcast the new corridor to WebSocket clients
-    broadcast_corridor_update(&app_state.ws_state, &corridor);
-
     Ok(Json(corridor))
 }
 
 /// PUT /api/corridors/:id/metrics-from-transactions - Compute metrics from transactions and persist
 #[derive(Debug, Deserialize)]
 pub struct UpdateCorridorMetricsFromTxns {
-    pub transactions: Vec<CorridorTransactionDto>,
+    pub transactions: Vec<CorridorPaymentDto>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CorridorTransactionDto {
+pub struct CorridorPaymentDto {
     pub successful: bool,
     pub settlement_latency_ms: Option<i32>,
     pub amount_usd: f64,
@@ -987,10 +970,10 @@ pub async fn update_corridor_metrics_from_transactions(
         ));
     }
 
-    let txs: Vec<CorridorTransaction> = req
+    let txs: Vec<CorridorPayment> = req
         .transactions
         .into_iter()
-        .map(|t| CorridorTransaction {
+        .map(|t| CorridorPayment {
             successful: t.successful,
             settlement_latency_ms: t.settlement_latency_ms,
             amount_usd: t.amount_usd,
@@ -998,7 +981,10 @@ pub async fn update_corridor_metrics_from_transactions(
         .collect();
 
     let metrics = compute_corridor_metrics(&txs, None, 1.0);
-    let corridor = app_state.db.update_corridor_metrics(id, metrics).await?;
+    let corridor = app_state
+        .db
+        .update_corridor_metrics(id, metrics, &app_state.cache)
+        .await?;
 
     // Broadcast the corridor update to WebSocket clients
     broadcast_corridor_update(&app_state.ws_state, &corridor);
