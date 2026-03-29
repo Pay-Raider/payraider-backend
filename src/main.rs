@@ -76,29 +76,10 @@ use stellar_insights_backend::services::webhook_dispatcher::WebhookDispatcher;
 use stellar_insights_backend::alerts::AlertManager;
 use stellar_insights_backend::monitor::CorridorMonitor;
 use stellar_insights_backend::telegram;
-use stellar_insights_backend::shutdown::{
-    flush_cache, log_shutdown_summary, shutdown_background_tasks, shutdown_database,
-    shutdown_websockets, wait_for_signal, ShutdownConfig, ShutdownCoordinator,
-use stellar_insights_backend::{
-    api::v1::routes,
-    backup::{BackupConfig, BackupManager},
-    cache::{CacheConfig, CacheManager},
-    database::{Database, PoolConfig},
-    env_config,
-    ingestion::DataIngestionService,
-    openapi::ApiDoc,
-    rate_limit::RateLimiter,
-    rpc::StellarRpcClient,
-    services::{
-        account_merge_detector::AccountMergeDetector,
-        fee_bump_tracker::FeeBumpTrackerService,
-        liquidity_pool_analyzer::LiquidityPoolAnalyzer,
-        price_feed::{default_asset_mapping, PriceFeedClient, PriceFeedConfig},
-        webhook_dispatcher::WebhookDispatcher,
-    },
-    state::AppState,
-    websocket::WsState,
-};
+use stellar_insights_backend::api::v1::routes;
+use stellar_insights_backend::backup::{BackupConfig, BackupManager};
+use stellar_insights_backend::state::AppState;
+use stellar_insights_backend::websocket::WsState;
 
 const DB_POOL_LOG_INTERVAL: Duration = Duration::from_secs(60);
 const DB_POOL_IDLE_LOW_WATERMARK: usize = 2;
@@ -543,12 +524,15 @@ async fn main() -> anyhow::Result<()> {
         cache,
     )
     .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-    .layer(TimeoutLayer::new(Duration::from_secs(timeout_seconds)));
-
-        .layer(middleware::from_fn_with_state(
+    .layer(TimeoutLayer::new(Duration::from_secs(timeout_seconds)))
+    .layer(middleware::from_fn_with_state(
             db.clone(),
             stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
         ))
+    .layer(TraceLayer::new_for_http())
+    .layer(middleware::from_fn(trace_propagation_middleware))
+    .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
+    .layer(middleware::from_fn(request_id_middleware));
         .layer(TraceLayer::new_for_http())
         .layer(middleware::from_fn(trace_propagation_middleware))
         .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
