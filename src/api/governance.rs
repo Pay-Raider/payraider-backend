@@ -76,7 +76,7 @@ pub struct ActivateRequest {
 }
 
 const fn default_voting_duration() -> i64 {
-    604800 // 7 days
+    604_800 // 7 days
 }
 
 #[derive(Debug, Serialize)]

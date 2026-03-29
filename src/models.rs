@@ -110,10 +110,18 @@ impl AnchorStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct CreateAnchorRequest {
-    #[validate(length(min = 1, max = 100, message = "Name must be between 1 and 100 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 100,
+        message = "Name must be between 1 and 100 characters"
+    ))]
     pub name: String,
 
-    #[validate(length(min = 56, max = 56, message = "Stellar account must be exactly 56 characters"))]
+    #[validate(length(
+        min = 56,
+        max = 56,
+        message = "Stellar account must be exactly 56 characters"
+    ))]
     pub stellar_account: String,
 
     #[validate(length(max = 253, message = "Home domain must be at most 253 characters"))]
@@ -122,16 +130,32 @@ pub struct CreateAnchorRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct CreateCorridorRequest {
-    #[validate(length(min = 1, max = 12, message = "Source asset code must be between 1 and 12 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 12,
+        message = "Source asset code must be between 1 and 12 characters"
+    ))]
     pub source_asset_code: String,
 
-    #[validate(length(min = 56, max = 56, message = "Source asset issuer must be exactly 56 characters"))]
+    #[validate(length(
+        min = 56,
+        max = 56,
+        message = "Source asset issuer must be exactly 56 characters"
+    ))]
     pub source_asset_issuer: String,
 
-    #[validate(length(min = 1, max = 12, message = "Destination asset code must be between 1 and 12 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 12,
+        message = "Destination asset code must be between 1 and 12 characters"
+    ))]
     pub dest_asset_code: String,
 
-    #[validate(length(min = 56, max = 56, message = "Destination asset issuer must be exactly 56 characters"))]
+    #[validate(length(
+        min = 56,
+        max = 56,
+        message = "Destination asset issuer must be exactly 56 characters"
+    ))]
     pub dest_asset_issuer: String,
 }
 

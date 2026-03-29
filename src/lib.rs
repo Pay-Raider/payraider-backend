@@ -8,8 +8,8 @@ pub mod monitor;
 
 pub mod auth;
 pub mod auth_middleware;
-pub mod broadcast;
 pub mod backup;
+pub mod broadcast;
 pub mod cache;
 pub mod cache_invalidation;
 // cache_middleware removed in favor of cache helper APIs

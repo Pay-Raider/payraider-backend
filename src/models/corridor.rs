@@ -40,11 +40,20 @@ impl Corridor {
 
     fn normalize_ordering(&mut self) {
         let source_key = format!("{}:{}", self.source_asset_code, self.source_asset_issuer);
-        let destination_key = format!("{}:{}", self.destination_asset_code, self.destination_asset_issuer);
- 
+        let destination_key = format!(
+            "{}:{}",
+            self.destination_asset_code, self.destination_asset_issuer
+        );
+
         if source_key > destination_key {
-            std::mem::swap(&mut self.source_asset_code, &mut self.destination_asset_code);
-            std::mem::swap(&mut self.source_asset_issuer, &mut self.destination_asset_issuer);
+            std::mem::swap(
+                &mut self.source_asset_code,
+                &mut self.destination_asset_code,
+            );
+            std::mem::swap(
+                &mut self.source_asset_issuer,
+                &mut self.destination_asset_issuer,
+            );
         }
     }
 
@@ -52,7 +61,10 @@ impl Corridor {
     pub fn to_string_key(&self) -> String {
         format!(
             "{}:{}->{}:{}",
-            self.source_asset_code, self.source_asset_issuer, self.destination_asset_code, self.destination_asset_issuer
+            self.source_asset_code,
+            self.source_asset_issuer,
+            self.destination_asset_code,
+            self.destination_asset_issuer
         )
     }
 }
@@ -63,16 +75,16 @@ pub struct CorridorMetrics {
     pub corridor_key: String,
     #[serde(rename = "asset_a_code")]
     #[sqlx(rename = "asset_a_code")]
-    pub reserve_asset_a_code: String,
+    pub source_asset_code: String,
     #[serde(rename = "asset_a_issuer")]
     #[sqlx(rename = "asset_a_issuer")]
-    pub reserve_asset_a_issuer: String,
+    pub source_asset_issuer: String,
     #[serde(rename = "asset_b_code")]
     #[sqlx(rename = "asset_b_code")]
-    pub reserve_asset_b_code: String,
+    pub destination_asset_code: String,
     #[serde(rename = "asset_b_issuer")]
     #[sqlx(rename = "asset_b_issuer")]
-    pub reserve_asset_b_issuer: String,
+    pub destination_asset_issuer: String,
     pub date: DateTime<Utc>,
     pub total_transactions: i64,
     pub successful_transactions: i64,
@@ -154,6 +166,39 @@ impl PaymentRecord {
     }
 }
 
+/// Aggregated corridor metrics for a single hour bucket.
+///
+/// Defined here (in `models`) so that both the `db` layer and the `services`
+/// layer can reference it without either depending on the other.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HourlyCorridorMetrics {
+    pub id: String,
+    pub corridor_key: String,
+    pub asset_a_code: String,
+    pub asset_a_issuer: String,
+    pub asset_b_code: String,
+    pub asset_b_issuer: String,
+    pub hour_bucket: DateTime<Utc>,
+    pub total_transactions: i64,
+    pub successful_transactions: i64,
+    pub failed_transactions: i64,
+    pub success_rate: f64,
+    pub volume_usd: f64,
+    pub avg_slippage_bps: f64,
+    pub avg_settlement_latency_ms: Option<i32>,
+    pub liquidity_depth_usd: f64,
+}
+
+/// Volume trend summary for a corridor over a time window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeTrend {
+    pub corridor_key: String,
+    pub total_volume: f64,
+    pub avg_volume: f64,
+    pub trend_percentage: f64,
+    pub data_points: usize,
+}
+
 /// Computes the median value from a slice of i64 latency measurements.
 pub fn compute_median(values: &mut [i64]) -> Option<i64> {
     if values.is_empty() {
@@ -202,7 +247,7 @@ mod tests {
             "USDC".to_string(),
             "issuer2".to_string(),
         );
- 
+
         assert_eq!(corridor.source_asset_code, "USDC");
         assert_eq!(corridor.destination_asset_code, "USDC");
         assert_eq!(corridor.source_asset_issuer, "issuer1");
@@ -238,7 +283,7 @@ mod tests {
             submission_time: None,
             confirmation_time: None,
         };
- 
+
         let corridor = payment.get_corridor();
         assert_eq!(corridor.source_asset_code, "EURC");
         assert_eq!(corridor.destination_asset_code, "USDC");

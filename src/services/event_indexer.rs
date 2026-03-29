@@ -42,14 +42,23 @@ pub struct EventQuery {
     pub order_by: Option<EventOrderBy>,
 }
 
-/// Event ordering options
+/// Controls the sort order of event query results.
+///
+/// Used in [`EventQuery::order_by`] to specify how results are sorted.
+/// Defaults to [`EventOrderBy::CreatedAtDesc`] (newest first).
 #[derive(Debug, Clone)]
 pub enum EventOrderBy {
+    /// Sort by insertion time, oldest first.
     CreatedAtAsc,
+    /// Sort by insertion time, newest first (default).
     CreatedAtDesc,
+    /// Sort by ledger sequence number, ascending.
     LedgerAsc,
+    /// Sort by ledger sequence number, descending.
     LedgerDesc,
+    /// Sort by epoch number, ascending.
     EpochAsc,
+    /// Sort by epoch number, descending.
     EpochDesc,
 }
 
@@ -406,39 +415,6 @@ impl EventIndexer {
         }
 
         Ok(events)
-    }
-
-    /// Get event statistics (old implementation)
-    pub async fn get_event_stats_old(&self) -> Result<EventStats> {
-        debug!("Getting event statistics");
-
-        let query = r"
-            SELECT
-                COUNT(*) as total_events,
-                COUNT(CASE WHEN verification_status = 'verified' THEN 1 END) as verified_snapshots,
-                COUNT(CASE WHEN verification_status = 'failed' THEN 1 END) as failed_verifications,
-                MAX(epoch) as latest_epoch,
-                MAX(ledger) as latest_ledger,
-                COUNT(CASE WHEN created_at > datetime('now', '-1 day') THEN 1 END) as events_last_24h
-            FROM contract_events
-        ";
-
-        let row = sqlx::query(query)
-            .fetch_one(self.db.pool())
-            .await
-            .context("Failed to get event statistics")?;
-
-        let stats = EventStats {
-            total_events: row.get("total_events"),
-            verified_snapshots: row.get("verified_snapshots"),
-            failed_verifications: row.get("failed_verifications"),
-            latest_epoch: row.get::<Option<i64>, _>("latest_epoch").map(|e| e as u64),
-            latest_ledger: row.get::<Option<i64>, _>("latest_ledger").map(|l| l as u64),
-            events_last_24h: row.get("events_last_24h"),
-        };
-
-        debug!("Event stats: {:?}", stats);
-        Ok(stats)
     }
 
     /// Get verification status summary for recent epochs

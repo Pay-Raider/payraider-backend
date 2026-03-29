@@ -168,16 +168,14 @@ async fn test_save_and_retrieve_verification() -> Result<()> {
     let result = VerificationResult {
         stellar_expert_verified: true,
         stellar_toml_verified: true,
-        stellar_toml_data: Some(
-            StellarTomlData {
-                home_domain: "centre.io".to_string(),
-                name: Some("USD Coin".to_string()),
-                description: Some("Stablecoin".to_string()),
-                org_name: Some("Centre".to_string()),
-                org_url: Some("https://centre.io".to_string()),
-                logo_url: None,
-            },
-        ),
+        stellar_toml_data: Some(StellarTomlData {
+            home_domain: "centre.io".to_string(),
+            name: Some("USD Coin".to_string()),
+            description: Some("Stablecoin".to_string()),
+            org_name: Some("Centre".to_string()),
+            org_url: Some("https://centre.io".to_string()),
+            logo_url: None,
+        }),
         anchor_registry_verified: false,
         trustline_count: 50000,
         transaction_count: 1000000,
@@ -328,16 +326,15 @@ async fn test_concurrent_verification() -> Result<()> {
                 let asset_issuer =
                     format!("G{}SEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", i);
 
-                let result =
-                    VerificationResult {
-                        stellar_expert_verified: true,
-                        stellar_toml_verified: false,
-                        stellar_toml_data: None,
-                        anchor_registry_verified: false,
-                        trustline_count: 100,
-                        transaction_count: 1000,
-                        total_volume_usd: 10000.0,
-                    };
+                let result = VerificationResult {
+                    stellar_expert_verified: true,
+                    stellar_toml_verified: false,
+                    stellar_toml_data: None,
+                    anchor_registry_verified: false,
+                    trustline_count: 100,
+                    transaction_count: 1000,
+                    total_volume_usd: 10000.0,
+                };
 
                 let score = verifier.calculate_reputation_score(&result);
                 let status = verifier.determine_status(score, 0);

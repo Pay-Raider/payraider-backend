@@ -99,8 +99,8 @@ pub fn compute_anchor_metrics(
 /// - values between those bounds are linearly interpolated
 /// - `None` returns a neutral `50` to avoid over-penalizing sparse telemetry
 fn calculate_settlement_time_score(avg_settlement_time_ms: Option<i32>) -> f64 {
-    const MAX_SETTLEMENT_TIME_MS: f64 = 10000.0; // 10 seconds
-    const MIN_SETTLEMENT_TIME_MS: f64 = 1000.0; // 1 second
+    const MAX_SETTLEMENT_TIME_MS: f64 = 10_000.0; // 10 seconds
+    const MIN_SETTLEMENT_TIME_MS: f64 = 1_000.0; // 1 second
 
     match avg_settlement_time_ms {
         Some(time_ms) if time_ms <= MIN_SETTLEMENT_TIME_MS as i32 => 100.0,
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_compute_anchor_reliability_score_empty_assets() {
-        let score = compute_anchor_reliability_score(&[], 1000000.0);
+        let score = compute_anchor_reliability_score(&[], 1_000_000.0);
 
         assert_eq!(score.composite_score, 0.0);
         assert_eq!(score.asset_performance_score, 0.0);
@@ -326,15 +326,15 @@ mod tests {
             total_transactions: 1000,
             successful_transactions: 1000,
             failed_transactions: 0,
-            total_volume_usd: 100000.0,
+            total_volume_usd: 100_000.0,
         }];
 
-        let score = compute_anchor_reliability_score(&assets, 1000000.0);
+        let score = compute_anchor_reliability_score(&assets, 1_000_000.0);
 
         assert_eq!(score.weighted_success_rate, 100.0);
         assert_eq!(score.asset_performance_score, 100.0);
         assert_eq!(score.total_assets, 1);
-        assert_eq!(score.total_volume_usd, 100000.0);
+        assert_eq!(score.total_volume_usd, 100_000.0);
         assert!(score.composite_score > 50.0); // Should be decent with perfect performance
     }
 
@@ -347,7 +347,7 @@ mod tests {
                 total_transactions: 100,
                 successful_transactions: 100, // 100% success
                 failed_transactions: 0,
-                total_volume_usd: 80000.0, // 80% of volume
+                total_volume_usd: 80_000.0, // 80% of volume
             },
             AnchorAssetPerformance {
                 asset_code: "EURC".to_string(),
@@ -355,17 +355,17 @@ mod tests {
                 total_transactions: 100,
                 successful_transactions: 50, // 50% success
                 failed_transactions: 50,
-                total_volume_usd: 20000.0, // 20% of volume
+                total_volume_usd: 20_000.0, // 20% of volume
             },
         ];
 
-        let score = compute_anchor_reliability_score(&assets, 1000000.0);
+        let score = compute_anchor_reliability_score(&assets, 1_000_000.0);
 
         // Weighted: (100 * 80000 + 50 * 20000) / 100000 = 90
         assert_eq!(score.weighted_success_rate, 90.0);
         assert_eq!(score.asset_performance_score, 90.0);
         assert_eq!(score.total_assets, 2);
-        assert_eq!(score.total_volume_usd, 100000.0);
+        assert_eq!(score.total_volume_usd, 100_000.0);
         assert_eq!(score.asset_diversity_score, 20.0); // 2/10 * 100
     }
 
@@ -378,11 +378,11 @@ mod tests {
                 total_transactions: 100,
                 successful_transactions: 95,
                 failed_transactions: 5,
-                total_volume_usd: 10000.0,
+                total_volume_usd: 10_000.0,
             })
             .collect();
 
-        let score = compute_anchor_reliability_score(&assets, 1000000.0);
+        let score = compute_anchor_reliability_score(&assets, 1_000_000.0);
 
         assert_eq!(score.total_assets, 15);
         assert_eq!(score.asset_diversity_score, 100.0); // Capped at 100
@@ -397,7 +397,7 @@ mod tests {
             total_transactions: 100,
             successful_transactions: 100,
             failed_transactions: 0,
-            total_volume_usd: 50000.0,
+            total_volume_usd: 50_000.0,
         }];
 
         let score = compute_anchor_reliability_score(&assets, 0.0);
@@ -414,10 +414,10 @@ mod tests {
             total_transactions: 100,
             successful_transactions: 100, // 100% success
             failed_transactions: 0,
-            total_volume_usd: 1000000.0, // Max volume
+            total_volume_usd: 1_000_000.0, // Max volume
         }];
 
-        let score = compute_anchor_reliability_score(&assets, 1000000.0);
+        let score = compute_anchor_reliability_score(&assets, 1_000_000.0);
 
         // Performance: 100, Volume: ~100, Diversity: 10
         // Composite: 0.6*100 + 0.3*100 + 0.1*10 = 60 + 30 + 1 = 91
@@ -430,7 +430,7 @@ mod tests {
         let usdc_anchor = vec![AnchorAssetPerformance {
             asset_code: "USDC".to_string(),
             asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN".to_string(),
-            total_transactions: 10000,
+            total_transactions: 10_000,
             successful_transactions: 9950,
             failed_transactions: 50,
             total_volume_usd: 50_000_000.0,

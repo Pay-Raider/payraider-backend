@@ -98,11 +98,15 @@ impl AlertService {
 
         // Auto-dispatch to default channels if configured in environment
         if let Ok(slack_webhook) = std::env::var("DEFAULT_SLACK_WEBHOOK") {
-            let _ = self.send_alert_to_channel(&alert, AlertChannel::Slack(slack_webhook)).await;
+            let _ = self
+                .send_alert_to_channel(&alert, AlertChannel::Slack(slack_webhook))
+                .await;
         }
 
         if let Ok(admin_email) = std::env::var("ADMIN_EMAIL") {
-            let _ = self.send_alert_to_channel(&alert, AlertChannel::Email(admin_email)).await;
+            let _ = self
+                .send_alert_to_channel(&alert, AlertChannel::Email(admin_email))
+                .await;
         }
 
         Ok(())
@@ -114,7 +118,10 @@ impl AlertService {
             AlertChannel::Email(to) => {
                 if let Some(ref service) = self.email_service {
                     let subject = format!("Stellar Insights Alert: {:?}", alert.severity);
-                    let body = format!("<h2>Alert</h2><p>{}</p><p>Type: {:?}</p>", alert.message, alert.alert_type);
+                    let body = format!(
+                        "<h2>Alert</h2><p>{}</p><p>Type: {:?}</p>",
+                        alert.message, alert.alert_type
+                    );
                     service.send_html(&to, &subject, &body)?;
                 } else {
                     warn!("Email service not configured, skipping alert to {}", to);
@@ -124,17 +131,26 @@ impl AlertService {
                 let payload = serde_json::json!({
                     "text": format!("*ALERT [{:?}]*\n{}\n`{:?}`", alert.severity, alert.message, alert.alert_type)
                 });
-                self.slack_client.post(&webhook_url).json(&payload).send().await?;
+                self.slack_client
+                    .post(&webhook_url)
+                    .json(&payload)
+                    .send()
+                    .await?;
             }
             AlertChannel::Webhook(webhook_id) => {
                 if let Some(ref service) = self.webhook_service {
-                    service.create_webhook_event(
-                        &webhook_id,
-                        "contract_alert",
-                        serde_json::to_value(alert)?,
-                    ).await?;
+                    service
+                        .create_webhook_event(
+                            &webhook_id,
+                            "contract_alert",
+                            serde_json::to_value(alert)?,
+                        )
+                        .await?;
                 } else {
-                    warn!("Webhook service not configured, skipping alert to {}", webhook_id);
+                    warn!(
+                        "Webhook service not configured, skipping alert to {}",
+                        webhook_id
+                    );
                 }
             }
         }
