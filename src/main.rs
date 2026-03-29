@@ -4,7 +4,7 @@ use axum::{
     routing::{get, put},
     Router,
 };
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -824,9 +824,8 @@ async fn main() -> Result<()> {
     let request_timeout_seconds = std::env::var("REQUEST_TIMEOUT_SECONDS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(60); // Default 60 seconds
-
-    let request_timeout = TimeoutLayer::new(Duration::from_secs(request_timeout_seconds));
+        .unwrap_or(60)
+        .clamp(5, 300); // Enforce 5s minimum, 300s maximum
 
     tracing::info!(
         "Request timeout configured: {} seconds",
@@ -1140,7 +1139,7 @@ async fn main() -> Result<()> {
     let swagger_routes =
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
 
-    // Build WebSocket routes
+    // Build WebSocket routes (excluded from request timeout — long-lived connections)
     let ws_routes = Router::new()
         .route("/ws", get(stellar_insights_backend::websocket::ws_handler))
         .with_state(Arc::clone(&ws_state))
@@ -1150,6 +1149,19 @@ async fn main() -> Result<()> {
         .route("/ws/alerts", get(stellar_insights_backend::alert_handlers::alert_websocket_handler))
         .with_state(Arc::clone(&alert_manager))
         .layer(cors.clone());
+
+    // Timeout + JSON error handler for non-WebSocket routes
+    let timeout_layer = tower::ServiceBuilder::new()
+        .layer(axum::error_handling::HandleErrorLayer::new(|_: tower::BoxError| async {
+            (
+                axum::http::StatusCode::REQUEST_TIMEOUT,
+                axum::Json(serde_json::json!({
+                    "error": "REQUEST_TIMEOUT",
+                    "message": "Request exceeded the maximum allowed time"
+                }))
+            )
+        }))
+        .layer(TimeoutLayer::new(Duration::from_secs(request_timeout_seconds)));
 
 
 
@@ -1189,7 +1201,7 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
         .layer(middleware::from_fn(request_id_middleware))
-        .layer(request_timeout) // Apply request timeout to all routes
+        .layer(timeout_layer) // Apply request timeout to all non-WS routes
         .layer(compression); // Apply compression to all routes
 
     // Start server
