@@ -1,6 +1,5 @@
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, post},
     http::HeaderMap,
     response::Response,
     Json,
@@ -11,12 +10,10 @@ use std::sync::{Arc, OnceLock};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use anyhow::Context;
+// use anyhow::Context;
 
 use crate::broadcast::broadcast_anchor_update;
-use crate::cache::CacheManager;
 use crate::error::{ApiError, ApiResult};
-use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
 use crate::state::AppState;
 use tracing::warn;
@@ -278,10 +275,12 @@ use crate::cache::{keys, CacheManager};
 use crate::database::Database;
 use crate::rpc::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
-    error::{with_retry, RetryConfig, RpcError},
+    error::{RpcError},
     StellarRpcClient,
 };
 use crate::services::price_feed::PriceFeedClient;
+use std::future::Future;
+use std::time::Duration;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -317,8 +316,7 @@ pub(crate) fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
         .clone()
 }
 
-#[cfg(test)]
-pub(crate) fn rpc_circuit_breaker_instance() -> Arc<CircuitBreaker> {
+pub fn rpc_circuit_breaker_instance() -> Arc<CircuitBreaker> {
     rpc_circuit_breaker()
 }
 
@@ -327,10 +325,10 @@ async fn with_retry<F, Fut, T>(
     mut operation: F,
     max_retries: u32,
     initial_backoff: Duration,
-) -> anyhow::Result<T>
+) -> Result<T, RpcError>
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = anyhow::Result<T>>,
+    Fut: Future<Output = Result<T, RpcError>>,
 {
     let mut backoff = initial_backoff;
     let mut last_error = None;
@@ -364,8 +362,11 @@ pub async fn get_anchor_metrics_with_rpc(
                 .fetch_anchor_metrics(anchor_id)
                 .await
                 .map_err(|e| RpcError::categorize(&e.to_string()))
-        })
-        .await;
+        },
+        3,
+        Duration::from_secs(1),
+    )
+    .await;
 
     let metrics = match result {
         Ok(metrics) => metrics,

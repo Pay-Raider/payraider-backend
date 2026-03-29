@@ -29,7 +29,6 @@ impl AppState {
             cache,
             ws_state,
             ingestion,
-            cache,
             rpc_client,
         }
     }

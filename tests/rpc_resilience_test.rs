@@ -12,10 +12,8 @@ use stellar_insights_backend::api::anchors::{
 };
 use stellar_insights_backend::cache::{CacheConfig, CacheManager};
 use stellar_insights_backend::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
-use stellar_insights_backend::api::anchors::{get_anchor_metrics_with_rpc, AnchorMetrics};
 use stellar_insights_backend::models::asset_verification::VerificationResult;
 use stellar_insights_backend::rpc::stellar::StellarRpcClient;
-use stellar_insights_backend::rpc::{CircuitBreaker, CircuitBreakerConfig};
 use stellar_insights_backend::rpc::error::{with_retry, RetryConfig, RpcError};
 
 #[tokio::test]

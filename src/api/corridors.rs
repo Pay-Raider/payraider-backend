@@ -335,6 +335,7 @@ pub async fn list_corridors(
         Arc<PriceFeedClient>,
     )>,
     Query(params): Query<ListCorridorsQuery>,
+    headers: HeaderMap,
 ) -> ApiResult<Response> {
     info!("Listing corridors");
 

@@ -168,49 +168,6 @@ impl AggregationService {
                 .entry(key)
                 .and_modify(|existing| Self::merge_hourly_metric(existing, &metric))
                 .or_insert_with(|| Self::new_hourly_metric(&metric, hour_bucket));
-                .and_modify(|existing| {
-                    existing.total_transactions += metric.total_transactions;
-                    existing.successful_transactions += metric.successful_transactions;
-                    existing.failed_transactions += metric.failed_transactions;
-                    existing.volume_usd += metric.volume_usd;
-
-                    // Update averages (weighted by transaction count)
-                    if let Some(latency) = metric.avg_settlement_latency_ms {
-                        let total_latency =
-                            i64::from(existing.avg_settlement_latency_ms.unwrap_or(0))
-                                * existing.total_transactions
-                                + i64::from(latency) * metric.total_transactions;
-                        existing.avg_settlement_latency_ms = Some(
-                            (total_latency
-                                / (existing.total_transactions + metric.total_transactions))
-                                as i32,
-                        );
-                    }
-
-                    existing.liquidity_depth_usd =
-                        f64::midpoint(existing.liquidity_depth_usd, metric.liquidity_depth_usd);
-                })
-                .or_insert_with(|| HourlyCorridorMetrics {
-                    id: Uuid::new_v4().to_string(),
-                    corridor_key: metric.corridor_key.clone(),
-                    source_asset_code: metric.reserve_asset_a_code.clone(),
-                    source_asset_issuer: metric.reserve_asset_a_issuer.clone(),
-                    destination_asset_code: metric.reserve_asset_b_code.clone(),
-                    destination_asset_issuer: metric.reserve_asset_b_issuer.clone(),
-                    hour_bucket,
-                    total_transactions: metric.total_transactions,
-                    successful_transactions: metric.successful_transactions,
-                    failed_transactions: metric.failed_transactions,
-                    success_rate: metric.success_rate,
-                    volume_usd: metric.volume_usd,
-                    avg_slippage_bps: if metric.volume_usd > 1000.0 {
-                        (5.0 + (metric.volume_usd.log10() * 0.5)).min(25.0)
-                    } else {
-                        3.5
-                    },
-                    avg_settlement_latency_ms: metric.avg_settlement_latency_ms,
-                    liquidity_depth_usd: metric.liquidity_depth_usd,
-                });
         }
 
         // Recalculate success rates
@@ -260,10 +217,10 @@ impl AggregationService {
         HourlyCorridorMetrics {
             id: Uuid::new_v4().to_string(),
             corridor_key: metric.corridor_key.clone(),
-            asset_a_code: metric.asset_a_code.clone(),
-            asset_a_issuer: metric.asset_a_issuer.clone(),
-            asset_b_code: metric.asset_b_code.clone(),
-            asset_b_issuer: metric.asset_b_issuer.clone(),
+            source_asset_code: metric.reserve_asset_a_code.clone(),
+            source_asset_issuer: metric.reserve_asset_a_issuer.clone(),
+            destination_asset_code: metric.reserve_asset_b_code.clone(),
+            destination_asset_issuer: metric.reserve_asset_b_issuer.clone(),
             hour_bucket,
             total_transactions: metric.total_transactions,
             successful_transactions: metric.successful_transactions,
