@@ -23,7 +23,7 @@ use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
-use crate::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use crate::rpc::circuit_breaker::{rpc_circuit_breaker, CircuitBreaker, CircuitBreakerConfig};
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::StellarRpcClient;
 use crate::services::price_feed::PriceFeedClient;
@@ -290,18 +290,6 @@ pub async fn create_anchor_asset(
 
     Ok(Json(asset))
 }
-
-use crate::cache::helpers::cached_query;
-use crate::cache::keys;
-use crate::database::Database;
-use crate::rpc::{
-    circuit_breaker::{rpc_circuit_breaker, CircuitBreaker},
-    error::{with_retry, RetryConfig, RpcError},
-    StellarRpcClient,
-};
-use crate::services::price_feed::PriceFeedClient;
-use std::future::Future;
-use std::time::Duration;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
