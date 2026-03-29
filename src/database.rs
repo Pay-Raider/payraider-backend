@@ -1696,8 +1696,13 @@ impl Database {
                     }
                 }
 
+
+                // last_used_at update is best-effort; a failure here should not block validation
+                if let Err(e) = sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
+
                 // last_used_at update is best-effort
                 let _ = sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
+
                     .bind(Utc::now().to_rfc3339())
                     .bind(&k.id)
                     .execute(&self.pool)
