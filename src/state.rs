@@ -38,3 +38,23 @@ impl AppState {
         }
     }
 }
+
+use axum::extract::FromRef;
+
+impl FromRef<AppState> for Arc<Database> {
+    fn from_ref(state: &AppState) -> Self {
+        state.db.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<CacheManager> {
+    fn from_ref(state: &AppState) -> Self {
+        state.cache.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<StellarRpcClient> {
+    fn from_ref(state: &AppState) -> Self {
+        state.rpc_client.clone()
+    }
+}
