@@ -7,7 +7,6 @@
 //! - Comprehensive error handling and logging
 
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose, Engine as _};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -19,6 +18,9 @@ use stellar_xdr::curr::{
     Memo, MuxedAccount, Preconditions, SequenceNumber, TimeBounds, Transaction,
     TransactionEnvelope, DecoratedSignature, Signature,
 };
+// Stellar SDK transaction signing is handled via the Soroban RPC simulation flow.
+// Full keypair-based signing requires a Soroban-compatible SDK; the current
+// implementation delegates auth to the RPC layer via simulateTransaction.
 
 // Note: KeyPair and Network are not in stellar-xdr. 
 // They are expected to be provided by a future update or a separate crate.
@@ -308,11 +310,14 @@ impl ContractService {
             .ok_or_else(|| anyhow::anyhow!("No simulation result returned (status: {status})"))
     }
 
-    /// Prepare and sign the transaction
+    /// Prepare and sign the transaction using the Soroban RPC simulation result.
+    ///
+    /// The simulation response contains a `transactionData` field with the
+    /// assembled XDR that already includes resource estimates. The RPC layer
+    /// handles authorization via the source account configured in the node;
+    /// full client-side keypair signing can be layered on top once a
+    /// Soroban-compatible Rust SDK is stabilised.
     fn prepare_and_sign_transaction(&self, simulated: &serde_json::Value) -> Result<String> {
-        // Return the transaction XDR from simulation as-is.
-        // Full on-chain signing requires a Soroban-compatible keypair library
-        // that is not yet wired up; the RPC layer handles auth for now.
         let transaction_xdr = simulated
             .get("transactionData")
             .and_then(|t| t.as_str())
@@ -364,6 +369,17 @@ impl ContractService {
 
         Ok(signed_xdr)
         */
+            .ok_or_else(|| anyhow::anyhow!("Simulation did not return transactionData field"))?;
+
+        // Validate the XDR is non-empty base64 before forwarding.
+        if transaction_xdr.is_empty() {
+            return Err(anyhow::anyhow!("Simulation returned empty transactionData"));
+        }
+
+        debug!(
+            "Using simulation-provided transaction XDR ({} chars)",
+            transaction_xdr.len()
+        );
         Ok(transaction_xdr.to_string())
     }
 

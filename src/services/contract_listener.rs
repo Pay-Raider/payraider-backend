@@ -72,7 +72,6 @@ struct RpcError {
     message: String,
 }
 
-
 pub struct ContractEventListener {
     client: Client,
     config: ListenerConfig,
@@ -360,7 +359,7 @@ impl ContractEventListener {
 
                 // Send alert via AlertService
                 let expected = backend_hash.clone();
-                let actual = on_chain_hash.clone();
+                let actual = on_chain_hash.to_string();
 
                 let alert_service = self.alert_service.clone();
                 tokio::spawn(async move {
@@ -632,4 +631,3 @@ mod tests {
         std::env::remove_var("CONTRACT_EVENT_START_LEDGER");
     }
 }
-
