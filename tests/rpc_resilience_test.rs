@@ -21,6 +21,19 @@ fn test_circuit_breaker(failure_threshold: u32, timeout: Duration) -> SharedCirc
     let breaker: CircuitBreaker = Config::new().failure_policy(policy).build();
     Arc::new(breaker)
 }
+use stellar_insights_backend::api::anchors::{
+    get_anchor_metrics_with_fallback, get_anchor_metrics_with_rpc, rpc_circuit_breaker_instance,
+    AnchorMetrics,
+};
+use stellar_insights_backend::cache::{CacheConfig, CacheManager};
+use stellar_insights_backend::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use stellar_insights_backend::api::anchors::{get_anchor_metrics_with_rpc, AnchorMetrics};
+use stellar_insights_backend::cache::{CacheConfig, CacheManager};
+use stellar_insights_backend::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use stellar_insights_backend::rpc::error::{with_retry, RetryConfig, RpcError};
+use stellar_insights_backend::rpc::stellar::StellarRpcClient;
+use stellar_insights_backend::rpc::error::{with_retry, RetryConfig, RpcError};
+use stellar_insights_backend::rpc::{CircuitBreaker, CircuitBreakerConfig};
 
 #[tokio::test]
 async fn test_rpc_retry_on_failure() {
@@ -56,6 +69,14 @@ async fn test_rpc_retry_on_failure() {
 #[tokio::test]
 async fn test_circuit_breaker_opens_on_failures() {
     let circuit_breaker = test_circuit_breaker(2, Duration::from_millis(1000));
+    let circuit_breaker = Arc::new(CircuitBreaker::new(
+        CircuitBreakerConfig {
+            failure_threshold: 2,
+            timeout_duration: Duration::from_millis(100),
+            ..Default::default()
+        },
+        "test",
+    ));
 
     let result1: Result<String, failsafe::Error<RpcError>> = circuit_breaker
         .call(async { Err(RpcError::NetworkError("fail".to_string())) })
@@ -73,6 +94,8 @@ async fn test_circuit_breaker_opens_on_failures() {
     assert!(matches!(result3, Err(failsafe::Error::Rejected)));
 
     sleep(Duration::from_millis(1100)).await;
+    // Wait for recovery timeout with generous margin
+    sleep(Duration::from_millis(300)).await;
 
     let result4: Result<String, failsafe::Error<RpcError>> = circuit_breaker
         .call(async { Ok("recovered".to_string()) })
