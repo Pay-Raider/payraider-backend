@@ -21,13 +21,14 @@ use crate::cache::keys;
 use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
-use crate::models::corridor::Corridor;
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
 use crate::rpc::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::StellarRpcClient;
 use crate::services::price_feed::PriceFeedClient;
 use crate::state::AppState;
+use crate::rpc::error::{RetryConfig, with_retry, RpcError};
+use tracing::warn;
 use tracing::{error, info, warn};
 
 
@@ -295,12 +296,12 @@ use crate::cache::helpers::cached_query;
 use crate::cache::keys;
 use crate::database::Database;
 use crate::rpc::{
+    circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
     circuit_breaker::{rpc_circuit_breaker, CircuitBreaker},
     error::{with_retry, RetryConfig, RpcError},
     StellarRpcClient,
 };
 use crate::services::price_feed::PriceFeedClient;
-use std::future::Future;
 use std::time::Duration;
 
 #[derive(Debug, Deserialize, IntoParams)]
