@@ -9,17 +9,22 @@ use axum::{extract::State, response::IntoResponse, Json};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::Instant;
+use std::sync::atomic::Ordering;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use sqlx::Pool;
 
 use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::rpc::StellarRpcClient;
 use crate::state::AppState;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+use chrono::{DateTime, Utc};
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct HealthStatus {
     pub status: String,
-    pub timestamp: String,
+    pub timestamp: DateTime<Utc>,
     pub version: String,
     pub uptime_seconds: u64,
     pub checks: HealthChecks,
@@ -43,7 +48,7 @@ pub struct ComponentHealth {
 async fn check_database_health(db: &Arc<Database>) -> ComponentHealth {
     let start = Instant::now();
 
-    match sqlx::query("SELECT 1").fetch_one(db.pool()).await {
+    match sqlx::query("SELECT 1").fetch_one(&**db.pool()).await {
         Ok(_) => ComponentHealth {
             status: "healthy".to_string(),
             response_time_ms: Some(start.elapsed().as_millis() as u64),
@@ -118,18 +123,23 @@ pub async fn health_check(State(app_state): State<AppState>) -> impl IntoRespons
         "degraded"
     };
 
-    if req.stellar_account.is_empty() {
-        return Err(ApiError::BadRequest(
-            "Stellar account cannot be empty".to_string(),
-        ));
-    }
+    let start_epoch = app_state.server_start_time.load(Ordering::Relaxed);
+    let now_epoch = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let uptime_seconds = now_epoch.saturating_sub(start_epoch);
 
-    let anchor = app_state.db.create_anchor(req).await?;
+    let health_status = HealthStatus {
+        status: overall_status.to_string(),
+        timestamp: Utc::now(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        uptime_seconds,
+        checks: HealthChecks {
+            database: db_health,
+            cache: cache_health,
+            rpc: rpc_health,
+        },
+    };
 
-    // Broadcast the new anchor to WebSocket clients
-    broadcast_anchor_update(&app_state.ws_state, &anchor);
-
-    Ok(Json(anchor))
+    Json(health_status)
 }
 
 /// PUT /api/anchors/:id/metrics - Update anchor metrics
@@ -219,14 +229,7 @@ pub async fn create_anchor_asset(
     Ok(Json(asset))
 }
 
-/// Health check endpoint
-pub async fn health_check() -> impl IntoResponse {
-    Json(serde_json::json!({
-        "status": "healthy",
-        "service": "stellar-insights-backend",
-        "version": env!("CARGO_PKG_VERSION")
-    }))
-}
+
 
 /// GET /api/admin/pool-metrics - Return current database pool metrics
 pub async fn get_pool_metrics(
