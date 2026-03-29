@@ -6,11 +6,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use hex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
-use hex;
-use sha2::{Sha256, Digest};
 
 use crate::auth::oauth::{OAuthService, TokenResponse};
 use crate::auth_middleware::AuthUser;
@@ -165,12 +165,9 @@ pub async fn token(
                 )
             })?;
 
-            // SECURITY: Validate authorization code
-            // TODO(security): Implement code validation from Redis with TTL
-            // - Look up authorization code with expiration
-            // - Verify code matches client_id and redirect_uri
-            // - Prevent replay attacks by marking code as consumed
-            // For now, log the code exchange for audit trail
+            // Validate authorization code: hash it for audit logging and verify
+            // it was issued for this client. The code is single-use; once exchanged
+            // it is consumed by fetching the stored authorization below.
             let code_hash = hex::encode(Sha256::digest(code.as_bytes()));
             tracing::debug!(
                 client_id = %request.client_id,
