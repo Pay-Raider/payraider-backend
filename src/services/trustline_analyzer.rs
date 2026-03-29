@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::models::{TrustlineMetrics, TrustlineSnapshot, TrustlineStat};
-use crate::rpc::StellarRpcClient;
+use crate::rpc::{StellarRpcClient, circuit_breaker::rpc_circuit_breaker};
 
 pub struct TrustlineAnalyzer {
     pool: Pool<Sqlite>,
@@ -12,7 +12,8 @@ pub struct TrustlineAnalyzer {
 }
 
 impl TrustlineAnalyzer {
-    pub fn new(pool: Pool<Sqlite>, rpc_client: Arc<StellarRpcClient>) -> Self {
+    #[must_use]
+    pub const fn new(pool: Pool<Sqlite>, rpc_client: Arc<StellarRpcClient>) -> Self {
         Self { pool, rpc_client }
     }
 
@@ -23,8 +24,17 @@ impl TrustlineAnalyzer {
     /// Fetch top assets from Horizon and upsert trustline stats
     pub async fn sync_assets(&self) -> Result<u64> {
         info!("Starting trustline stats sync from Horizon...");
+        let circuit_breaker = rpc_circuit_breaker();
         // Fetch top 200 assets (by rating)
-        let assets = self.rpc_client.fetch_assets(200, true).await?;
+        // Wrapped in circuit breaker for resilience
+        let assets = circuit_breaker.call(|| async {
+            self.rpc_client.fetch_assets(200, true).await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))
+        }).await
+        .map_err(|e| match e {
+            failsafe::Error::Rejected => anyhow::anyhow!("Circuit breaker open"),
+            failsafe::Error::Inner(err) => err,
+        })?;
 
         let mut synced_count = 0;
         let mut tx = self.pool.begin().await?;
@@ -41,7 +51,7 @@ impl TrustlineAnalyzer {
             let total_supply: f64 = asset.balances.authorized.parse().unwrap_or(0.0);
 
             sqlx::query(
-                r#"
+                r"
                 INSERT INTO trustline_stats (
                     asset_code, asset_issuer, total_trustlines, authorized_trustlines, unauthorized_trustlines, total_supply, updated_at
                 )
@@ -52,7 +62,7 @@ impl TrustlineAnalyzer {
                     unauthorized_trustlines = excluded.unauthorized_trustlines,
                     total_supply = excluded.total_supply,
                     updated_at = CURRENT_TIMESTAMP
-                "#,
+                ",
             )
             .bind(&asset.asset_code)
             .bind(&asset.asset_issuer)
@@ -78,15 +88,15 @@ impl TrustlineAnalyzer {
 
         // Simply copy current state from trustline_stats to trustline_snapshots
         let result = sqlx::query(
-            r#"
+            r"
             INSERT INTO trustline_snapshots (
                 asset_code, asset_issuer, total_trustlines, authorized_trustlines, unauthorized_trustlines, total_supply, snapshot_at
             )
-            SELECT 
+            SELECT
                 asset_code, asset_issuer, total_trustlines, authorized_trustlines, unauthorized_trustlines, total_supply, CURRENT_TIMESTAMP
-            FROM 
+            FROM
                 trustline_stats
-            "#
+            "
         )
         .execute(&self.pool)
         .await?;
@@ -104,12 +114,12 @@ impl TrustlineAnalyzer {
         use sqlx::Row;
 
         let row = sqlx::query(
-            r#"
-            SELECT 
+            r"
+            SELECT
                 COUNT(*) as total_assets,
                 SUM(total_trustlines) as network_trustlines
             FROM trustline_stats
-            "#,
+            ",
         )
         .fetch_one(&self.pool)
         .await?;
@@ -127,11 +137,11 @@ impl TrustlineAnalyzer {
     /// Retrieve the assets ordered by total trustlines
     pub async fn get_trustline_rankings(&self, limit: i64) -> Result<Vec<TrustlineStat>> {
         let rankings = sqlx::query_as::<_, TrustlineStat>(
-            r#"
-            SELECT * FROM trustline_stats 
-            ORDER BY total_trustlines DESC 
+            r"
+            SELECT * FROM trustline_stats
+            ORDER BY total_trustlines DESC
             LIMIT ?1
-            "#,
+            ",
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -148,12 +158,12 @@ impl TrustlineAnalyzer {
         limit: i64,
     ) -> Result<Vec<TrustlineSnapshot>> {
         let history = sqlx::query_as::<_, TrustlineSnapshot>(
-            r#"
-            SELECT * FROM trustline_snapshots 
+            r"
+            SELECT * FROM trustline_snapshots
             WHERE asset_code = ?1 AND asset_issuer = ?2
-            ORDER BY snapshot_at DESC 
+            ORDER BY snapshot_at DESC
             LIMIT ?3
-            "#,
+            ",
         )
         .bind(asset_code)
         .bind(asset_issuer)

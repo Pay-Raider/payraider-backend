@@ -10,13 +10,19 @@ use std::time::Duration;
 use tokio::time::interval;
 use tracing::info;
 
+/// Background task that periodically checks and renews active Vault leases.
+///
+/// Spawn via [`LeaseManager::spawn`]. The task wakes every `check_interval`
+/// and renews any leases that are approaching expiry (80% of TTL elapsed).
 pub struct LeaseManager {
+    /// How often the renewal loop wakes to check for expiring leases.
     check_interval: Duration,
 }
 
 impl LeaseManager {
-    pub fn new() -> Self {
-        LeaseManager {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
             check_interval: Duration::from_secs(60), // Check every 60 seconds
         }
     }

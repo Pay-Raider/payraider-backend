@@ -1,11 +1,15 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::vault::{VaultConfig, VaultError};
 
-/// Vault Client for secret operations
+/// Vault Client for secret operations.
+///
+/// Wraps an HTTP client and Vault configuration to provide methods for
+/// reading static secrets (KV v2), generating dynamic database credentials,
+/// and managing lease lifecycle (renew / revoke).
 pub struct VaultClient {
     http_client: reqwest::Client,
     config: VaultConfig,
@@ -63,7 +67,7 @@ impl VaultClient {
             .build()
             .map_err(|e| VaultError::ClientError(e.to_string()))?;
 
-        let client = VaultClient {
+        let client = Self {
             http_client,
             config,
             lease_manager: Arc::new(RwLock::new(HashMap::new())),
@@ -119,7 +123,7 @@ impl VaultClient {
                 .data
                 .get(field_name)
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .ok_or_else(|| VaultError::FieldNotFound(field_name.to_string()))
         } else {
             secret
@@ -128,12 +132,12 @@ impl VaultClient {
                 .values()
                 .next()
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .ok_or_else(|| VaultError::NoDataInSecret)
+                .map(std::string::ToString::to_string)
+                .ok_or(VaultError::NoDataInSecret)
         }
     }
 
-    /// Request dynamic PostgreSQL database credentials
+    /// Request dynamic `PostgreSQL` database credentials
     pub async fn get_database_credentials(
         &self,
         role: &str,

@@ -1,6 +1,6 @@
 use std::fmt;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum RpcError {
@@ -15,20 +15,20 @@ pub enum RpcError {
 impl fmt::Display for RpcError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RpcError::NetworkError(msg) => write!(f, "Network error: {}", msg),
-            RpcError::RateLimitError { retry_after } => {
+            Self::NetworkError(msg) => write!(f, "Network error: {msg}"),
+            Self::RateLimitError { retry_after } => {
                 write!(f, "Rate limit error")?;
                 if let Some(delay) = retry_after {
                     write!(f, " (retry after {}s)", delay.as_secs())?;
                 }
                 Ok(())
             }
-            RpcError::ServerError { status, message } => {
-                write!(f, "Server error ({}): {}", status, message)
+            Self::ServerError { status, message } => {
+                write!(f, "Server error ({status}): {message}")
             }
-            RpcError::ParseError(msg) => write!(f, "Parse error: {}", msg),
-            RpcError::TimeoutError(msg) => write!(f, "Timeout error: {}", msg),
-            RpcError::CircuitBreakerOpen => write!(f, "Circuit breaker is open"),
+            Self::ParseError(msg) => write!(f, "Parse error: {msg}"),
+            Self::TimeoutError(msg) => write!(f, "Timeout error: {msg}"),
+            Self::CircuitBreakerOpen => write!(f, "Circuit breaker is open"),
         }
     }
 }
@@ -36,51 +36,55 @@ impl fmt::Display for RpcError {
 impl std::error::Error for RpcError {}
 
 impl RpcError {
-    pub fn is_retryable(&self) -> bool {
-        self.is_transient() || matches!(self, RpcError::ServerError { status, .. } if *status >= 500)
+    #[must_use]
+    pub const fn is_retryable(&self) -> bool {
+        self.is_transient() || matches!(self, Self::ServerError { status, .. } if *status >= 500)
     }
 
-    pub fn is_transient(&self) -> bool {
+    #[must_use]
+    pub const fn is_transient(&self) -> bool {
         matches!(
             self,
-            RpcError::NetworkError(_) | RpcError::TimeoutError(_) | RpcError::RateLimitError { .. }
+            Self::NetworkError(_) | Self::TimeoutError(_) | Self::RateLimitError { .. }
         )
     }
 
+    #[must_use]
     pub fn categorize(err: &str) -> Self {
         let lowered = err.to_ascii_lowercase();
         if lowered.contains("timeout") || lowered.contains("timed out") {
-            RpcError::TimeoutError(err.to_string())
+            Self::TimeoutError(err.to_string())
         } else if lowered.contains("rate limit") || lowered.contains("429") {
-            RpcError::RateLimitError { retry_after: None }
+            Self::RateLimitError { retry_after: None }
         } else if lowered.contains("parse") || lowered.contains("deserialize") {
-            RpcError::ParseError(err.to_string())
+            Self::ParseError(err.to_string())
         } else if lowered.contains("network")
             || lowered.contains("connection")
             || lowered.contains("dns")
         {
-            RpcError::NetworkError(err.to_string())
+            Self::NetworkError(err.to_string())
         } else {
-            RpcError::ServerError {
+            Self::ServerError {
                 status: 500,
                 message: err.to_string(),
             }
         }
     }
 
-    pub fn error_type_label(&self) -> &'static str {
+    #[must_use]
+    pub const fn error_type_label(&self) -> &'static str {
         match self {
-            RpcError::NetworkError(_) => "network_error",
-            RpcError::RateLimitError { .. } => "rate_limit_error",
-            RpcError::ServerError { .. } => "server_error",
-            RpcError::ParseError(_) => "parse_error",
-            RpcError::TimeoutError(_) => "timeout_error",
-            RpcError::CircuitBreakerOpen => "circuit_breaker_open",
+            Self::NetworkError(_) => "network_error",
+            Self::RateLimitError { .. } => "rate_limit_error",
+            Self::ServerError { .. } => "server_error",
+            Self::ParseError(_) => "parse_error",
+            Self::TimeoutError(_) => "timeout_error",
+            Self::CircuitBreakerOpen => "circuit_breaker_open",
         }
     }
 }
 
-use crate::rpc::circuit_breaker::CircuitBreaker;
+use crate::rpc::circuit_breaker::SharedCircuitBreaker;
 
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
@@ -102,7 +106,7 @@ impl Default for RetryConfig {
 pub async fn with_retry<F, Fut, T>(
     operation: F,
     config: RetryConfig,
-    circuit_breaker: Arc<CircuitBreaker>,
+    circuit_breaker: SharedCircuitBreaker,
 ) -> Result<T, RpcError>
 where
     F: Fn() -> Fut,
@@ -112,12 +116,17 @@ where
 
     loop {
         attempt += 1;
-        
-        let result = circuit_breaker.call(|| operation()).await;
+
+        // Failsafe-wrapped call. Failsafe treats Error::Inner as a failure for the circuit.
+        // We'll map RpcError into failsafe's error tracking.
+        let result = circuit_breaker.call(|| async {
+            operation().await
+        }).await;
 
         match result {
             Ok(val) => return Ok(val),
-            Err(e) => {
+            Err(failsafe::Error::Rejected) => return Err(RpcError::CircuitBreakerOpen),
+            Err(failsafe::Error::Inner(e)) => {
                 if !e.is_transient() || attempt >= config.max_attempts {
                     return Err(e);
                 }
@@ -128,7 +137,7 @@ where
                         .saturating_mul(2u64.saturating_pow(attempt.saturating_sub(1))),
                     config.max_delay_ms,
                 );
-                
+
                 tokio::time::sleep(Duration::from_millis(delay)).await;
             }
         }

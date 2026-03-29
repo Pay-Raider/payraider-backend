@@ -5,7 +5,7 @@ use sqlx::{Pool, Sqlite};
 use std::sync::Arc;
 use tracing::{info, warn};
 
-use crate::rpc::{HorizonOperation, StellarRpcClient};
+use crate::rpc::{HorizonOperation, StellarRpcClient, circuit_breaker::rpc_circuit_breaker};
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct AccountMergeEvent {
@@ -39,16 +39,24 @@ pub struct AccountMergeDetector {
 }
 
 impl AccountMergeDetector {
-    pub fn new(pool: Pool<Sqlite>, rpc_client: Arc<StellarRpcClient>) -> Self {
+    #[must_use]
+    pub const fn new(pool: Pool<Sqlite>, rpc_client: Arc<StellarRpcClient>) -> Self {
         Self { pool, rpc_client }
     }
 
     /// Fetches operations for a ledger, extracts account merges, and persists merge events.
     pub async fn process_ledger_operations(&self, ledger_sequence: u64) -> Result<u64> {
-        let operations = self
-            .rpc_client
-            .fetch_operations_for_ledger(ledger_sequence)
-            .await?;
+        let circuit_breaker = rpc_circuit_breaker();
+        let operations = circuit_breaker.call(|| async {
+            self.rpc_client
+                .fetch_operations_for_ledger(ledger_sequence)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))
+        }).await
+        .map_err(|e| match e {
+            failsafe::Error::Rejected => anyhow::anyhow!("Circuit breaker open"),
+            failsafe::Error::Inner(err) => err,
+        })?;
 
         let mut inserted = 0_u64;
 
@@ -79,15 +87,14 @@ impl AccountMergeDetector {
         ledger_sequence: u64,
         operation: &HorizonOperation,
     ) -> Result<bool> {
-        let destination_account = match operation.into.clone() {
-            Some(account) => account,
-            None => {
-                warn!(
-                    "Skipping account_merge operation {} without destination account",
-                    operation.id
-                );
-                return Ok(false);
-            }
+        let destination_account = if let Some(account) = operation.into.clone() {
+            account
+        } else {
+            warn!(
+                "Skipping account_merge operation {} without destination account",
+                operation.id
+            );
+            return Ok(false);
         };
 
         let source_account = operation
@@ -100,8 +107,7 @@ impl AccountMergeDetector {
             .await;
 
         let created_at = DateTime::parse_from_rfc3339(&operation.created_at)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
+            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
         let event = AccountMergeEvent {
             operation_id: operation.id.clone(),
@@ -117,7 +123,12 @@ impl AccountMergeDetector {
     }
 
     async fn resolve_merged_balance(&self, operation_id: &str, destination: &str) -> f64 {
-        match self.rpc_client.fetch_operation_effects(operation_id).await {
+        let circuit_breaker = rpc_circuit_breaker();
+        match circuit_breaker.call(|| async {
+            self.rpc_client.fetch_operation_effects(operation_id).await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))
+        }).await {
+            Ok(effects) => {
             Ok(effects) => {
                 let credited_amount: f64 = effects
                     .into_iter()
@@ -143,7 +154,7 @@ impl AccountMergeDetector {
 
     async fn persist_merge_event(&self, event: &AccountMergeEvent) -> Result<bool> {
         let result = sqlx::query(
-            r#"
+            r"
             INSERT INTO account_merges (
                 operation_id,
                 transaction_hash,
@@ -155,7 +166,7 @@ impl AccountMergeDetector {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (operation_id) DO NOTHING
-            "#,
+            ",
         )
         .bind(&event.operation_id)
         .bind(&event.transaction_hash)
@@ -172,12 +183,12 @@ impl AccountMergeDetector {
 
     pub async fn get_recent_merges(&self, limit: i64) -> Result<Vec<AccountMergeEvent>> {
         let rows = sqlx::query_as::<_, AccountMergeEvent>(
-            r#"
+            r"
             SELECT operation_id, transaction_hash, ledger_sequence, source_account, destination_account, merged_balance, created_at
             FROM account_merges
             ORDER BY created_at DESC
             LIMIT $1
-            "#,
+            ",
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -188,14 +199,14 @@ impl AccountMergeDetector {
 
     pub async fn get_merge_stats(&self) -> Result<AccountMergeStats> {
         let row: (i64, f64, i64, i64) = sqlx::query_as(
-            r#"
+            r"
             SELECT
                 COUNT(*) AS total_merges,
                 COALESCE(SUM(merged_balance), 0.0) AS total_merged_balance,
                 COUNT(DISTINCT source_account) AS unique_sources,
                 COUNT(DISTINCT destination_account) AS unique_destinations
             FROM account_merges
-            "#,
+            ",
         )
         .fetch_one(&self.pool)
         .await?;
@@ -213,7 +224,7 @@ impl AccountMergeDetector {
         limit: i64,
     ) -> Result<Vec<DestinationAccountPattern>> {
         let rows = sqlx::query_as::<_, DestinationAccountPattern>(
-            r#"
+            r"
             SELECT
                 destination_account,
                 COUNT(*) AS merge_count,
@@ -222,7 +233,7 @@ impl AccountMergeDetector {
             GROUP BY destination_account
             ORDER BY merge_count DESC, total_merged_balance DESC
             LIMIT $1
-            "#,
+            ",
         )
         .bind(limit)
         .fetch_all(&self.pool)
