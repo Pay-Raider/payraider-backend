@@ -1,31 +1,21 @@
 use anyhow::{Context, Result};
 use axum::{
-    http::Method,
+    extract::State,
+    http::{Method, StatusCode},
+    response::IntoResponse,
     routing::{get, put},
-    Router,
-    middleware,
+    middleware, Json, Router,
 };
 use dotenvy::dotenv;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tower::ServiceBuilder;
-use tower::timeout::TimeoutLayer;
-use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
-use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_http::timeout::TimeoutLayer;
-use tower_http::trace::TraceLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
-
-use anyhow::Context;
-use axum::http::{
-    header::{AUTHORIZATION, CONTENT_TYPE},
-    HeaderValue, Method,
-};
+use axum::http::HeaderValue;
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use tower_http::{
-    cors::{AllowOrigin, Any, CorsLayer},
+    compression::{predicate::SizeAbove, CompressionLayer},
+    cors::{AllowOrigin, CorsLayer},
+    trace::TraceLayer,
     timeout::TimeoutLayer,
 };
 use utoipa::OpenApi;
@@ -85,6 +75,33 @@ use stellar_insights_backend::env_config;
 
 const DB_POOL_LOG_INTERVAL: Duration = Duration::from_secs(60);
 const DB_POOL_IDLE_LOW_WATERMARK: usize = 2;
+
+/// Improved health check that verifies database and cache connectivity.
+pub async fn health_check(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Verify core dependencies are responsive
+    let db_healthy = state.db.health_check().await.is_ok();
+    let cache_healthy = state.cache.health_check().await.is_ok();
+
+    let status = if db_healthy && cache_healthy {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        status,
+        Json(serde_json::json!({
+            "status": if db_healthy && cache_healthy { "ok" } else { "error" },
+            "version": env!("CARGO_PKG_VERSION"),
+            "services": {
+                "database": if db_healthy { "up" } else { "down" },
+                "cache": if cache_healthy { "up" } else { "down" },
+            }
+        })),
+    )
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -229,10 +246,13 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Initialize auth service
-    let auth_service = Arc::new(AuthService::new(db.clone()));
+    let auth_service = Arc::new(AuthService::new(cache.connection().await, pool.clone()));
 
     // Initialize alert manager
-    let alert_manager = Arc::new(AlertManager::new(db.clone(), cache.clone()));
+    let (alert_manager_inner, _) = AlertManager::new();
+    let alert_manager = Arc::new(alert_manager_inner);
+
+    let trustline_analyzer = Arc::new(TrustlineAnalyzer::new(pool.clone(), rpc_client.clone()));
 
     // Start webhook dispatcher as a background task
     let webhook_pool = pool.clone();
@@ -279,11 +299,6 @@ async fn main() -> anyhow::Result<()> {
         .allow_headers([CONTENT_TYPE, AUTHORIZATION])
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
-
-    let timeout_seconds: u64 = std::env::var("REQUEST_TIMEOUT_SECONDS")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(1024);
 
     // Compression configuration
     let compression_min_size: usize = std::env::var("COMPRESSION_MIN_SIZE")
@@ -509,26 +524,8 @@ async fn main() -> anyhow::Result<()> {
             request_timeout_seconds,
         )));
 
-    let app = Router::new()
-        .merge(swagger_routes)
-        .merge(auth_routes)
-        .merge(cached_routes)
-        .merge(anchor_routes)
-        .merge(protected_anchor_routes)
-        .merge(rpc_routes)
-        .merge(fee_bump_routes)
-        .merge(account_merge_routes)
-        .merge(lp_routes)
-        .merge(price_routes)
-        .merge(trustline_routes)
-        .merge(network_routes)
-        .merge(cache_routes)
-        .merge(metrics_routes)
-        .merge(ws_routes)
-        .layer(compression); // Apply compression to all routes
-
-    let app = routes(
-        app_state,
+    let base_routes = routes(
+        app_state.clone(),
         cached_state,
         rpc_client,
         fee_bump_tracker,
@@ -539,9 +536,11 @@ async fn main() -> anyhow::Result<()> {
         cors,
         pool,
         cache,
-    )
-    .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-    .layer(TimeoutLayer::new(Duration::from_secs(timeout_seconds)))
+    );
+
+    let app = base_routes
+        .merge(anchor_routes) // Includes /health
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
     .layer(middleware::from_fn_with_state(
         db.clone(),
         stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
@@ -552,7 +551,7 @@ async fn main() -> anyhow::Result<()> {
     .layer(middleware::from_fn(request_id_middleware))
     .layer(timeout_layer) // Apply request timeout to all non-WS routes
     .layer(compression); // Apply compression to all routes
-    tracing::info!("Request timeout set to {} seconds", timeout_seconds);
+    tracing::info!("Request timeout set to {} seconds", request_timeout_seconds);
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
