@@ -588,9 +588,6 @@ mod tests {
             .get::<Option<String>, _>("last_processed_hour")
             .is_some());
     }
-    async fn test_compute_volume_trends() {
-        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
-        let service = AggregationService::new(Arc::new(Database::new(pool)), AggregationConfig::default());
 
     #[tokio::test]
     async fn test_aggregate_with_no_data() {

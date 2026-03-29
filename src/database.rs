@@ -1244,10 +1244,9 @@ impl Database {
                 return Ok(());
             }
 
-            let mut tx = self.pool.begin().await?;
             let mut tx = self.pool.begin().await.with_context(|| format!("Failed to begin transaction for save_payments ({} payments)", payments.len()))?;
 
-            for payment in payments {
+            for payment in &payments {
                 sqlx::query(
                     r"
                     INSERT INTO payments (
@@ -1268,9 +1267,6 @@ impl Database {
                 .bind(payment.amount)
                 .bind(payment.created_at)
                 .execute(&mut *tx)
-                .await?;
-            }
-            tx.commit().await?;
                 .await
                 .with_context(|| format!("Failed to save payment id: {}", payment.id))?;
             }
@@ -1875,18 +1871,12 @@ impl Database {
                     }
                 }
 
-
-                // last_used_at update is best-effort; a failure here should not block validation
-                if let Err(e) = sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
-
                 // last_used_at update is best-effort
                 let _ = sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
-
                     .bind(Utc::now().to_rfc3339())
                     .bind(&k.id)
                     .execute(&self.pool)
-                    .await
-                    .with_context(|| format!("Failed to update API key last_used_at timestamp for ID: {}", k.id));
+                    .await;
             }
 
             Ok(key)
@@ -1978,7 +1968,6 @@ impl Database {
                 FROM payments
                 WHERE (source_account = $1 OR destination_account = $2)
                 AND created_at >= $3
-                "
                 ",
             )
             .bind(anchor_id)
@@ -1986,10 +1975,7 @@ impl Database {
             .bind(start_time.to_rfc3339())
             .fetch_one(&self.pool)
             .await
-            .with_context(|| format!(
-                "Failed to get recent anchor performance for anchor_id: {}, minutes: {}",
-                anchor_id, minutes
-            ))?;
+            .with_context(|| format!("Failed to get recent anchor performance for anchor_id: {}, minutes: {}", anchor_id, minutes))?;
 
             let total_transactions = row.0;
             let successful_transactions = row.1;

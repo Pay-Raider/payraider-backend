@@ -380,34 +380,24 @@ pub async fn get_anchor_metrics_with_rpc(
     let circuit_breaker = rpc_circuit_breaker();
 
     // Wrap call in circuit breaker as requested in Issue #671
-    let metrics = circuit_breaker
+    let result: Result<AnchorMetrics, failsafe::Error<RpcError>> = circuit_breaker
         .call(|| async {
             rpc_client
                 .fetch_anchor_metrics(anchor_id)
                 .await
                 .map_err(|e| RpcError::categorize(&e.to_string()))
-        },
-        3,
-        Duration::from_secs(1),
-    )
-    .await;
+        })
+        .await;
 
     let metrics = match result {
         Ok(metrics) => metrics,
-        Err(RpcError::CircuitBreakerOpen) => {
+        Err(failsafe::Error::Rejected) => {
             return Err(anyhow::anyhow!("Circuit breaker open - RPC service unavailable"));
         }
-        Err(err) => return Err(anyhow::anyhow!(err.to_string())),
+        Err(failsafe::Error::Inner(err)) => {
+            return Err(anyhow::anyhow!(err.to_string()));
+        }
     };
-                .context("RPC call failed")
-        })
-        .await
-        .map_err(|e| match e {
-            failsafe::Error::Rejected => {
-                anyhow::anyhow!("Circuit breaker open - RPC service unavailable")
-            }
-            failsafe::Error::Inner(err) => err,
-        })?;
 
     Ok(metrics)
 }

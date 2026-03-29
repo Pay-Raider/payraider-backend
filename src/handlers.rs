@@ -23,14 +23,17 @@ use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::rpc::StellarRpcClient;
 use crate::state::AppState;
+use crate::websocket::WsState;
 
 use std::time::Instant;
 
-#[derive(Serialize)]
-pub struct HealthStatus {
+/// DTO for corridor transaction data
+#[derive(Debug, Deserialize, Clone)]
+pub struct CorridorTransactionDto {
     pub status: String,
-    pub timestamp: DateTime<Utc>,
-use chrono::{DateTime, Utc};
+    pub settlement_time_ms: i64,
+}
+
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthStatus {
@@ -59,8 +62,6 @@ pub struct ComponentHealth {
 async fn check_database(db: &Arc<Database>) -> ComponentHealth {
     let start = Instant::now();
     match sqlx::query("SELECT 1").fetch_one(db.pool()).await {
-
-    match sqlx::query("SELECT 1").fetch_one(&**db.pool()).await {
         Ok(_) => ComponentHealth {
             healthy: true,
             response_time_ms: Some(start.elapsed().as_millis() as u64),
@@ -109,29 +110,24 @@ async fn check_rpc(rpc: &Arc<StellarRpcClient>) -> ComponentHealth {
 }
 
 /// Detailed health check endpoint
-pub async fn health_check(
-    State(db): State<Arc<Database>>,
-    State(cache): State<Arc<CacheManager>>,
-    State(rpc): State<Arc<StellarRpcClient>>,
-) -> Json<HealthStatus> {
-    let db_health = check_database(&db).await;
-    let cache_health = check_cache(&cache).await;
-    let rpc_health = check_rpc(&rpc).await;
+pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatus> {
+    let db_health = check_database(&app_state.db).await;
+    let cache_health = check_cache(&app_state.cache).await;
+    let rpc_health = check_rpc(&app_state.rpc_client).await;
 
-    let overall = if db_health.healthy && cache_health.healthy {
+    let overall_status = if db_health.healthy && cache_health.healthy && rpc_health.healthy {
         "healthy"
-    } else {
+    } else if db_health.healthy && cache_health.healthy {
         "degraded"
+    } else {
+        "unhealthy"
     };
 
-    Json(HealthStatus {
-        status: overall.to_string(),
-        timestamp: Utc::now(),
     let start_epoch = app_state.server_start_time.load(Ordering::Relaxed);
     let now_epoch = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let uptime_seconds = now_epoch.saturating_sub(start_epoch);
 
-    let health_status = HealthStatus {
+    Json(HealthStatus {
         status: overall_status.to_string(),
         timestamp: Utc::now(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -141,9 +137,7 @@ pub async fn health_check(
             cache: cache_health,
             rpc: rpc_health,
         },
-    };
-
-    Json(health_status)
+    })
 }
 
 /// PUT /api/anchors/:id/metrics - Update anchor metrics
@@ -303,18 +297,6 @@ pub async fn create_corridor(
 #[derive(Debug, Deserialize)]
 pub struct UpdateCorridorMetricsFromTxns {
     pub transactions: Vec<CorridorTransactionDto>,
-}
-    let health_status = HealthStatus {
-        status: overall_status.to_string(),
-        timestamp: Utc::now().to_rfc3339(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime_seconds: start_time.elapsed().as_secs(),
-        checks: HealthChecks {
-            database: db_health,
-            cache: cache_health,
-            rpc: rpc_health,
-        },
-    })
 }
 
 /// Database pool metrics endpoint
