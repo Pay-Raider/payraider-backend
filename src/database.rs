@@ -252,8 +252,9 @@ impl Database {
         let admin_audit_logger = AdminAuditLogger::new(pool.clone());
         let slow_query_threshold_ms = std::env::var("SLOW_QUERY_THRESHOLD_MS")
             .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(100);
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(100)
+            .clamp(1, 60_000); // 1ms minimum, 60s maximum
         Self {
             pool,
             admin_audit_logger,
