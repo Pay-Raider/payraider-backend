@@ -384,23 +384,16 @@ impl RealtimeBroadcaster {
     ) {
         let ws_message = WsMessage::from_broadcast_message(message);
 
-        // Find all connections subscribed to this channel
-        let mut target_connections = Vec::new();
-        for entry in subscriptions.iter() {
-            let (connection_id, channels) = entry.pair();
-            if channels.contains(channel) {
-                target_connections.push(*connection_id);
-            }
-        }
+        let target_connections: Vec<Uuid> = subscriptions
+            .iter()
+            .filter(|e| e.value().contains(channel))
+            .map(|e| *e.key())
+            .collect();
 
-        // Send to targeted connections
         for connection_id in target_connections {
             if let Some(sender) = ws_state.connections.get(&connection_id) {
                 if let Err(e) = sender.send(ws_message.clone()).await {
-                    warn!(
-                        "Failed to send message to connection {}: {}",
-                        connection_id, e
-                    );
+                    warn!("Failed to send message to connection {}: {}", connection_id, e);
                 }
             }
         }
