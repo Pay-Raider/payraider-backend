@@ -100,7 +100,7 @@ impl VerificationRewardsService {
             let mut points = BASE_REWARD_POINTS;
 
             // Add early verification bonus
-            if self.is_early_verification(&snapshot.created_at).await? {
+            if self.is_early_verification(&snapshot.created_at)? {
                 points += EARLY_VERIFICATION_BONUS;
                 debug!(
                     "Early verification bonus applied: +{}",
@@ -212,16 +212,19 @@ impl VerificationRewardsService {
         .await
         .context("Failed to fetch leaderboard")?;
 
-        let mut leaderboard = Vec::new();
-        for (rank, row) in rows.iter().enumerate() {
-            leaderboard.push(LeaderboardEntry {
-                rank: (rank + 1) as i32,
-                username: row.try_get::<String, _>("username")?,
-                total_points: row.try_get::<i32, _>("total_points")?,
-                successful_verifications: row.try_get::<i32, _>("successful_verifications")?,
-                success_rate: row.try_get("success_rate").unwrap_or(0.0),
-            });
-        }
+        let leaderboard = rows
+            .iter()
+            .enumerate()
+            .map(|(rank, row)| -> Result<LeaderboardEntry> {
+                Ok(LeaderboardEntry {
+                    rank: (rank + 1) as i32,
+                    username: row.try_get::<String, _>("username")?,
+                    total_points: row.try_get::<i32, _>("total_points")?,
+                    successful_verifications: row.try_get::<i32, _>("successful_verifications")?,
+                    success_rate: row.try_get("success_rate").unwrap_or(0.0),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(leaderboard)
     }
@@ -318,7 +321,7 @@ impl VerificationRewardsService {
         })
     }
 
-    async fn is_early_verification(&self, snapshot_created_at: &str) -> Result<bool> {
+    fn is_early_verification(&self, snapshot_created_at: &str) -> Result<bool> {
         // Parse the timestamp and check if verification is within 1 hour
         let created = chrono::DateTime::parse_from_rfc3339(snapshot_created_at)
             .or_else(|_| {
@@ -420,6 +423,7 @@ impl VerificationRewardsService {
 
 #[derive(Debug)]
 struct SnapshotRecord {
+    #[allow(dead_code)]
     id: String,
     hash: String,
     epoch: i64,

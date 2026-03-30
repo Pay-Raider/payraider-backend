@@ -225,6 +225,13 @@ impl BroadcasterPort for RealtimeBroadcaster {
     }
 
     async fn broadcast_health_alert(&self, corridor_id: String, severity: String, message: String) {
+    /// Broadcast health alert to all clients
+    pub fn broadcast_health_alert(
+        &self,
+        corridor_id: String,
+        severity: String,
+        message: String,
+    ) {
         let alert = BroadcastMessage::HealthAlert {
             corridor_id: corridor_id.clone(),
             severity: severity.clone(),
@@ -252,6 +259,69 @@ impl BroadcasterPort for RealtimeBroadcaster {
     }
 
     fn connection_count(&self) -> usize {
+    /// Subscribe a connection to specific channels
+    pub fn subscribe_connection(&self, connection_id: Uuid, channels: Vec<String>) {
+        let mut subscription_set = self.subscriptions.entry(connection_id).or_default();
+
+        for channel in channels {
+            subscription_set.insert(channel.clone());
+            info!(
+                "Connection {} subscribed to channel: {}",
+                connection_id, channel
+            );
+        }
+    }
+
+    /// Unsubscribe a connection from specific channels
+    pub fn unsubscribe_connection(&self, connection_id: Uuid, channels: Vec<String>) {
+        if let Some(mut subscription_set) = self.subscriptions.get_mut(&connection_id) {
+            for channel in channels {
+                subscription_set.remove(&channel);
+                info!(
+                    "Connection {} unsubscribed from channel: {}",
+                    connection_id, channel
+                );
+            }
+        }
+    }
+
+    /// Broadcast message to subscribers of a specific channel
+    async fn broadcast_to_subscribers(
+        ws_state: &Arc<WsState>,
+        subscriptions: &Arc<DashMap<Uuid, HashSet<String>>>,
+        channel: &str,
+        message: BroadcastMessage,
+    ) {
+        let ws_message = WsMessage::from_broadcast_message(message);
+
+        let target_connections: Vec<Uuid> = subscriptions
+            .iter()
+            .filter(|e| e.value().contains(channel))
+            .map(|e| *e.key())
+            .collect();
+
+        for connection_id in target_connections {
+            if let Some(sender) = ws_state.connections.get(&connection_id) {
+                if let Err(e) = sender.send(ws_message.clone()).await {
+                    warn!("Failed to send message to connection {}: {}", connection_id, e);
+                }
+            }
+        }
+    }
+
+    /// Shutdown the broadcaster
+    pub fn shutdown(&self) {
+        if let Ok(mut tx_guard) = self.shutdown_tx.lock() {
+            if let Some(tx) = tx_guard.take() {
+                if tx.send(()).is_err() {
+                    warn!("Failed to send shutdown signal - receiver may have been dropped");
+                }
+            }
+        }
+    }
+
+    /// Get connection count
+    pub fn connection_count(&self) -> usize {
         self.ws_state.connection_count()
     }
 
@@ -316,5 +386,13 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("connection_status"));
         assert!(json.contains("connected"));
+    fn test_subscription_management() {
+        let _ws_state = Arc::new(WsState::new());
+        let _rpc_client = Arc::new(StellarRpcClient::new(
+            "test".to_string(),
+            "test".to_string(),
+            true,
+        ));
+        // Note: This test would need a mock CacheManager before testing subscription logic.
     }
 }
