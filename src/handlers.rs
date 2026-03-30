@@ -20,6 +20,16 @@ use crate::database::Database;
 use crate::error::ApiResult;
 use crate::rpc::StellarRpcClient;
 use crate::state::AppState;
+use crate::websocket::WsState;
+
+use std::time::Instant;
+
+/// DTO for corridor transaction data
+#[derive(Debug, Deserialize, Clone)]
+pub struct CorridorTransactionDto {
+    pub status: String,
+    pub settlement_time_ms: i64,
+}
 
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -117,7 +127,7 @@ pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatu
         .map_or(0, |d| d.as_secs());
     let uptime_seconds = now_epoch.saturating_sub(start_epoch);
 
-    let health_status = HealthStatus {
+    Json(HealthStatus {
         status: overall_status.to_string(),
         timestamp: Utc::now(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -127,9 +137,7 @@ pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatu
             cache: cache_health,
             rpc: rpc_health,
         },
-    };
-
-    Json(health_status)
+    })
 }
 
 /// PUT /api/anchors/:id/metrics - Update anchor metrics
@@ -316,6 +324,16 @@ pub async fn create_corridor(
     Ok(Json(corridor))
 }
 
+/// PUT /api/corridors/:id/metrics-from-transactions - Compute metrics from transactions and persist
+#[derive(Debug, Deserialize)]
+pub struct UpdateCorridorMetricsFromTxns {
+    pub transactions: Vec<CorridorTransactionDto>,
+}
+
+/// Database pool metrics endpoint
+pub async fn pool_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let metrics = state.db.pool_metrics();
+    Json(metrics)
 /// PUT /api/corridors/:id/metrics-from-transactions - Placeholder for updating metrics from batch transactions
 pub async fn update_corridor_metrics_from_transactions(
     State(_app_state): State<AppState>,
