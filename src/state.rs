@@ -35,7 +35,7 @@ impl AppState {
             server_start_time: Arc::new(AtomicU64::new(
                 SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_secs(),
             )),
         }

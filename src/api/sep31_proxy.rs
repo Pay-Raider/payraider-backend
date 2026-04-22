@@ -259,14 +259,13 @@ pub async fn get_transactions(
     let base = base_url(&q.transfer_server);
     let mut url = format!("{base}/transactions?");
     if let Some(s) = &q.status {
-        write!(url, "status={}&", urlencoding::encode(s)).unwrap();
+        let _ = write!(url, "status={}&", urlencoding::encode(s));
     }
     if let Some(l) = q.limit {
-        write!(url, "limit={}&", l).unwrap();
-        write!(url, "limit={l}&").unwrap();
+        let _ = write!(url, "limit={l}&");
     }
     if let Some(c) = &q.cursor {
-        write!(url, "cursor={}&", urlencoding::encode(c)).unwrap();
+        let _ = write!(url, "cursor={}&", urlencoding::encode(c));
     }
     let url = url.trim_end_matches('&').trim_end_matches('?');
 

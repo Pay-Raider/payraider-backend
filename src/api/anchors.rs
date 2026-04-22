@@ -368,7 +368,7 @@ where
         }
     }
     
-    Err(last_error.unwrap())
+    Err(last_error.unwrap_or_else(|| RpcError::NetworkError("No attempts made".to_string())))
 }
 // Shared circuit breaker is now managed in crate::rpc::circuit_breaker
 

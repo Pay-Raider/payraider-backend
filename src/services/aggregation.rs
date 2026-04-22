@@ -283,11 +283,9 @@ impl AggregationService {
     /// Truncate datetime to hour boundary
     fn truncate_to_hour(&self, dt: DateTime<Utc>) -> DateTime<Utc> {
         dt.with_minute(0)
-            .unwrap()
-            .with_second(0)
-            .unwrap()
-            .with_nanosecond(0)
-            .unwrap()
+            .and_then(|d| d.with_second(0))
+            .and_then(|d| d.with_nanosecond(0))
+            .unwrap_or(dt)
     }
 
     /// Create a new job record
