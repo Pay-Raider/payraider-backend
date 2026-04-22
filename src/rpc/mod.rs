@@ -4,6 +4,7 @@ pub mod config;
 pub mod error;
 pub mod metrics;
 pub mod rate_limiter;
+pub mod mock_stellar;
 pub mod stellar;
 
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
