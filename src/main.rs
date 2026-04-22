@@ -42,7 +42,7 @@ use stellar_insights_backend::{
     },
     shutdown::{
         flush_cache, log_shutdown_summary, shutdown_background_tasks, shutdown_database,
-        shutdown_websockets, wait_for_signal, ShutdownConfig, ShutdownCoordinator,
+        shutdown_signal, shutdown_websockets, wait_for_signal, ShutdownConfig, ShutdownCoordinator,
     },
     state::AppState,
     websocket::WsState,
@@ -61,9 +61,9 @@ const MAX_REQUEST_TIMEOUT_SECONDS: u64 = 300;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment from {}", path.display()),
+        Ok(path) => tracing::info!("Loaded environment from {}", path.display()),
         Err(dotenvy::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            tracing::debug!(".env file not found, using environment variables only");
+            tracing::warn!(".env file not found, using environment variables only");
         }
         Err(e) => tracing::warn!("Failed to load .env file: {}", e),
     }
@@ -372,11 +372,19 @@ async fn main() -> anyhow::Result<()> {
     };
 
     background_tasks.push(shutdown_handler);
+    // Clone references needed inside the graceful shutdown future
+    let shutdown_pool = pool.clone();
+    let shutdown_cache = cache.clone();
+    let shutdown_ws_state = ws_state.clone();
 
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
-            let mut rx = shutdown_coordinator.clone().subscribe();
-            let _ = rx.recv().await;
+            shutdown_signal().await;
+            let coordinator = shutdown_coordinator.clone();
+            coordinator.trigger_shutdown();
+            shutdown_websockets(shutdown_ws_state, coordinator.background_task_timeout()).await;
+            flush_cache(shutdown_cache, coordinator.background_task_timeout()).await;
+            shutdown_database(shutdown_pool, coordinator.db_close_timeout()).await;
         })
         .await?;
 
