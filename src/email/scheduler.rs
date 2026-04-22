@@ -144,7 +144,7 @@ impl DigestScheduler {
             })
             .collect();
 
-        corridors.sort_by(|a, b| b.volume_usd.partial_cmp(&a.volume_usd).unwrap());
+        corridors.sort_by(|a, b| b.volume_usd.partial_cmp(&a.volume_usd).unwrap_or(std::cmp::Ordering::Equal));
         corridors.truncate(10);
 
         let total_volume: f64 = corridors.iter().map(|c| c.volume_usd).sum();

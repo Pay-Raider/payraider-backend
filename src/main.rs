@@ -7,16 +7,10 @@ use axum::{
     middleware,
     routing::get,
     Router,
-    extract::State,
-    http::{header::{AUTHORIZATION, CONTENT_TYPE}, HeaderValue, Method, StatusCode},
-    middleware, Json, Router,
-    response::IntoResponse,
-    routing::{get, put},
 };
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tower::ServiceBuilder;
 use tower_http::{
     compression::{predicate::SizeAbove, CompressionLayer},
     cors::{AllowOrigin, CorsLayer},
@@ -57,6 +51,13 @@ use stellar_insights_backend::{
 const DB_POOL_LOG_INTERVAL: Duration = Duration::from_secs(60);
 const DB_POOL_IDLE_LOW_WATERMARK: usize = 2;
 
+/// Default request timeout in seconds
+const DEFAULT_REQUEST_TIMEOUT_SECONDS: u64 = 30;
+/// Minimum allowed request timeout (prevents misconfiguration)
+const MIN_REQUEST_TIMEOUT_SECONDS: u64 = 5;
+/// Maximum allowed request timeout (prevents resource exhaustion)
+const MAX_REQUEST_TIMEOUT_SECONDS: u64 = 300;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     match dotenvy::dotenv() {
@@ -91,6 +92,7 @@ async fn main() -> anyhow::Result<()> {
 
     let db = Arc::new(Database::new(pool.clone()));
 
+    // Database pool metrics logger
     let pool_metrics_handle: JoinHandle<()> = {
         let pool_metrics_db = Arc::clone(&db);
         tokio::spawn(async move {
@@ -117,9 +119,8 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
-    let pool_exhaustion_handle: JoinHandle<()> = {
     // Pool exhaustion monitoring: warn at >90% utilization, update Prometheus gauges
-    let pool_exhaustion_handle = {
+    let pool_exhaustion_handle: JoinHandle<()> = {
         let monitor_pool = pool.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(30));
@@ -150,12 +151,6 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Initialize Stellar RPC Client
-    let mock_mode = std::env::var("RPC_MOCK_MODE")
-        .unwrap_or_else(|_| "false".to_string())
-        .parse::<bool>()
-        .unwrap_or(false);
-    let _ = mock_mode;
-
     let mock_mode = std::env::var("RPC_MOCK_MODE")
         .unwrap_or_else(|_| "false".to_string())
         .parse::<bool>()
@@ -214,6 +209,7 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
+    // CORS configuration
     let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
         .unwrap_or_else(|_| "http://localhost:3000".to_string());
     let wildcard_origins = allowed_origins.trim() == "*";
@@ -262,6 +258,7 @@ async fn main() -> anyhow::Result<()> {
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 
+    // Compression configuration
     let compression_min_size: u16 = std::env::var("COMPRESSION_MIN_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -272,163 +269,44 @@ async fn main() -> anyhow::Result<()> {
         compression_min_size
     );
 
+    // Request timeout configuration — reads REQUEST_TIMEOUT_SECONDS from env,
+    // defaults to 30s, clamped to [5, 300] to prevent misconfiguration.
     let request_timeout_seconds = std::env::var("REQUEST_TIMEOUT_SECONDS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(60)
-        .clamp(5, 300);
-        .clamp(5, 300); // Enforce 5s minimum, 300s maximum
+        .unwrap_or(DEFAULT_REQUEST_TIMEOUT_SECONDS)
+        .clamp(MIN_REQUEST_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS);
 
     tracing::info!(
-        "Request timeout configured: {} seconds",
-        request_timeout_seconds
+        "Request timeout configured: {}s (env REQUEST_TIMEOUT_SECONDS, range {}-{})",
+        request_timeout_seconds,
+        MIN_REQUEST_TIMEOUT_SECONDS,
+        MAX_REQUEST_TIMEOUT_SECONDS,
     );
 
-    // Import middleware
-    use axum::middleware;
-    use tower::ServiceBuilder;
-
-    // Build auth router
-    let auth_routes = stellar_insights_backend::api::auth::routes(auth_service.clone());
-
-    // Build cached routes (anchors list, corridors list/detail) with cache state
-    let cached_routes = Router::new()
-        .route("/api/anchors", get(get_anchors))
-        .route("/api/corridors", get(list_corridors))
-        .route("/api/corridors/:corridor_key", get(get_corridor_detail))
-        .with_state(cached_state.clone())
-        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-            rate_limiter.clone(),
-            rate_limit_middleware,
-        )))
-        .layer(cors.clone());
-
-    // Build non-cached anchor routes with app state
-    let anchor_routes = Router::new()
-        .route("/health", get(health_check))
-        .route("/metrics", get(obs_metrics::metrics_handler))
-        .route("/api/anchors/:id", get(get_anchor))
-        .route(
-            "/api/anchors/account/:stellar_account",
-            get(get_anchor_by_account),
-        )
-        .route("/api/anchors/:id/assets", get(get_anchor_assets))
-        .route("/api/analytics/muxed", get(get_muxed_analytics))
-        .with_state(app_state.clone())
-        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-            rate_limiter.clone(),
-            rate_limit_middleware,
-        )))
-        .layer(cors.clone());
-
-    // Build protected anchor routes (require authentication)
-    let protected_anchor_routes = Router::new()
-        .route("/api/anchors", axum::routing::post(create_anchor))
-        .route("/api/anchors/:id/metrics", put(update_anchor_metrics))
-        .route(
-            "/api/anchors/:id/assets",
-            axum::routing::post(create_anchor_asset),
-        )
-        .route("/api/corridors", axum::routing::post(create_corridor))
-        .route(
-            "/api/corridors/:id/metrics-from-transactions",
-            put(update_corridor_metrics_from_transactions),
-        )
-        .with_state(app_state.clone())
-        .layer(
-            ServiceBuilder::new()
-                .layer(middleware::from_fn(auth_middleware))
-                .layer(middleware::from_fn_with_state(
-                    rate_limiter.clone(),
-                    rate_limit_middleware,
-                )),
-        )
-        .layer(cors.clone());
-
-    // Build cache stats and metrics routes
-    let cache_routes = cache_stats::routes(Arc::clone(&cache));
-    let metrics_routes = metrics_cached::routes(Arc::clone(&cache));
-
-    // Build RPC router
-    let rpc_routes = Router::new()
-        .route("/api/rpc/health", get(rpc_handlers::rpc_health_check))
-        .route(
-            "/api/rpc/ledger/latest",
-            get(rpc_handlers::get_latest_ledger),
-        )
-        .route("/api/rpc/payments", get(rpc_handlers::get_payments))
-        .route(
-            "/api/rpc/payments/account/:account_id",
-            get(rpc_handlers::get_account_payments),
-        )
-        .route("/api/rpc/trades", get(rpc_handlers::get_trades))
-        .route("/api/rpc/orderbook", get(rpc_handlers::get_order_book))
-        .with_state(rpc_client)
-        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-            rate_limiter.clone(),
-            rate_limit_middleware,
-        )))
-        .layer(cors.clone());
-
-    // Build fee bump routes
-    let fee_bump_routes = Router::new()
-        .nest(
-            "/api/fee-bumps",
-            fee_bump::routes(Arc::clone(&fee_bump_tracker)),
-        )
-        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-            rate_limiter.clone(),
-            rate_limit_middleware,
-        )))
-        .layer(cors.clone());
-
-    // Build account merge routes
-    let account_merge_routes = Router::new()
-        .nest(
-            "/api/account-merges",
-            account_merges::routes(Arc::clone(&account_merge_detector)),
-        )
-        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-            rate_limiter.clone(),
-            rate_limit_middleware,
-        )))
-        .layer(cors.clone());
-
-    // Build liquidity pool routes
-    let lp_routes = Router::new()
-        .nest(
-            "/api/liquidity-pools",
-            liquidity_pools::routes(Arc::clone(&lp_analyzer)),
-        )
-        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-            rate_limiter.clone(),
-            rate_limit_middleware,
-        )))
-        .layer(cors.clone());
-
-    tracing::info!("Request timeout configured: {} seconds", request_timeout_seconds);
-
-    let timeout_layer = ServiceBuilder::new()
+    // TimeoutLayer returns 408 with a structured JSON body on timeout.
+    // WebSocket routes are intentionally excluded (see ws_routes below).
+    let timeout_layer = tower::ServiceBuilder::new()
         .layer(axum::error_handling::HandleErrorLayer::new(
             |_: tower::BoxError| async {
                 (
                     axum::http::StatusCode::REQUEST_TIMEOUT,
                     axum::Json(serde_json::json!({
                         "error": "REQUEST_TIMEOUT",
-                        "message": "Request exceeded the maximum allowed time"
+                        "message": "Request exceeded the maximum allowed time",
                     })),
                 )
             },
         ))
         .layer(TimeoutLayer::new(Duration::from_secs(request_timeout_seconds)));
 
-    // WebSocket routes excluded from request timeout (long-lived connections)
+    // WebSocket routes are excluded from the timeout layer — WS connections
+    // are long-lived and must not be killed by the HTTP request timeout.
     let ws_routes = Router::new()
         .route("/ws", get(stellar_insights_backend::websocket::ws_handler))
         .with_state(Arc::clone(&ws_state))
         .layer(cors.clone());
 
-    let app = routes(
     let base_routes = routes(
         app_state.clone(),
         cached_state,
@@ -441,31 +319,10 @@ async fn main() -> anyhow::Result<()> {
         cors,
         pool.clone(),
         cache.clone(),
-    )
-    .merge(ws_routes)
-    .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-    .layer(middleware::from_fn_with_state(
-        db.clone(),
-        stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
-    ))
-    .layer(TraceLayer::new_for_http())
-    .layer(middleware::from_fn(trace_propagation_middleware))
-    .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
-    .layer(middleware::from_fn(request_id_middleware))
-    .layer(timeout_layer)
-    .layer(
-        CompressionLayer::new()
-            .gzip(true)
-            .br(true)
-            .compress_when(SizeAbove::new(compression_min_size)),
-    );
-        pool,
-        cache,
     );
 
     let app = base_routes
         .merge(ws_routes)
-        .merge(alert_ws_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn_with_state(
             db.clone(),
@@ -476,9 +333,12 @@ async fn main() -> anyhow::Result<()> {
         .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
         .layer(middleware::from_fn(request_id_middleware))
         .layer(timeout_layer)
-        .layer(compression);
-
-    tracing::info!("Request timeout set to {} seconds", request_timeout_seconds);
+        .layer(
+            CompressionLayer::new()
+                .gzip(true)
+                .br(true)
+                .compress_when(SizeAbove::new(compression_min_size)),
+        );
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
@@ -496,12 +356,27 @@ async fn main() -> anyhow::Result<()> {
         webhook_dispatcher_handle,
     ];
 
+    // Graceful shutdown handler
+    let shutdown_handler: JoinHandle<()> = {
+        let shutdown_pool = pool.clone();
+        let shutdown_cache = cache.clone();
+        let shutdown_ws_state = ws_state.clone();
+        let coordinator = shutdown_coordinator.clone();
+        tokio::spawn(async move {
+            wait_for_signal().await;
+            coordinator.trigger_shutdown();
+            shutdown_websockets(shutdown_ws_state, coordinator.background_task_timeout()).await;
+            flush_cache(shutdown_cache, coordinator.background_task_timeout()).await;
+            shutdown_database(shutdown_pool, coordinator.db_close_timeout()).await;
+        })
+    };
+
+    background_tasks.push(shutdown_handler);
     // Clone references needed inside the graceful shutdown future
     let shutdown_pool = pool.clone();
     let shutdown_cache = cache.clone();
     let shutdown_ws_state = ws_state.clone();
 
-    // ✅ GRACEFUL SHUTDOWN
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             shutdown_signal().await;

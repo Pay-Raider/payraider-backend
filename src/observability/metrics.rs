@@ -19,7 +19,7 @@ lazy_static! {
         "http_requests_total",
         "Total number of HTTP requests processed"
     )
-    .unwrap();
+    .expect("Failed to register http_requests_total counter");
 
     pub static ref HTTP_REQUEST_DURATION_SECONDS: Histogram = register_histogram!(
         HistogramOpts::new(
@@ -27,13 +27,13 @@ lazy_static! {
             "HTTP request duration in seconds"
         )
     )
-    .unwrap();
+    .expect("Failed to register http_request_duration_seconds histogram");
 
     pub static ref RPC_CALLS_TOTAL: Counter = register_counter!(
         "rpc_calls_total",
         "Total number of RPC calls made"
     )
-    .unwrap();
+    .expect("Failed to register rpc_calls_total counter");
 
     pub static ref RPC_CALL_DURATION_SECONDS: Histogram = register_histogram!(
         HistogramOpts::new(
@@ -41,7 +41,7 @@ lazy_static! {
             "RPC call duration in seconds"
         )
     )
-    .unwrap();
+    .expect("Failed to register rpc_call_duration_seconds histogram");
 
     pub static ref DB_QUERY_DURATION_SECONDS: Histogram = register_histogram!(
         HistogramOpts::new(
@@ -49,61 +49,61 @@ lazy_static! {
             "Database query duration in seconds"
         )
     )
-    .unwrap();
+    .expect("Failed to register db_query_duration_seconds histogram");
 
     pub static ref CACHE_OPERATIONS_TOTAL: Counter = register_counter!(
         "cache_operations_total",
         "Total number of cache operations"
     )
-    .unwrap();
+    .expect("Failed to register cache_operations_total counter");
 
     pub static ref ERRORS_TOTAL: Counter = register_counter!(
         "errors_total",
         "Total number of errors encountered"
     )
-    .unwrap();
+    .expect("Failed to register errors_total counter");
 
     pub static ref BACKGROUND_JOBS_TOTAL: Counter = register_counter!(
         "background_jobs_total",
         "Total number of background jobs executed"
     )
-    .unwrap();
+    .expect("Failed to register background_jobs_total counter");
 
     pub static ref ACTIVE_CONNECTIONS: Gauge = register_gauge!(
         "active_connections",
         "Number of active websocket connections"
     )
-    .unwrap();
+    .expect("Failed to register active_connections gauge");
 
     pub static ref CORRIDORS_TRACKED: Gauge = register_gauge!(
         "corridors_tracked",
         "Number of tracked corridors"
     )
-    .unwrap();
+    .expect("Failed to register corridors_tracked gauge");
 
     pub static ref HTTP_IN_FLIGHT_REQUESTS: Gauge = register_gauge!(
         "http_in_flight_requests",
         "Number of in-flight HTTP requests"
     )
-    .unwrap();
+    .expect("Failed to register http_in_flight_requests gauge");
 
     pub static ref DB_POOL_SIZE: Gauge = register_gauge!(
         "db_pool_size",
         "Total database pool connections"
     )
-    .unwrap();
+    .expect("Failed to register db_pool_size gauge");
 
     pub static ref DB_POOL_IDLE: Gauge = register_gauge!(
         "db_pool_idle",
         "Idle database pool connections"
     )
-    .unwrap();
+    .expect("Failed to register db_pool_idle gauge");
 
     pub static ref DB_POOL_ACTIVE: Gauge = register_gauge!(
         "db_pool_active",
         "Active database pool connections"
     )
-    .unwrap();
+    .expect("Failed to register db_pool_active gauge");
 }
 
 pub fn init_metrics() {

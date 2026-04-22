@@ -18,6 +18,7 @@ const VALIDATED_VARS: &[(&str, fn(&str) -> bool)] = &[
     ("RPC_MAX_RECORDS_PER_REQUEST", validate_positive_number),
     ("RPC_MAX_TOTAL_RECORDS", validate_positive_number),
     ("RPC_PAGINATION_DELAY_MS", validate_positive_number),
+    ("REQUEST_TIMEOUT_SECONDS", validate_positive_number),
     ("JWT_SECRET", validate_jwt_secret),
 ];
 
@@ -103,6 +104,9 @@ pub fn log_env_config() {
     log_var("DB_POOL_CONNECT_TIMEOUT_SECONDS");
     log_var("DB_POOL_IDLE_TIMEOUT_SECONDS");
     log_var("DB_POOL_MAX_LIFETIME_SECONDS");
+
+    // Request timeout
+    log_var("REQUEST_TIMEOUT_SECONDS");
 
     // CORS
     log_var("CORS_ALLOWED_ORIGINS");

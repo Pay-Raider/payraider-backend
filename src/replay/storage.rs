@@ -81,7 +81,7 @@ impl EventStorage {
         query.push_str(" ORDER BY ledger ASC, id ASC");
 
         if let Some(lim) = limit {
-            write!(query, " LIMIT {lim}").unwrap();
+            let _ = write!(query, " LIMIT {lim}");
         }
 
         let mut query_builder = sqlx::query_as::<

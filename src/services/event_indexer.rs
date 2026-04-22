@@ -184,9 +184,9 @@ impl EventIndexer {
 
         // Add pagination
         if let Some(limit) = query.limit {
-            write!(sql, " LIMIT {limit}").unwrap();
+            let _ = write!(sql, " LIMIT {limit}");
             if let Some(offset) = query.offset {
-                write!(sql, " OFFSET {offset}").unwrap();
+                let _ = write!(sql, " OFFSET {offset}");
             }
         }
 
