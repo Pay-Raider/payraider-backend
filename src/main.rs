@@ -60,9 +60,9 @@ const DB_POOL_IDLE_LOW_WATERMARK: usize = 2;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment from {}", path.display()),
+        Ok(path) => tracing::info!("Loaded environment from {}", path.display()),
         Err(dotenvy::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            tracing::debug!(".env file not found, using environment variables only");
+            tracing::warn!(".env file not found, using environment variables only");
         }
         Err(e) => tracing::warn!("Failed to load .env file: {}", e),
     }
