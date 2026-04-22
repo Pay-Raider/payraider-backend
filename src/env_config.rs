@@ -43,6 +43,25 @@ pub fn validate_env() -> Result<()> {
         }
     }
 
+    // Specific, actionable validation for JWT_SECRET
+    if let Ok(jwt_secret) = env::var("JWT_SECRET") {
+        if jwt_secret == "CHANGE_ME_generate_with_openssl_rand_base64_48" {
+            errors.push(
+                "JWT_SECRET is set to the placeholder value. \
+                This is a critical security risk. \
+                Generate a secure secret with: openssl rand -base64 48"
+                    .to_string(),
+            );
+        } else if jwt_secret.len() < 32 {
+            errors.push(format!(
+                "JWT_SECRET is too short ({} characters). \
+                Must be at least 32 characters. \
+                Generate a secure secret with: openssl rand -base64 48",
+                jwt_secret.len()
+            ));
+        }
+    }
+
     if !errors.is_empty() {
         anyhow::bail!(
             "Environment configuration errors:\n  - {}",
@@ -254,5 +273,68 @@ mod tests {
         assert!(!validate_positive_number("0"));
         assert!(!validate_positive_number("-1"));
         assert!(!validate_positive_number("abc"));
+    }
+
+    #[test]
+    fn test_validate_env_rejects_jwt_placeholder() {
+        std::env::set_var("DATABASE_URL", "sqlite://test.db");
+        std::env::set_var("ENCRYPTION_KEY", "a".repeat(32));
+        std::env::set_var(
+            "JWT_SECRET",
+            "CHANGE_ME_generate_with_openssl_rand_base64_48",
+        );
+
+        let result = validate_env();
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("placeholder"),
+            "Error should mention 'placeholder', got: {msg}"
+        );
+        assert!(
+            msg.contains("openssl rand -base64 48"),
+            "Error should include generation command, got: {msg}"
+        );
+
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("ENCRYPTION_KEY");
+        std::env::remove_var("JWT_SECRET");
+    }
+
+    #[test]
+    fn test_validate_env_rejects_short_jwt_secret() {
+        std::env::set_var("DATABASE_URL", "sqlite://test.db");
+        std::env::set_var("ENCRYPTION_KEY", "a".repeat(32));
+        std::env::set_var("JWT_SECRET", "tooshort");
+
+        let result = validate_env();
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("too short"),
+            "Error should mention 'too short', got: {msg}"
+        );
+        assert!(
+            msg.contains("32 characters"),
+            "Error should mention minimum length, got: {msg}"
+        );
+
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("ENCRYPTION_KEY");
+        std::env::remove_var("JWT_SECRET");
+    }
+
+    #[test]
+    fn test_validate_env_accepts_valid_jwt_secret() {
+        std::env::set_var("DATABASE_URL", "sqlite://test.db");
+        std::env::set_var("ENCRYPTION_KEY", "a".repeat(32));
+        std::env::set_var("JWT_SECRET", "a".repeat(48));
+
+        let result = validate_env();
+        assert!(result.is_ok(), "Should accept a valid JWT secret");
+
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("ENCRYPTION_KEY");
+        std::env::remove_var("JWT_SECRET");
     }
 }
