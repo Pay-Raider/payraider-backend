@@ -100,17 +100,18 @@ async fn test_new_payment_message_serialization() {
     assert!(json.contains("true"));
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn test_websocket_rate_limit_enforcement() {
     use stellar_insights_backend::websocket::WsState;
 
     let state = WsState::new();
-    let client_id = "integration-test-client";
+    // Unique key avoids any cross-test collision if the map were ever shared.
+    let client_id = format!("integration-test-client-{}", uuid::Uuid::new_v4());
 
     // Allow up to the limit.
     for i in 0..100u32 {
         assert!(
-            state.check_rate_limit(client_id),
+            state.check_rate_limit(&client_id),
             "message {} should be within rate limit",
             i + 1
         );
@@ -118,7 +119,7 @@ async fn test_websocket_rate_limit_enforcement() {
 
     // 101st message must be blocked.
     assert!(
-        !state.check_rate_limit(client_id),
+        !state.check_rate_limit(&client_id),
         "101st message should exceed rate limit"
     );
 }
