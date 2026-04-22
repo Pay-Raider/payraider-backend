@@ -1,17 +1,14 @@
 /*
 Temporarily disabled due to stellar_sdk 0.1 dependency issues.
 */
-use anyhow::Result;
+use anyhow::{Context, Result};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
-// Stellar XDR imports (using "curr" for the latest protocol version)
-use stellar_xdr::curr::{
-    Memo, MuxedAccount, Preconditions, SequenceNumber, TimeBounds, Transaction,
-    TransactionEnvelope, DecoratedSignature, Signature,
-};
+// Stellar XDR signing types are referenced in the commented signing block below.
 // Stellar SDK transaction signing is handled via the Soroban RPC simulation flow.
 // Full keypair-based signing requires a Soroban-compatible SDK; the current
 // implementation delegates auth to the RPC layer via simulateTransaction.
@@ -89,16 +86,16 @@ pub struct SubmissionResult {
     pub timestamp: u64,
 }
 
-pub struct ContractService;
 impl ContractService {
-    pub fn new(_config: crate::services::contract_listener::ListenerConfig) -> Self { Self }
-    
-    pub async fn submit_snapshot(&self, _hash: [u8; 32], _ledger: u64) -> Result<SubmissionResult> {
-        Err(anyhow::anyhow!("Contract service is temporarily disabled"))
+    #[must_use]
+    pub fn new(config: ContractConfig) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+            .build()
+            .expect("Failed to build HTTP client");
+        Self { client, config }
     }
 
-    pub async fn submit_snapshot_hash(&self, _hash: [u8; 32], _ledger: u64) -> Result<SubmissionResult> {
-        Err(anyhow::anyhow!("Contract service is temporarily disabled"))
     /// Create from environment variables
     pub fn from_env() -> Result<Self> {
         let config = ContractConfig {
@@ -112,24 +109,9 @@ impl ContractService {
                 .context("STELLAR_SOURCE_SECRET_KEY environment variable not set")?,
         };
 
-        Self::new(config)
+        Ok(Self::new(config))
     }
 
-    /// Submit a snapshot hash to the on-chain contract
-    ///
-    /// This function will:
-    /// 1. Build and simulate the transaction
-    /// 2. Sign the transaction
-    /// 3. Submit to the network
-    /// 4. Wait for confirmation
-    /// 5. Retry on transient failures
-    ///
-    /// # Arguments
-    /// * `hash` - 32-byte snapshot hash
-    /// * `epoch` - Epoch identifier
-    ///
-    /// # Returns
-    /// Result containing submission details or error
     pub async fn submit_snapshot(&self, hash: [u8; 32], epoch: u64) -> Result<SubmissionResult> {
         self.submit_snapshot_hash(hash, epoch).await
     }
@@ -344,7 +326,6 @@ impl ContractService {
 
         Ok(signed_xdr)
         */
-            .ok_or_else(|| anyhow::anyhow!("Simulation did not return transactionData field"))?;
 
         // Validate the XDR is non-empty base64 before forwarding.
         if transaction_xdr.is_empty() {
@@ -356,6 +337,124 @@ impl ContractService {
             transaction_xdr.len()
         );
         Ok(transaction_xdr.to_string())
+    }
+
+    async fn send_transaction(&self, signed_xdr: &str) -> Result<String> {
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: 1,
+            method: "sendTransaction".to_string(),
+            params: json!({ "transaction": signed_xdr }),
+        };
+
+        let response = self
+            .client
+            .post(&self.config.rpc_url)
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send sendTransaction RPC request")?;
+
+        let body: JsonRpcResponse<serde_json::Value> = response
+            .json()
+            .await
+            .context("Failed to parse sendTransaction RPC response")?;
+
+        if let Some(error) = body.error {
+            return Err(anyhow::anyhow!(
+                "sendTransaction failed: {} (code: {})",
+                error.message,
+                error.code
+            ));
+        }
+
+        let result = body
+            .result
+            .ok_or_else(|| anyhow::anyhow!("sendTransaction returned empty result"))?;
+
+        result
+            .get("hash")
+            .or_else(|| result.get("transactionHash"))
+            .and_then(|h| h.as_str())
+            .map(std::string::ToString::to_string)
+            .context("sendTransaction result missing transaction hash")
+    }
+
+    async fn wait_for_transaction(
+        &self,
+        tx_hash: &str,
+        epoch: u64,
+    ) -> Result<SubmissionResult> {
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: 1,
+            method: "getTransaction".to_string(),
+            params: json!({ "hash": tx_hash }),
+        };
+
+        for _ in 0..60 {
+            let response = self
+                .client
+                .post(&self.config.rpc_url)
+                .json(&request)
+                .send()
+                .await
+                .context("Failed to send getTransaction RPC request")?;
+
+            let body: JsonRpcResponse<serde_json::Value> = response
+                .json()
+                .await
+                .context("Failed to parse getTransaction RPC response")?;
+
+            if let Some(error) = &body.error {
+                let transient = error
+                    .message
+                    .to_ascii_lowercase()
+                    .contains("not found");
+                if !transient {
+                    return Err(anyhow::anyhow!(
+                        "getTransaction failed: {} (code: {})",
+                        error.message,
+                        error.code
+                    ));
+                }
+            } else if let Some(result) = body.result {
+                let status = result
+                    .get("status")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("");
+                if status.eq_ignore_ascii_case("success")
+                    || status.eq_ignore_ascii_case("failed")
+                {
+                    let ledger = result
+                        .get("ledger")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    let timestamp = result
+                        .get("createdAt")
+                        .and_then(|s| s.as_str())
+                        .and_then(|s| {
+                            chrono::DateTime::parse_from_rfc3339(s)
+                                .ok()
+                                .map(|d| d.timestamp() as u64)
+                        })
+                        .unwrap_or(0);
+
+                    return Ok(SubmissionResult {
+                        hash: tx_hash.to_string(),
+                        transaction_hash: tx_hash.to_string(),
+                        ledger,
+                        timestamp,
+                    });
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+
+        Err(anyhow::anyhow!(
+            "Timed out waiting for transaction {tx_hash} (epoch {epoch})"
+        ))
     }
 
     pub async fn health_check(&self) -> Result<bool> {

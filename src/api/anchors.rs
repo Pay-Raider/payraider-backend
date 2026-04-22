@@ -20,15 +20,11 @@ use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
 use crate::rpc::circuit_breaker::rpc_circuit_breaker;
-use crate::rpc::circuit_breaker::{rpc_circuit_breaker, CircuitBreaker, CircuitBreakerConfig};
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::StellarRpcClient;
 use crate::services::price_feed::PriceFeedClient;
 use crate::state::AppState;
 use tracing::warn;
-use crate::rpc::error::{RetryConfig, with_retry, RpcError};
-use tracing::warn;
-use tracing::{error, info, warn};
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -291,19 +287,6 @@ pub async fn create_anchor_asset(
     Ok(Json(asset))
 }
 
-use crate::cache::helpers::cached_query;
-use crate::cache::keys;
-use crate::database::Database;
-use crate::rpc::{
-    circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
-    error::{RpcError},
-    circuit_breaker::{rpc_circuit_breaker, CircuitBreaker},
-    error::{with_retry, RetryConfig, RpcError},
-    StellarRpcClient,
-};
-use crate::services::price_feed::PriceFeedClient;
-use std::time::Duration;
-
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ListAnchorsQuery {
@@ -321,71 +304,17 @@ const fn default_limit() -> i64 {
     50
 }
 
-pub(crate) fn rpc_circuit_breaker() -> Arc<CircuitBreaker> {
-    static CIRCUIT_BREAKER: OnceLock<Arc<CircuitBreaker>> = OnceLock::new();
-    CIRCUIT_BREAKER
-        .get_or_init(|| {
-            Arc::new(CircuitBreaker::new(
-                CircuitBreakerConfig {
-                    failure_threshold: 5,
-                    success_threshold: 2,
-                    timeout_duration: Duration::from_secs(30),
-                    half_open_max_calls: 3,
-                },
-                "horizon",
-            ))
-        })
-        .clone()
-}
-
-pub fn rpc_circuit_breaker_instance() -> Arc<CircuitBreaker> {
-    rpc_circuit_breaker()
-}
-
-// Add retry helper
-async fn with_retry<F, Fut, T>(
-    mut operation: F,
-    max_retries: u32,
-    initial_backoff: Duration,
-) -> Result<T, RpcError>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, RpcError>>,
-{
-    let mut backoff = initial_backoff;
-    let mut last_error = None;
-    
-    for attempt in 0..=max_retries {
-        match operation().await {
-            Ok(result) => return Ok(result),
-            Err(e) => {
-                last_error = Some(e);
-                if attempt < max_retries {
-                    tokio::time::sleep(backoff).await;
-                    backoff *= 2;  // Exponential backoff
-                }
-            }
-        }
-    }
-    
-    Err(last_error.unwrap_or_else(|| RpcError::NetworkError("No attempts made".to_string())))
-}
-// Shared circuit breaker is now managed in crate::rpc::circuit_breaker
-
 pub async fn get_anchor_metrics_with_rpc(
     anchor_id: Uuid,
     rpc_client: Arc<StellarRpcClient>,
 ) -> anyhow::Result<AnchorMetrics> {
     let circuit_breaker = rpc_circuit_breaker();
+    let rpc = Arc::clone(&rpc_client);
 
-    // Wrap call in circuit breaker as requested in Issue #671
-    let result: Result<AnchorMetrics, failsafe::Error<RpcError>> = circuit_breaker
-        .call(|| async {
-    let metrics: AnchorMetrics = with_retry(
-        || async {
-            rpc_client
-                .fetch_anchor_metrics(anchor_id)
-                .map_err(|e| RpcError::categorize(&e.to_string()))
+    let metrics = with_retry(
+        move || {
+            let rpc = Arc::clone(&rpc);
+            async move { rpc.fetch_anchor_metrics(anchor_id) }
         },
         RetryConfig::default(),
         circuit_breaker,
@@ -397,20 +326,6 @@ pub async fn get_anchor_metrics_with_rpc(
         }
         other => anyhow::anyhow!(other.to_string()),
     })?;
-                .await
-                .map_err(|e| RpcError::categorize(&e.to_string()))
-        })
-        .await;
-
-    let metrics = match result {
-        Ok(metrics) => metrics,
-        Err(failsafe::Error::Rejected) => {
-            return Err(anyhow::anyhow!("Circuit breaker open - RPC service unavailable"));
-        }
-        Err(failsafe::Error::Inner(err)) => {
-            return Err(anyhow::anyhow!(err.to_string()));
-        }
-    };
 
     Ok(metrics)
 }

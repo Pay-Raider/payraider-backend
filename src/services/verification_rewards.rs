@@ -195,16 +195,34 @@ impl VerificationRewardsService {
 
     /// Get leaderboard of top verifiers
     pub async fn get_leaderboard(&self, limit: i32) -> Result<Vec<LeaderboardEntry>> {
+        // Single query with `ROW_NUMBER()` so rank respects ties and matches DB ordering
+        // (no per-row round-trips).
         let rows = sqlx::query(
             r"
             SELECT
+                rank,
                 username,
                 total_points,
                 successful_verifications,
-                CAST(successful_verifications AS REAL) /
-                    NULLIF(successful_verifications + failed_verifications, 0) * 100 AS success_rate
-            FROM verification_leaderboard
-            LIMIT ?
+                success_rate
+            FROM (
+                SELECT
+                    ROW_NUMBER() OVER (
+                        ORDER BY ur.total_points DESC,
+                                 ur.successful_verifications DESC,
+                                 u.username ASC
+                    ) AS rank,
+                    u.username AS username,
+                    ur.total_points AS total_points,
+                    ur.successful_verifications AS successful_verifications,
+                    CAST(ur.successful_verifications AS REAL) /
+                        NULLIF(ur.successful_verifications + ur.failed_verifications, 0) * 100
+                        AS success_rate
+                FROM users u
+                INNER JOIN user_rewards ur ON u.id = ur.user_id
+            ) ranked
+            WHERE rank <= ?
+            ORDER BY rank
             ",
         )
         .bind(limit)
@@ -214,10 +232,9 @@ impl VerificationRewardsService {
 
         let leaderboard = rows
             .iter()
-            .enumerate()
-            .map(|(rank, row)| -> Result<LeaderboardEntry> {
+            .map(|row| -> Result<LeaderboardEntry> {
                 Ok(LeaderboardEntry {
-                    rank: (rank + 1) as i32,
+                    rank: row.try_get::<i64, _>("rank")? as i32,
                     username: row.try_get::<String, _>("username")?,
                     total_points: row.try_get::<i32, _>("total_points")?,
                     successful_verifications: row.try_get::<i32, _>("successful_verifications")?,
@@ -258,19 +275,21 @@ impl VerificationRewardsService {
         .await
         .context("Failed to fetch user verifications")?;
 
-        let mut verifications = Vec::new();
-        for row in rows {
-            verifications.push(VerificationRecord {
-                id: row.try_get::<String, _>("id")?,
-                snapshot_id: row.try_get::<String, _>("snapshot_id")?,
-                epoch: row.try_get::<i64, _>("epoch")?,
-                submitted_hash: row.try_get::<String, _>("submitted_hash")?,
-                expected_hash: row.try_get::<String, _>("expected_hash")?,
-                is_match: row.try_get::<bool, _>("is_match")?,
-                reward_points: row.try_get::<i32, _>("reward_points")?,
-                verified_at: row.try_get::<String, _>("verified_at")?,
-            });
-        }
+        let verifications = rows
+            .into_iter()
+            .map(|row| {
+                Ok(VerificationRecord {
+                    id: row.try_get::<String, _>("id")?,
+                    snapshot_id: row.try_get::<String, _>("snapshot_id")?,
+                    epoch: row.try_get::<i64, _>("epoch")?,
+                    submitted_hash: row.try_get::<String, _>("submitted_hash")?,
+                    expected_hash: row.try_get::<String, _>("expected_hash")?,
+                    is_match: row.try_get::<bool, _>("is_match")?,
+                    reward_points: row.try_get::<i32, _>("reward_points")?,
+                    verified_at: row.try_get::<String, _>("verified_at")?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(verifications)
     }

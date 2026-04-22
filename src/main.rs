@@ -5,7 +5,6 @@ use axum::{
         HeaderValue, Method,
     },
     middleware,
-    routing::get,
     Router,
 };
 use std::sync::Arc;
@@ -284,26 +283,16 @@ async fn main() -> anyhow::Result<()> {
         MAX_REQUEST_TIMEOUT_SECONDS,
     );
 
-    // TimeoutLayer returns 408 with a structured JSON body on timeout.
-    // WebSocket routes are intentionally excluded (see ws_routes below).
-    let timeout_layer = tower::ServiceBuilder::new()
-        .layer(axum::error_handling::HandleErrorLayer::new(
-            |_: tower::BoxError| async {
-                (
-                    axum::http::StatusCode::REQUEST_TIMEOUT,
-                    axum::Json(serde_json::json!({
-                        "error": "REQUEST_TIMEOUT",
-                        "message": "Request exceeded the maximum allowed time",
-                    })),
-                )
-            },
-        ))
-        .layer(TimeoutLayer::new(Duration::from_secs(request_timeout_seconds)));
+    // Request timeout: 408 on exceeded time. WebSocket routes are excluded (see `ws_routes`).
+    let timeout_layer = TimeoutLayer::with_status_code(
+        axum::http::StatusCode::REQUEST_TIMEOUT,
+        Duration::from_secs(request_timeout_seconds),
+    );
 
     // WebSocket routes are excluded from the timeout layer — WS connections
     // are long-lived and must not be killed by the HTTP request timeout.
     let ws_routes = Router::new()
-        .route("/ws", get(stellar_insights_backend::websocket::ws_handler))
+        .route("/ws", stellar_insights_backend::websocket::ws_route())
         .with_state(Arc::clone(&ws_state))
         .layer(cors.clone());
 

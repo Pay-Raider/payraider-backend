@@ -4,6 +4,7 @@ use axum::{
         Query, State,
     },
     response::{IntoResponse, Response},
+    routing::MethodRouter,
     Json,
 };
 use dashmap::DashMap;
@@ -335,13 +336,19 @@ pub struct WsQueryParams {
     pub token: Option<String>,
 }
 
+/// `MethodRouter` for `GET /ws` (built in the library crate so Axum types stay consistent).
+#[must_use]
+pub fn ws_route() -> MethodRouter<Arc<WsState>> {
+    axum::routing::get(ws_handler)
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 /// WebSocket upgrade handler.
 ///
 /// Rejects with `503 Service Unavailable` when the server has reached
 /// `MAX_CONCURRENT_CONNECTIONS`, and with `401 Unauthorized` for invalid tokens.
-pub fn ws_handler(
+pub async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(params): Query<WsQueryParams>,
     State(state): State<Arc<WsState>>,
