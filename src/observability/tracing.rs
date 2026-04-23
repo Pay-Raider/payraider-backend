@@ -1,36 +1,44 @@
 use anyhow::Result;
 use axum::{body::Body, extract::Request, middleware::Next, response::Response};
+use opentelemetry::global;
 use opentelemetry::propagation::TextMapPropagator;
-use opentelemetry::sdk::propagation::TraceContextPropagator;
-use opentelemetry::sdk::{trace as sdktrace, Resource};
-use opentelemetry::{global, KeyValue};
+use opentelemetry::trace::TracerProvider;
+use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_sdk::resource::Resource;
+use opentelemetry_sdk::runtime;
+use opentelemetry_sdk::trace::Config;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 const MAX_LOG_FILES: usize = 30;
 
-fn init_otel_tracer(service_name: &str) -> Result<sdktrace::Tracer> {
-    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-        .unwrap_or_else(|_| "http://localhost:4317".to_string());
+fn init_otel_tracer(service_name: &str) -> Result<opentelemetry_sdk::trace::Tracer> {
+    // HTTP/protobuf OTLP on 4318; OTLP 0.17+ avoids pulling `tonic`'s legacy `axum` into this crate graph.
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_else(|_| {
+        "http://localhost:4318/v1/traces".to_string()
+    });
 
-    let tracer =
-        opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(
-                opentelemetry_otlp::new_exporter()
-                    .tonic()
-                    .with_endpoint(endpoint),
-            )
-            .with_trace_config(sdktrace::config().with_resource(Resource::new(vec![
-                KeyValue::new("service.name", service_name.to_string()),
-            ])))
-            .install_batch(opentelemetry::runtime::Tokio)?;
+    let resource = Resource::new([KeyValue::new(
+        "service.name",
+        service_name.to_string(),
+    )]);
 
-    Ok(tracer)
+    let provider = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .http()
+                .with_endpoint(endpoint),
+        )
+        .with_trace_config(Config::default().with_resource(resource))
+        .install_batch(runtime::Tokio)?;
+
+    global::set_tracer_provider(provider.clone());
+    Ok(provider.tracer("stellar-insights-backend"))
 }
 
 /// Initialize tracing. When `LOG_DIR` is set, logs are also written to a rotating file
@@ -69,115 +77,111 @@ pub fn init_tracing(service_name: &str) -> Result<Option<WorkerGuard>> {
         (None, None)
     };
 
-    // otel_layer must be added directly on registry() (before other layers) so that
-    // the S: LookupSpan bound is satisfied.
+    // OTel layer must be registered on `registry()` first so `LookupSpan` bounds are satisfied.
+    let stdout = std::io::stdout;
+
     if otel_enabled {
-        let otel_layer =
-            tracing_opentelemetry::layer().with_tracer(init_otel_tracer(service_name)?);
+        let otel_tracer = init_otel_tracer(service_name)?;
+        let otel_layer = tracing_opentelemetry::layer().with_tracer(otel_tracer);
         let base = tracing_subscriber::registry()
             .with(otel_layer)
             .with(env_filter);
 
-        if use_json {
-            Some(
-                tracing_subscriber::fmt::layer()
+        match (use_json, file_writer) {
+            (true, Some(w)) => {
+                let stdout_layer = tracing_subscriber::fmt::layer()
                     .json()
-                    .with_writer(writer)
+                    .with_writer(stdout)
                     .with_target(true)
                     .with_level(true)
-                    .boxed(),
-            )
-        } else {
-            Some(
-                tracing_subscriber::fmt::layer()
-                    .with_writer(writer)
+                    .boxed();
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(w)
                     .with_target(true)
                     .with_level(true)
-                    .boxed(),
-            )
-            let fmt = tracing_subscriber::fmt::layer()
-                .json()
-                .with_target(true)
-                .with_level(true);
-            match file_writer {
-                Some(w) => {
-                    let file = tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_writer(w)
-                        .with_target(true)
-                        .with_level(true);
-                    base.with(fmt).with(file).init();
-                }
-                None => base.with(fmt).init(),
+                    .boxed();
+                base.with(stdout_layer).with(file_layer).init();
             }
-        } else {
-            let fmt = tracing_subscriber::fmt::layer()
-                .with_target(true)
-                .with_level(true);
-            match file_writer {
-                Some(w) => {
-                    let file = tracing_subscriber::fmt::layer()
-                        .with_writer(w)
-                        .with_target(true)
-                        .with_level(true);
-                    base.with(fmt).with(file).init();
-                }
-                None => base.with(fmt).init(),
+            (true, None) => {
+                let stdout_layer = tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(stdout)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                base.with(stdout_layer).init();
+            }
+            (false, Some(w)) => {
+                let stdout_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(stdout)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(w)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                base.with(stdout_layer).with(file_layer).init();
+            }
+            (false, None) => {
+                let stdout_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(stdout)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                base.with(stdout_layer).init();
             }
         }
         tracing::info!("OpenTelemetry tracing enabled");
     } else {
-        None
-    };
-
-    // Add optional OpenTelemetry layer
-    let otel_layer = if otel_enabled {
-        let tracer = init_otel_tracer(service_name)?;
-        Some(tracing_opentelemetry::layer().with_tracer(tracer).boxed())
-    } else {
-        None
-    };
-
-    // Initialize the registry with all layers
-    // Option<Layer> implements Layer, so we can chain them directly
-    registry
-        .with(fmt_layer)
-        .with(otel_layer)
-        .with(file_layer)
-        .init();
-
-    if otel_enabled {
-        tracing::info!("OpenTelemetry tracing enabled");
         let base = tracing_subscriber::registry().with(env_filter);
-        if use_json {
-            let fmt = tracing_subscriber::fmt::layer()
-                .json()
-                .with_target(true)
-                .with_level(true);
-            match file_writer {
-                Some(w) => {
-                    let file = tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_writer(w)
-                        .with_target(true)
-                        .with_level(true);
-                    base.with(fmt).with(file).init();
-                }
-                None => base.with(fmt).init(),
+        match (use_json, file_writer) {
+            (true, Some(w)) => {
+                let stdout_layer = tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(stdout)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(w)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                base.with(stdout_layer).with(file_layer).init();
             }
-        } else {
-            let fmt = tracing_subscriber::fmt::layer()
-                .with_target(true)
-                .with_level(true);
-            match file_writer {
-                Some(w) => {
-                    let file = tracing_subscriber::fmt::layer()
-                        .with_writer(w)
-                        .with_target(true)
-                        .with_level(true);
-                    base.with(fmt).with(file).init();
-                }
-                None => base.with(fmt).init(),
+            (true, None) => {
+                let stdout_layer = tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(stdout)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                base.with(stdout_layer).init();
+            }
+            (false, Some(w)) => {
+                let stdout_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(stdout)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(w)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                base.with(stdout_layer).with(file_layer).init();
+            }
+            (false, None) => {
+                let stdout_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(stdout)
+                    .with_target(true)
+                    .with_level(true)
+                    .boxed();
+                base.with(stdout_layer).init();
             }
         }
     }

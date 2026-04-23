@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use async_lock::RwLock;
 use reqwest::Client;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
@@ -299,7 +299,13 @@ impl PriceFeedClient {
             return result;
         }
 
-        let provider_ids: Vec<String> = mapped.iter().map(|(_, id)| id.clone()).collect();
+        // Deduplicate provider IDs so one HTTP batch does not repeat the same CoinGecko id.
+        let mut seen_ids = HashSet::new();
+        let provider_ids: Vec<String> = mapped
+            .iter()
+            .map(|(_, id)| id.clone())
+            .filter(|id| seen_ids.insert(id.clone()))
+            .collect();
 
         // Fetch from provider
         match self.provider.fetch_prices(&provider_ids).await {

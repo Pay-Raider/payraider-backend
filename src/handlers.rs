@@ -3,7 +3,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -15,11 +15,10 @@ use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
-use crate::models::{CreateAnchorRequest, CreateCorridorRequest, ListCorridorsQuery, ListCorridorsResponse};
+use crate::api::corridors::ListCorridorsQuery;
+use crate::models::{CreateAnchorRequest, CreateCorridorRequest};
 use crate::rpc::StellarRpcClient;
 use crate::state::AppState;
-use crate::websocket::WsState;
-
 /// DTO for corridor transaction data
 #[derive(Debug, Deserialize, Clone)]
 pub struct CorridorTransactionDto {
@@ -49,6 +48,12 @@ pub struct ComponentHealth {
     pub healthy: bool,
     pub response_time_ms: Option<u64>,
     pub message: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ListCorridorsResponse {
+    pub corridors: Vec<Corridor>,
+    pub total: usize,
 }
 
 /// Check database health
@@ -152,10 +157,10 @@ pub async fn update_anchor_metrics(
 ) -> ApiResult<Json<crate::models::Anchor>> {
     // Verify anchor exists
     if app_state.db.get_anchor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!(
-            "Anchor with id {} not found",
-            id
-        )));
+        return Err(ApiError::not_found(
+            "ANCHOR_NOT_FOUND",
+            format!("Anchor with id {id} not found"),
+        ));
     }
 
     let anchor = app_state
@@ -183,10 +188,10 @@ pub async fn get_anchor_assets(
 ) -> ApiResult<Json<Vec<crate::models::Asset>>> {
     // Verify anchor exists
     if app_state.db.get_anchor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!(
-            "Anchor with id {} not found",
-            id
-        )));
+        return Err(ApiError::not_found(
+            "ANCHOR_NOT_FOUND",
+            format!("Anchor with id {id} not found"),
+        ));
     }
 
     let assets = app_state.db.get_assets_by_anchor(id).await?;
@@ -208,10 +213,10 @@ pub async fn create_anchor_asset(
 ) -> ApiResult<Json<crate::models::Asset>> {
     // Verify anchor exists
     if app_state.db.get_anchor_by_id(id).await?.is_none() {
-        return Err(ApiError::NotFound(format!(
-            "Anchor with id {} not found",
-            id
-        )));
+        return Err(ApiError::not_found(
+            "ANCHOR_NOT_FOUND",
+            format!("Anchor with id {id} not found"),
+        ));
     }
 
     let asset = app_state
@@ -228,7 +233,7 @@ pub async fn get_anchor(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
     let anchor = app_state.db.get_anchor_by_id(id).await?
-        .ok_or_else(|| ApiError::NotFound(format!("Anchor {} not found", id)))?;
+        .ok_or_else(|| ApiError::not_found("ANCHOR_NOT_FOUND", format!("Anchor {id} not found")))?;
     Ok(Json(anchor))
 }
 
@@ -238,21 +243,14 @@ pub async fn get_anchor_by_account(
     Path(stellar_account): Path<String>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
     let anchor = app_state.db.get_anchor_by_stellar_account(&stellar_account).await?
-        .ok_or_else(|| ApiError::NotFound(format!("Anchor for account {} not found", stellar_account)))?;
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "ANCHOR_NOT_FOUND",
+                format!("Anchor for account {stellar_account} not found"),
+            )
+        })?;
     Ok(Json(anchor))
 }
-
-/// GET /api/analytics/muxed - Get muxed account analytics
-pub async fn get_muxed_analytics(
-    State(app_state): State<AppState>,
-    Query(params): Query<crate::models::ListCorridorsQuery>,
-) -> ApiResult<Json<crate::models::MuxedAccountAnalytics>> {
-    let limit = params.limit.unwrap_or(10);
-    let analytics = app_state.db.get_muxed_analytics(limit).await?;
-    Ok(Json(analytics))
-}
-
-
 
 /// GET /metrics - Prometheus metrics endpoint (all registered metrics via global registry)
 pub async fn get_prometheus_metrics() -> impl IntoResponse {

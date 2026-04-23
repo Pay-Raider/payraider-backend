@@ -1044,7 +1044,7 @@ impl Database {
     }
 
     /// Updates the metrics for a corridor.
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, cache))]
     pub async fn update_corridor_metrics(
         &self,
         id: Uuid,
@@ -1268,14 +1268,13 @@ impl Database {
     pub async fn save_payments(&self, payments: Vec<crate::models::PaymentRecord>) -> Result<()> {
         self.execute_with_timing("save_payments", async {
             let payment_count = payments.len();
-            let mut tx = self.pool.begin().await.with_context(|| {
-                format!("Failed to begin transaction for save_payments ({payment_count} payments)")
-            })?;
             if payments.is_empty() {
                 return Ok(());
             }
 
-            let mut tx = self.pool.begin().await.with_context(|| format!("Failed to begin transaction for save_payments ({} payments)", payments.len()))?;
+            let mut tx = self.pool.begin().await.with_context(|| {
+                format!("Failed to begin transaction for save_payments ({payment_count} payments)")
+            })?;
 
             for payment in &payments {
                 sqlx::query(
@@ -1519,101 +1518,6 @@ impl Database {
             
             let limit = std::cmp::max(0, top_limit) as usize;
             top_muxed_by_activity.truncate(limit);
-
-            let unique_muxed_addresses = sqlx::query_scalar::<_, i64>(
-                r"
-                SELECT COUNT(DISTINCT addr) FROM (
-                    SELECT source_account AS addr FROM payments WHERE source_account LIKE 'M%' AND LENGTH(source_account) = $1
-                    UNION
-                    SELECT destination_account AS addr FROM payments WHERE destination_account LIKE 'M%' AND LENGTH(destination_account) = $1
-                )
-                ",
-            )
-            .bind(MUXED_LEN)
-            .fetch_one(&self.pool)
-            .await?;
-
-
-            let total_muxed_payments = sqlx::query_scalar::<_, i64>(
-                r"
-                SELECT COUNT(*) FROM payments
-                WHERE (source_account LIKE 'M%' AND LENGTH(source_account) = $1)
-                   OR (destination_account LIKE 'M%' AND LENGTH(destination_account) = $1)
-                ",
-            )
-            .bind(MUXED_LEN)
-            .fetch_one(&self.pool)
-            .await
-            .context("Failed to count total muxed payments")?;
-
-            #[derive(sqlx::FromRow)]
-            struct AddrCount {
-                addr: String,
-                cnt: i64,
-            }
-
-            let source_counts: Vec<AddrCount> = sqlx::query_as(
-                r"
-                SELECT source_account AS addr, COUNT(*) AS cnt FROM payments
-                WHERE source_account LIKE 'M%' AND LENGTH(source_account) = $1
-                GROUP BY source_account
-                ORDER BY cnt DESC
-                LIMIT $2
-                ",
-            )
-            .bind(MUXED_LEN)
-            .bind(top_limit)
-            .fetch_all(&self.pool)
-            .await
-            .with_context(|| format!(
-                "Failed to fetch top muxed source accounts (limit={})",
-                top_limit
-            ))?;
-
-            let dest_counts: Vec<AddrCount> = sqlx::query_as(
-                r"
-                SELECT destination_account AS addr, COUNT(*) AS cnt FROM payments
-                WHERE destination_account LIKE 'M%' AND LENGTH(destination_account) = $1
-                GROUP BY destination_account
-                ORDER BY cnt DESC
-                LIMIT $2
-                ",
-            )
-            .bind(MUXED_LEN)
-            .bind(top_limit)
-            .fetch_all(&self.pool)
-            .await
-            .with_context(|| format!(
-                "Failed to fetch top muxed destination accounts (limit={})",
-                top_limit
-            ))?;
-
-            let mut by_addr: std::collections::HashMap<String, (i64, i64)> =
-                std::collections::HashMap::new();
-            for row in source_counts {
-                by_addr.entry(row.addr).or_insert((0, 0)).0 = row.cnt;
-            }
-            for row in dest_counts {
-                by_addr.entry(row.addr).or_insert((0, 0)).1 = row.cnt;
-            }
-
-            let mut top_muxed_by_activity: Vec<MuxedAccountUsage> = by_addr
-                .into_iter()
-                .map(|(account_address, (src, dest))| {
-                    let total = src + dest;
-                    let info = muxed::parse_muxed_address(&account_address);
-                    MuxedAccountUsage {
-                        account_address,
-                        base_account: info.as_ref().and_then(|i| i.base_account.clone()),
-                        muxed_id: info.and_then(|i| i.muxed_id),
-                        payment_count_as_source: src,
-                        payment_count_as_destination: dest,
-                        total_payments: total,
-                    }
-                })
-                .collect();
-            top_muxed_by_activity.sort_by(|a, b| b.total_payments.cmp(&a.total_payments));
-            top_muxed_by_activity.truncate(top_limit as usize);
 
             let unique_muxed_addresses = sqlx::query_scalar::<_, i64>(
                 r"
@@ -1878,6 +1782,7 @@ impl Database {
         .await
     }
 
+    #[tracing::instrument(skip(self), fields(key_id = %id, wallet_address = %wallet_address))]
     pub async fn revoke_api_key(&self, id: &str, wallet_address: &str) -> Result<bool> {
         self.execute_with_timing("revoke_api_key", async {
             let revoked_at = Utc::now().to_rfc3339();
@@ -1905,6 +1810,7 @@ impl Database {
         .await
     }
 
+    #[tracing::instrument(skip(self), fields(key_id = %id, wallet_address = %wallet_address))]
     pub async fn rotate_api_key(
         &self,
         id: &str,
@@ -2117,5 +2023,44 @@ impl Database {
             })
         })
         .await
+    }
+
+    /// Latest `corridor_metrics` row per `corridor_key` in a single query (avoids N+1 lookups).
+    #[tracing::instrument(skip(self))]
+    pub async fn fetch_latest_corridor_metrics_for_broadcast(
+        &self,
+    ) -> Result<Vec<crate::models::corridor::CorridorMetrics>> {
+        self.execute_with_timing("fetch_latest_corridor_metrics_for_broadcast", async {
+            sqlx::query_as::<_, crate::models::corridor::CorridorMetrics>(
+                r"
+                SELECT cm.*
+                FROM corridor_metrics cm
+                INNER JOIN (
+                    SELECT corridor_key, MAX(date) AS max_date
+                    FROM corridor_metrics
+                    GROUP BY corridor_key
+                ) latest
+                  ON cm.corridor_key = latest.corridor_key
+                 AND cm.date = latest.max_date
+                ORDER BY cm.corridor_key
+                ",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch latest corridor metrics for broadcast")
+        })
+        .await
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::services::data_port::DataPort for Database {
+    async fn fetch_corridor_updates(
+        &self,
+    ) -> Result<Vec<crate::models::corridor::CorridorMetrics>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        self.fetch_latest_corridor_metrics_for_broadcast()
+            .await
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })
     }
 }
