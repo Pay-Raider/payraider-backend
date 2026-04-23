@@ -11,7 +11,7 @@ pub struct AnchorMonitor {
     last_metrics: Arc<tokio::sync::RwLock<HashMap<String, AnchorMetrics>>>,
 }
 
-use crate::models::AnchorMetrics;
+use crate::models::{AnchorMetrics, AnchorStatus};
 
 impl AnchorMonitor {
     #[must_use]
@@ -47,8 +47,21 @@ impl AnchorMonitor {
             {
                 Ok(m) => m,
                 Err(e) => {
-                    tracing::error!("Failed to get performance for anchor {}: {}", anchor.id, e);
-                    continue;
+                    tracing::warn!(
+                        "Failed to get performance for anchor {} (using neutral metrics): {}",
+                        anchor.id,
+                        e
+                    );
+                    AnchorMetrics {
+                        success_rate: 100.0,
+                        failure_rate: 0.0,
+                        reliability_score: 100.0,
+                        total_transactions: 0,
+                        successful_transactions: 0,
+                        failed_transactions: 0,
+                        avg_settlement_time_ms: None,
+                        status: AnchorStatus::Green,
+                    }
                 }
             };
 

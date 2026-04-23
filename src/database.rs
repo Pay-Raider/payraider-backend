@@ -2142,7 +2142,6 @@ impl Database {
             .bind(start_time.to_rfc3339())
             .fetch_one(&self.pool)
             .await
-            .with_context(|| format!("Failed to get recent anchor performance for anchor_id: {}, minutes: {}", anchor_id, minutes))?;
             .with_context(|| {
                 format!(
                     "Failed to get recent anchor performance for anchor_id: {}, minutes: {}",
