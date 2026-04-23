@@ -38,10 +38,10 @@ pub struct AnalyticsDashboardData {
     pub corridor_performance: Vec<CorridorPerformanceMetric>,
 }
 
-/// Handler for GET /api/analytics/dashboard (cached with 1 min TTL)
+/// Handler for GET /analytics/dashboard (cached with 1 min TTL; mounted under `/analytics` in the API router)
 #[utoipa::path(
     get,
-    path = "/api/analytics/dashboard",
+    path = "/analytics/dashboard",
     responses(
         (status = 200, description = "Analytics dashboard data", body = AnalyticsDashboardData),
         (status = 500, description = "Internal server error")
@@ -284,6 +284,6 @@ fn generate_fallback_data() -> AnalyticsDashboardData {
 
 pub fn routes(cache: Arc<CacheManager>) -> Router {
     Router::new()
-        .route("/api/analytics/dashboard", get(analytics_dashboard))
+        .route("/dashboard", get(analytics_dashboard))
         .with_state(cache)
 }
