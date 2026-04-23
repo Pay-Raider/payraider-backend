@@ -2,7 +2,49 @@
 //!
 //! This service indexes contract events, provides query interfaces,
 //! and manages the event database for analytics and verification.
-
+//!
+//! # Features
+//!
+//! - **Event Storage**: Store and retrieve contract events with metadata
+//! - **Query Interface**: Flexible filtering and sorting options
+//! - **Verification Tracking**: Monitor event verification status
+//! - **Statistics**: Aggregate event data for analytics
+//!
+//! # Quick Start
+//!
+//! ```rust,no_run
+//! use stellar_insights_backend::services::event_indexer::{EventIndexer, EventQuery, EventOrderBy};
+//! use stellar_insights_backend::database::Database;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let db = Database::new(pool).await?;
+//!     let indexer = EventIndexer::new(db);
+//!     
+//!     // Query events
+//!     let query = EventQuery {
+//!         contract_id: Some("contract_123".to_string()),
+//!         limit: Some(100),
+//!         order_by: Some(EventOrderBy::CreatedAtDesc),
+//!         ..Default::default()
+//!     };
+//!     
+//!     let events = indexer.query_events(query).await?;
+//!     println!("Found {} events", events.len());
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Configuration
+//!
+//! The indexer supports various query options:
+//!
+//! - **Time-based filtering**: by creation time, ledger, or epoch
+//! - **Status filtering**: by verification status
+//! - **Pagination**: limit and offset for large result sets
+//! - **Sorting**: multiple sort orders for different use cases
+//!
 use crate::database::Database;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};

@@ -25,8 +25,36 @@ pub fn rpc_circuit_breaker() -> SharedCircuitBreaker {
 
 /// Configuration for the circuit breaker.
 ///
-/// Controls when the circuit opens (stops forwarding requests) and when it
-/// attempts recovery via the half-open state.
+/// The circuit breaker protects against cascading failures by automatically opening
+/// when failures exceed a threshold, preventing further requests until recovery.
+///
+/// # Circuit States
+///
+/// 1. **Closed** - Normal operation, requests pass through
+/// 2. **Open** - Failure threshold exceeded, requests are blocked
+/// 3. **Half-Open** - Testing if service has recovered
+///
+/// # Configuration Parameters
+///
+/// * `failure_threshold` - Number of consecutive failures before opening
+/// * `success_threshold` - Successes needed to close circuit (legacy, unused)
+/// * `timeout_duration` - How long circuit stays open before testing recovery
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use stellar_insights_backend::rpc::circuit_breaker::{CircuitBreakerConfig, rpc_circuit_breaker};
+/// use std::time::Duration;
+///
+/// let config = CircuitBreakerConfig {
+///     failure_threshold: 5,           // Open after 5 consecutive failures
+///     success_threshold: 2,           // (unused in failsafe 1.3)
+///     timeout_duration: Duration::from_secs(30), // Stay open for 30 seconds
+/// };
+///
+/// let breaker = rpc_circuit_breaker();
+/// // Use breaker for RPC calls...
+/// ```
 #[derive(Debug, Clone)]
 pub struct CircuitBreakerConfig {
     /// Consecutive retryable failures required to trip the circuit open.
