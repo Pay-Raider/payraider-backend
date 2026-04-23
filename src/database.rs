@@ -2051,63 +2051,6 @@ impl Database {
         .await
     }
 
-    /// Revokes an API key for a specific wallet address.
-    #[tracing::instrument(skip(self), fields(key_id = %id, wallet_address = %wallet_address))]
-    pub async fn revoke_api_key(&self, id: &str, wallet_address: &str) -> Result<bool> {
-        self.execute_with_timing("revoke_api_key", async {
-            let result = sqlx::query(
-                r"
-            UPDATE api_keys
-            SET status = 'revoked', revoked_at = $1
-            WHERE id = $2 AND wallet_address = $3 AND status = 'active'
-            ",
-            )
-            .bind(Utc::now().to_rfc3339())
-            .bind(id)
-            .bind(wallet_address)
-            .execute(&self.pool)
-            .await?;
-            Ok(result.rows_affected() > 0)
-        })
-        .await
-    }
-
-    /// Rotates an API key for a given wallet address.
-    #[tracing::instrument(skip(self), fields(key_id = %id, wallet_address = %wallet_address))]
-    pub async fn rotate_api_key(
-        &self,
-        id: &str,
-        wallet_address: &str,
-    ) -> Result<Option<CreateApiKeyResponse>> {
-        let old_key = sqlx::query_as::<_, ApiKey>(
-            "SELECT * FROM api_keys WHERE id = $1 AND wallet_address = $2 AND status = 'active'",
-        )
-        .bind(id)
-        .bind(wallet_address)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        let old_key = match old_key {
-            Some(k) => k,
-            None => return Ok(None),
-        };
-
-        self.revoke_api_key(id, wallet_address).await?;
-
-        let new_key = self
-            .create_api_key(
-                wallet_address,
-                CreateApiKeyRequest {
-                    name: old_key.name,
-                    scopes: Some(old_key.scopes),
-                    expires_at: old_key.expires_at,
-                },
-            )
-            .await?;
-
-        Ok(Some(new_key))
-    }
-
     /// Retrieves the recent performance metrics for a specific anchor.
     #[tracing::instrument(skip(self), fields(anchor_id = %anchor_id, minutes = minutes))]
     pub async fn get_recent_anchor_performance(
@@ -2142,7 +2085,6 @@ impl Database {
             .bind(start_time.to_rfc3339())
             .fetch_one(&self.pool)
             .await
-            .with_context(|| format!("Failed to get recent anchor performance for anchor_id: {}, minutes: {}", anchor_id, minutes))?;
             .with_context(|| {
                 format!(
                     "Failed to get recent anchor performance for anchor_id: {}, minutes: {}",
