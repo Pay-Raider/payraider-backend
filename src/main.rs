@@ -317,8 +317,12 @@ async fn main() -> anyhow::Result<()> {
             db.clone(),
             stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
         ))
-        .layer(TraceLayer::new_for_http())
+        // trace_propagation_middleware must be inside TraceLayer so a span already
+        // exists when it calls set_parent(). In Axum's layer stack the last
+        // .layer() is outermost (runs first), so placing trace_propagation_middleware
+        // before TraceLayer here means it executes after TraceLayer at runtime.
         .layer(middleware::from_fn(trace_propagation_middleware))
+        .layer(TraceLayer::new_for_http())
         .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
         .layer(middleware::from_fn(request_id_middleware))
         .layer(timeout_layer)
