@@ -33,10 +33,7 @@ use stellar_insights_backend::{
     request_id::request_id_middleware,
     rpc::StellarRpcClient,
     services::{
-        account_merge_detector::AccountMergeDetector,
-        fee_bump_tracker::FeeBumpTrackerService,
-        liquidity_pool_analyzer::LiquidityPoolAnalyzer,
-        price_feed::{default_asset_mapping, PriceFeedClient, PriceFeedConfig},
+        service_container::ServiceContainer,
         webhook_dispatcher::WebhookDispatcher,
     },
     shutdown::{
@@ -157,10 +154,8 @@ async fn main() -> anyhow::Result<()> {
 
     let rpc_client = Arc::new(StellarRpcClient::new_with_defaults(mock_mode));
 
-    let price_feed = Arc::new(PriceFeedClient::new(
-        PriceFeedConfig::default(),
-        default_asset_mapping(),
-    ));
+    // Build all services via the container (dependency injection — issue #1123)
+    let services = ServiceContainer::build(pool.clone(), rpc_client.clone());
 
     let ws_state = Arc::new(WsState::new());
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
@@ -173,17 +168,17 @@ async fn main() -> anyhow::Result<()> {
         rpc_client.clone(),
     );
 
+    let fee_bump_tracker = services.fee_bump_tracker;
+    let account_merge_detector = services.account_merge_detector;
+    let lp_analyzer = services.lp_analyzer;
+    let price_feed = services.price_feed.clone();
+
     let cached_state = (
         db.clone(),
         cache.clone(),
         rpc_client.clone(),
         price_feed.clone(),
     );
-
-    let fee_bump_tracker = Arc::new(FeeBumpTrackerService::new(pool.clone()));
-    let account_merge_detector =
-        Arc::new(AccountMergeDetector::new(pool.clone(), rpc_client.clone()));
-    let lp_analyzer = Arc::new(LiquidityPoolAnalyzer::new(pool.clone(), rpc_client.clone()));
 
     let backup_config = BackupConfig::from_env();
     if backup_config.enabled {
@@ -200,10 +195,39 @@ async fn main() -> anyhow::Result<()> {
 
     let webhook_dispatcher_handle: JoinHandle<()> = {
         let webhook_pool = pool.clone();
+        let max_restarts: u32 = std::env::var("WEBHOOK_DISPATCHER_MAX_RESTARTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
         tokio::spawn(async move {
-            let dispatcher = WebhookDispatcher::new(webhook_pool);
-            if let Err(e) = dispatcher.run().await {
-                tracing::error!("Webhook dispatcher stopped: {}", e);
+            let mut restarts: u32 = 0;
+            loop {
+                let dispatcher = WebhookDispatcher::new(webhook_pool.clone());
+                match dispatcher.run().await {
+                    Ok(()) => {
+                        tracing::warn!("Webhook dispatcher exited cleanly; restarting");
+                    }
+                    Err(e) => {
+                        restarts += 1;
+                        tracing::error!(
+                            restarts,
+                            max_restarts,
+                            error = %e,
+                            "Webhook dispatcher failed"
+                        );
+                        if restarts >= max_restarts {
+                            tracing::error!(
+                                "Webhook dispatcher exceeded max restarts ({}); giving up",
+                                max_restarts
+                            );
+                            break;
+                        }
+                    }
+                }
+                // Exponential back-off capped at 60 s before restarting.
+                let backoff_secs = std::cmp::min(2u64.saturating_pow(restarts), 60);
+                tracing::info!("Restarting webhook dispatcher in {}s", backoff_secs);
+                tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
             }
         })
     };

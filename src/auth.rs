@@ -1,5 +1,10 @@
-pub mod oauth;
+/// SEP-10 authentication — canonical implementation.
+///
+/// `sep10_simple` is the only supported SEP-10 module in this repository.
+/// A previous `sep10` module that depended on `stellar-xdr` directly has been
+/// removed. All handler wiring must use `crate::auth::sep10_simple::Sep10Service`.
 pub mod sep10_simple;
+pub mod oauth;
 
 use anyhow::{anyhow, Result};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};

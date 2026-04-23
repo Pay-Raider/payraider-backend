@@ -23,4 +23,5 @@ pub mod trustline_analyzer;
 pub mod verification_rewards;
 pub mod webhook_dispatcher;
 pub mod webhook_event_service;
+pub mod service_container;
 
