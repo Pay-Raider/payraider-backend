@@ -88,6 +88,13 @@ pub enum ClientTier {
     Premium,
 }
 
+/// Comma-separated user/API-key IDs in `STELLAR_INSIGHTS_PREMIUM_CLIENT_IDS` map to premium tier.
+fn client_id_has_premium_env_override(client_id: &str) -> bool {
+    std::env::var("STELLAR_INSIGHTS_PREMIUM_CLIENT_IDS").ok().is_some_and(|raw| {
+        raw.split(',').any(|part| part.trim() == client_id)
+    })
+}
+
 /// Rate limiter state
 pub struct RateLimiter {
     redis_connection: Arc<RwLock<Option<MultiplexedConnection>>>,
@@ -199,6 +206,9 @@ impl RateLimiter {
     async fn get_client_tier(&self, client: &ClientIdentifier) -> ClientTier {
         match client {
             ClientIdentifier::ApiKey(id) => {
+                if client_id_has_premium_env_override(id) {
+                    return ClientTier::Premium;
+                }
                 // For API keys, we check if the associated user/wallet has a premium subscription
                 // If we have a DB pool, query the user_subscriptions table
                 if let Some(pool) = &self.db_pool {
@@ -218,6 +228,9 @@ impl RateLimiter {
                 }
             }
             ClientIdentifier::User(user_id) => {
+                if client_id_has_premium_env_override(user_id) {
+                    return ClientTier::Premium;
+                }
                 if let Some(pool) = &self.db_pool {
                     match self.get_subscription_tier_by_client_id(pool, user_id).await {
                         Ok(tier) => tier,

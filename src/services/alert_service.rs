@@ -109,6 +109,13 @@ impl AlertService {
                 .await;
         }
 
+        if let Ok(url) = std::env::var("DEFAULT_ALERT_HTTP_WEBHOOK") {
+            let payload = serde_json::json!({
+                "text": format!("*ALERT [{:?}]*\n{}\n`{:?}`", alert.severity, alert.message, alert.alert_type)
+            });
+            let _ = self.slack_client.post(&url).json(&payload).send().await;
+        }
+
         Ok(())
     }
 
