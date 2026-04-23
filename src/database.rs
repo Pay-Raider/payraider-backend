@@ -1266,7 +1266,7 @@ impl Database {
 
     /// Saves a batch of payment records to the database using a transaction.
     #[tracing::instrument(skip(self, payments), fields(payment_count = payments.len()))]
-    pub async fn save_payments(&self, payments: Vec<crate::models::PaymentRecord>) -> Result<()> {
+    pub async fn save_payments(&self, payments: Vec<crate::models::PaymentRow>) -> Result<()> {
         self.execute_with_timing("save_payments", async {
             let payment_count = payments.len();
             if payments.is_empty() {
