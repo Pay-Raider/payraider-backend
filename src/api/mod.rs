@@ -5,6 +5,7 @@ pub mod analytics_dashboard;
 pub mod anchors;
 pub mod api_keys;
 pub mod asset_verification;
+pub mod backfill;
 
 pub mod auth;
 pub mod cache_stats;
