@@ -520,6 +520,18 @@ impl Database {
         .await
     }
 
+    /// Returns the total number of anchors in the database.
+    pub async fn count_anchors(&self) -> Result<i64> {
+        self.execute_with_timing("count_anchors", async {
+            let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM anchors")
+                .fetch_one(&self.pool)
+                .await
+                .context("Failed to count anchors")?;
+            Ok(count)
+        })
+        .await
+    }
+
     /// Updates anchor metrics and records history.
     #[tracing::instrument(skip(self, update), fields(anchor_id = %update.anchor_id))]
     pub async fn update_anchor_metrics(&self, update: AnchorMetricsUpdate) -> Result<Anchor> {
@@ -1053,6 +1065,18 @@ impl Database {
                 })
                 .collect::<Vec<_>>();
             Ok(corridors)
+        })
+        .await
+    }
+
+    /// Returns the total number of corridors in the database.
+    pub async fn count_corridors(&self) -> Result<i64> {
+        self.execute_with_timing("count_corridors", async {
+            let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM corridors")
+                .fetch_one(&self.pool)
+                .await
+                .context("Failed to count corridors")?;
+            Ok(count)
         })
         .await
     }
