@@ -32,11 +32,14 @@ struct ApiVersion {
 }
 
 async fn get_api_version() -> Json<ApiVersion> {
+    let mut sunset_dates = HashMap::new();
+    sunset_dates.insert("v1".to_string(), "2025-01-01T00:00:00Z".to_string());
+    
     Json(ApiVersion {
         current: "v1".to_string(),
         supported: vec!["v1".to_string(), "v2".to_string()],
         deprecated: vec![],
-        sunset_dates: HashMap::new(),
+        sunset_dates,
     })
 }
 

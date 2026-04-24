@@ -414,6 +414,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(ws_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn(
+            stellar_insights_backend::api_deprecation_middleware::deprecation_middleware,
             stellar_insights_backend::payload_limit::payload_limit_middleware,
         ))
         .layer(middleware::from_fn_with_state(

@@ -22,9 +22,20 @@ lazy_static! {
     pub static ref HTTP_REQUEST_DURATION_SECONDS: Histogram =
         register_histogram!(HistogramOpts::new(
             "http_request_duration_seconds",
-            "HTTP request duration in seconds"
-        ))
+            "HTTP request duration in seconds with p50/p95/p99 buckets"
+        )
+        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]))
+        )
         .expect("Failed to register http_request_duration_seconds histogram");
+    pub static ref HTTP_REQUEST_DURATION_BY_ENDPOINT: Histogram = register_histogram!(
+        HistogramOpts::new(
+            "http_request_duration_by_endpoint_seconds",
+            "HTTP request duration in seconds per endpoint"
+        )
+        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
+        .label_names(vec!["method", "endpoint"])
+    )
+    .expect("Failed to register http_request_duration_by_endpoint_seconds histogram");
     pub static ref RPC_CALLS_TOTAL: Counter =
         register_counter!("rpc_calls_total", "Total number of RPC calls made")
             .expect("Failed to register rpc_calls_total counter");
@@ -95,6 +106,12 @@ lazy_static! {
     pub static ref DB_POOL_ACTIVE: Gauge =
         register_gauge!("db_pool_active", "Active database pool connections")
             .expect("Failed to register db_pool_active gauge");
+    pub static ref HTTP_REQUEST_SLO_VIOLATIONS: Counter = register_counter!(Opts::new(
+        "http_request_slo_violations_total",
+        "Total number of HTTP requests exceeding SLO targets"
+    )
+    .label_names(vec!["endpoint", "slo_target_ms"]))
+    .expect("Failed to register http_request_slo_violations_total counter");
     pub static ref HTTP_RESPONSES_COMPRESSED_TOTAL: Counter = register_counter!(
         "http_responses_compressed_total",
         "Total number of HTTP responses sent with compression (Content-Encoding set)"
@@ -133,12 +150,21 @@ pub async fn http_metrics_middleware(req: Request<Body>, next: Next) -> Response
     let start = Instant::now();
     let method = req.method().to_string();
     let uri = req.uri().to_string();
+    
+    // Normalize endpoint path (remove IDs to group similar endpoints)
+    let endpoint = normalize_endpoint(&uri);
+    
     let response = next.run(req).await;
     let duration = start.elapsed().as_secs_f64();
     HTTP_IN_FLIGHT_REQUESTS.dec();
 
-    HTTP_REQUESTS_TOTAL.inc();
     HTTP_REQUEST_DURATION_SECONDS.observe(duration);
+    HTTP_REQUEST_DURATION_BY_ENDPOINT
+        .with_label_values(&[&method, &endpoint])
+        .observe(duration);
+
+    // Check SLO violations
+    check_slo_violation(&endpoint, duration * 1000.0);
 
     if response.headers().contains_key(axum::http::header::CONTENT_ENCODING) {
         HTTP_RESPONSES_COMPRESSED_TOTAL.inc();
@@ -153,6 +179,32 @@ pub async fn http_metrics_middleware(req: Request<Body>, next: Next) -> Response
     }
 
     response
+}
+
+/// Normalize endpoint paths by replacing IDs with placeholders
+/// e.g., /api/v1/anchors/123 -> /api/v1/anchors/:id
+fn normalize_endpoint(uri: &str) -> String {
+    let path = uri.split('?').next().unwrap_or(uri);
+    let parts: Vec<&str> = path.split('/').collect();
+    
+    let normalized = parts
+        .iter()
+        .map(|part| {
+            // Replace UUID-like and numeric IDs with placeholders
+            if part.len() > 20 || (part.len() > 0 && part.chars().all(|c| c.is_numeric())) {
+                ":id"
+            } else {
+                part
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    
+    if normalized.is_empty() {
+        "/".to_string()
+    } else {
+        normalized
+    }
 }
 
 pub fn record_rpc_call(_method: &str, _status: &str, duration_seconds: f64) {
@@ -230,6 +282,16 @@ pub fn set_pool_idle(count: i64) {
 
 pub fn set_pool_active(count: i64) {
     DB_POOL_ACTIVE.set(count as f64);
+}
+
+/// Check if request duration violates SLO (p95 < 500ms)
+pub fn check_slo_violation(endpoint: &str, duration_ms: f64) {
+    const SLO_TARGET_MS: f64 = 500.0;
+    if duration_ms > SLO_TARGET_MS {
+        HTTP_REQUEST_SLO_VIOLATIONS
+            .with_label_values(&[endpoint, "500"])
+            .inc();
+    }
 }
 
 #[cfg(test)]
