@@ -5,6 +5,8 @@ use std::sync::Arc;
 use tokio::time::{interval, Duration as TokioDuration};
 use tracing::{error, info, warn};
 
+use crate::observability::job_metrics::instrument_job;
+
 use crate::models::asset_verification::VerifiedAsset;
 use crate::services::asset_verifier::AssetVerifier;
 
@@ -62,9 +64,7 @@ impl AssetRevalidationJob {
         loop {
             ticker.tick().await;
 
-            if let Err(e) = self.run_revalidation().await {
-                error!("Asset revalidation job failed: {}", e);
-            }
+            instrument_job!("asset-revalidation", { self.run_revalidation().await });
         }
     }
 

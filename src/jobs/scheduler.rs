@@ -4,6 +4,8 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
+use crate::observability::job_metrics::instrument_job;
+
 use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::ingestion::DataIngestionService;
@@ -78,11 +80,8 @@ impl JobScheduler {
 
             loop {
                 interval.tick().await;
-                info!("Running job '{}'", config.name);
-                match job_fn().await {
-                    Ok(()) => info!("Job '{}' completed successfully", config.name),
-                    Err(e) => error!("Job '{}' failed: {}", config.name, e),
-                }
+                let job_name = config.name.clone();
+                instrument_job!(job_name.as_str(), { job_fn().await });
             }
         });
 

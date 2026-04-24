@@ -10,15 +10,17 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+use crate::api::corridors::ListCorridorsQuery;
 use crate::broadcast::{broadcast_anchor_update, broadcast_corridor_update};
 use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
-use crate::api::corridors::ListCorridorsQuery;
 use crate::models::{CreateAnchorRequest, CreateCorridorRequest};
 use crate::rpc::StellarRpcClient;
 use crate::state::AppState;
+
+pub mod job_monitoring;
 /// DTO for corridor transaction data
 #[derive(Debug, Deserialize, Clone)]
 pub struct CorridorTransactionDto {
@@ -242,8 +244,10 @@ pub async fn get_anchor(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
-    let anchor = app_state.db.get_anchor_by_id(id).await?
-        .ok_or_else(|| ApiError::not_found("ANCHOR_NOT_FOUND", format!("Anchor {id} not found")))?;
+    let anchor =
+        app_state.db.get_anchor_by_id(id).await?.ok_or_else(|| {
+            ApiError::not_found("ANCHOR_NOT_FOUND", format!("Anchor {id} not found"))
+        })?;
     Ok(Json(anchor))
 }
 
@@ -252,7 +256,10 @@ pub async fn get_anchor_by_account(
     State(app_state): State<AppState>,
     Path(stellar_account): Path<String>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
-    let anchor = app_state.db.get_anchor_by_stellar_account(&stellar_account).await?
+    let anchor = app_state
+        .db
+        .get_anchor_by_stellar_account(&stellar_account)
+        .await?
         .ok_or_else(|| {
             ApiError::not_found(
                 "ANCHOR_NOT_FOUND",
