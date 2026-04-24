@@ -196,6 +196,64 @@ async fn main() -> anyhow::Result<()> {
             .context("Failed to initialize rate limiter")?,
     );
 
+    // Configure rate limits for expensive operations
+    use stellar_insights_backend::rate_limit::{ClientRateLimits, RateLimitConfig};
+    
+    // Export endpoints (CSV/Excel generation)
+    rate_limiter.register_endpoint(
+        "/api/export/csv".to_string(),
+        RateLimitConfig {
+            requests_per_minute: 5,
+            whitelist_ips: vec![],
+            client_limits: Some(ClientRateLimits {
+                authenticated: 10,
+                premium: 20,
+                anonymous: 5,
+            }),
+        },
+    ).await;
+    
+    rate_limiter.register_endpoint(
+        "/api/export/excel".to_string(),
+        RateLimitConfig {
+            requests_per_minute: 5,
+            whitelist_ips: vec![],
+            client_limits: Some(ClientRateLimits {
+                authenticated: 10,
+                premium: 20,
+                anonymous: 5,
+            }),
+        },
+    ).await;
+    
+    // Analytics aggregation queries
+    rate_limiter.register_endpoint(
+        "/api/analytics".to_string(),
+        RateLimitConfig {
+            requests_per_minute: 20,
+            whitelist_ips: vec![],
+            client_limits: Some(ClientRateLimits {
+                authenticated: 40,
+                premium: 100,
+                anonymous: 20,
+            }),
+        },
+    ).await;
+    
+    // RPC proxy endpoints
+    rate_limiter.register_endpoint(
+        "/api/rpc".to_string(),
+        RateLimitConfig {
+            requests_per_minute: 100,
+            whitelist_ips: vec![],
+            client_limits: Some(ClientRateLimits {
+                authenticated: 200,
+                premium: 500,
+                anonymous: 100,
+            }),
+        },
+    ).await;
+
     let webhook_dispatcher_handle: JoinHandle<()> = {
         let webhook_pool = pool.clone();
         let max_restarts: u32 = std::env::var("WEBHOOK_DISPATCHER_MAX_RESTARTS")
