@@ -6,6 +6,7 @@ use crate::auth_middleware::auth_middleware;
 use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::deprecation_middleware::{default_deprecation_map, deprecation_middleware};
+use crate::handlers::job_monitoring;
 use crate::rate_limit::{rate_limit_middleware, RateLimiter};
 use crate::rpc::StellarRpcClient;
 use crate::services::account_merge_detector::AccountMergeDetector;
@@ -23,6 +24,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
+/// Job monitoring routes
+fn job_monitoring_routes(pool: sqlx::SqlitePool) -> Router {
+    Router::new()
+        .route("/status", get(job_monitoring::get_job_status))
+        .route("/health", get(job_monitoring::get_job_health))
+        .route("/metrics", get(job_monitoring::get_job_metrics))
+        .with_state(Database::new(pool))
+}
+
 #[derive(Serialize)]
 struct ApiVersion {
     current: String,
@@ -34,7 +44,7 @@ struct ApiVersion {
 async fn get_api_version() -> Json<ApiVersion> {
     let mut sunset_dates = HashMap::new();
     sunset_dates.insert("v1".to_string(), "2025-01-01T00:00:00Z".to_string());
-    
+
     Json(ApiVersion {
         current: "v1".to_string(),
         supported: vec!["v1".to_string(), "v2".to_string()],
@@ -143,7 +153,8 @@ pub fn routes(
         .nest("/cost-calculator", cost_calculator::routes(price_feed))
         .nest("/cache/stats", cache_stats::routes(cache.clone()))
         .nest("/metrics", metrics::routes(cache.clone()))
-        .nest("/analytics", crate::api::analytics_dashboard::routes(cache));
+        .nest("/analytics", crate::api::analytics_dashboard::routes(cache))
+        .nest("/jobs", job_monitoring_routes(pool.clone()));
 
     // 6. OAuth routes
     let oauth_routes = oauth::routes(pool);
