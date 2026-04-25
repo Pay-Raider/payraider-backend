@@ -117,6 +117,30 @@ lazy_static! {
         "Total number of HTTP responses sent with compression (Content-Encoding set)"
     )
     .expect("Failed to register http_responses_compressed_total counter");
+    pub static ref DB_SLOW_QUERIES_TOTAL: Counter = register_counter!(Opts::new(
+        "db_slow_queries_total",
+        "Total number of slow database queries exceeding the configured threshold"
+    )
+    .label_names(vec!["operation"]))
+    .expect("Failed to register db_slow_queries_total counter");
+    pub static ref DB_QUERY_DURATION_BY_OPERATION: Histogram = register_histogram!(
+        HistogramOpts::new(
+            "db_query_duration_by_operation_seconds",
+            "Database query duration in seconds per operation"
+        )
+        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
+        .label_names(vec!["operation", "status"])
+    )
+    .expect("Failed to register db_query_duration_by_operation_seconds histogram");
+    pub static ref BACKUP_VERIFICATIONS_TOTAL: Counter = register_counter!(Opts::new(
+        "backup_verifications_total",
+        "Total number of backup verification attempts"
+    )
+    .label_names(vec!["result"]))
+    .expect("Failed to register backup_verifications_total counter");
+    pub static ref BACKUP_SIZE_BYTES: Gauge =
+        register_gauge!("backup_size_bytes", "Size of the most recent backup in bytes")
+            .expect("Failed to register backup_size_bytes gauge");
 }
 
 pub fn init_metrics() {
@@ -260,8 +284,33 @@ pub fn set_active_connections(count: i64) {
     ACTIVE_CONNECTIONS.set(count as f64);
 }
 
-pub fn observe_db_query(_query: &str, _status: &str, duration_seconds: f64) {
+pub fn observe_db_query(operation: &str, status: &str, duration_seconds: f64) {
     DB_QUERY_DURATION_SECONDS.observe(duration_seconds);
+    DB_QUERY_DURATION_BY_OPERATION
+        .with_label_values(&[operation, status])
+        .observe(duration_seconds);
+}
+
+pub fn record_slow_query(operation: &str) {
+    DB_SLOW_QUERIES_TOTAL
+        .with_label_values(&[operation])
+        .inc();
+}
+
+pub fn record_backup_verification_success() {
+    BACKUP_VERIFICATIONS_TOTAL
+        .with_label_values(&["success"])
+        .inc();
+}
+
+pub fn record_backup_verification_failure(reason: &str) {
+    BACKUP_VERIFICATIONS_TOTAL
+        .with_label_values(&[reason])
+        .inc();
+}
+
+pub fn set_backup_size_bytes(size: u64) {
+    BACKUP_SIZE_BYTES.set(size as f64);
 }
 
 pub fn record_background_job(_job: &str, _status: &str) {
