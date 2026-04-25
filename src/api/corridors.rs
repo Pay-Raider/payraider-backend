@@ -19,6 +19,7 @@ use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
 use crate::models::{CreateCorridorRequest, SortBy};
+use crate::pagination::PaginatedResponse;
 use crate::request_id::RequestId;
 use crate::rpc::{
     circuit_breaker::rpc_circuit_breaker,
@@ -501,12 +502,20 @@ pub async fn list_corridors(
                 })
                 .collect();
 
-            Ok(filtered)
+            // Apply limit/offset pagination to the filtered results
+            let total = filtered.len() as i64;
+            let page: Vec<_> = filtered
+                .into_iter()
+                .skip(params.offset as usize)
+                .take(params.limit as usize)
+                .collect();
+
+            Ok(PaginatedResponse::new(page, total, params.limit, params.offset))
         },
     )
     .await?;
 
-    crate::observability::metrics::set_corridors_tracked(corridors.len() as i64);
+    crate::observability::metrics::set_corridors_tracked(corridors.pagination.total);
 
     let ttl = cache.config.get_ttl("corridor");
     let response = crate::http_cache::cached_json_response(&headers, &cache_key, &corridors, ttl)?;

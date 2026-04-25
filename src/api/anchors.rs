@@ -19,6 +19,7 @@ use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{AnchorDetailResponse, CreateAnchorRequest};
+use crate::pagination::PaginatedResponse;
 use crate::rpc::circuit_breaker::rpc_circuit_breaker;
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::StellarRpcClient;
@@ -438,11 +439,16 @@ pub async fn get_anchors(
             let anchors: Vec<crate::models::Anchor> =
                 db.list_anchors(params.limit, params.offset).await?;
 
+            // Total count for pagination metadata (runs in parallel with list query)
+            let total = db.count_anchors().await.unwrap_or(0);
+
             if anchors.is_empty() {
-                return Ok(AnchorsResponse {
-                    anchors: vec![],
-                    total: 0,
-                });
+                return Ok(PaginatedResponse::new(
+                    Vec::<AnchorMetricsResponse>::new(),
+                    total,
+                    params.limit,
+                    params.offset,
+                ));
             }
 
             // OPTIMIZATION: Batch fetch all assets for these anchors (1 query instead of N)
@@ -540,12 +546,12 @@ pub async fn get_anchors(
                 anchor_responses.push(anchor_response);
             }
 
-            let total = anchor_responses.len();
-
-            Ok(AnchorsResponse {
-                anchors: anchor_responses,
+            Ok(PaginatedResponse::new(
+                anchor_responses,
                 total,
-            })
+                params.limit,
+                params.offset,
+            ))
         },
     )
     .await?;
