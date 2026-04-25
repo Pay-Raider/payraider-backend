@@ -26,6 +26,7 @@ use stellar_insights_backend::{
     database::{Database, PoolConfig},
     env_config,
     ingestion::DataIngestionService,
+    jobs::backfill::{BackfillJob, BackfillState},
     observability::metrics as obs_metrics,
     observability::tracing::trace_propagation_middleware,
     openapi::ApiDoc,
@@ -33,6 +34,7 @@ use stellar_insights_backend::{
     request_id::request_id_middleware,
     rpc::StellarRpcClient,
     services::{
+        event_indexer::EventIndexer,
         service_container::ServiceContainer,
         webhook_dispatcher::WebhookDispatcher,
     },
@@ -189,6 +191,15 @@ async fn main() -> anyhow::Result<()> {
         std::mem::drop(backup_manager.spawn_scheduler());
         tracing::info!("Backup scheduler enabled");
     }
+
+    // Build the backfill job (shared state allows the status endpoint to read progress)
+    let backfill_state = Arc::new(tokio::sync::RwLock::new(BackfillState::default()));
+    let event_indexer_for_backfill = Arc::new(EventIndexer::new(db.clone()));
+    let backfill_job = Arc::new(BackfillJob::new(
+        event_indexer_for_backfill,
+        rpc_client.clone(),
+        backfill_state,
+    ));
 
     let rate_limiter = Arc::new(
         RateLimiter::new()
@@ -410,7 +421,11 @@ async fn main() -> anyhow::Result<()> {
         cache.clone(),
     );
 
+    // Admin routes (backfill, etc.) — mounted at /admin
+    let admin_routes = stellar_insights_backend::api::backfill::routes(backfill_job);
+
     let app = base_routes
+        .nest("/admin", admin_routes)
         .merge(ws_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn(
