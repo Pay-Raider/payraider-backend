@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -62,6 +63,15 @@ fn sqlite_path_from_database_url(url: &str) -> Option<String> {
 }
 
 #[derive(Debug, Clone)]
+pub struct BackupVerificationResult {
+    pub path: PathBuf,
+    pub size_bytes: u64,
+    pub checksum_ok: bool,
+    pub integrity_ok: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct BackupManager {
     config: BackupConfig,
 }
@@ -90,6 +100,10 @@ impl BackupManager {
                     destination.display()
                 )
             })?;
+
+        if let Ok(meta) = tokio::fs::metadata(&destination).await {
+            crate::observability::metrics::set_backup_size_bytes(meta.len());
+        }
 
         tracing::info!(path = %destination.display(), "Database backup created");
         Ok(destination)
@@ -126,15 +140,137 @@ impl BackupManager {
         Ok(removed)
     }
 
+    /// Verifies a backup file by:
+    /// 1. Checking the file exists and is non-empty
+    /// 2. Computing SHA-256 checksum and comparing to a sidecar `.sha256` file (if present)
+    /// 3. Opening the backup as a read-only SQLite connection and running `PRAGMA integrity_check`
+    pub async fn verify_backup(&self, backup_path: &Path) -> Result<BackupVerificationResult> {
+        // --- existence & size ---
+        let metadata = tokio::fs::metadata(backup_path).await.with_context(|| {
+            format!("Backup file not found: {}", backup_path.display())
+        })?;
+
+        if metadata.len() == 0 {
+            return Ok(BackupVerificationResult {
+                path: backup_path.to_path_buf(),
+                size_bytes: 0,
+                checksum_ok: false,
+                integrity_ok: false,
+                error: Some("Backup file is empty".to_string()),
+            });
+        }
+
+        // --- checksum ---
+        let bytes = tokio::fs::read(backup_path).await.with_context(|| {
+            format!("Failed to read backup for checksum: {}", backup_path.display())
+        })?;
+        let computed = format!("{:x}", Sha256::digest(&bytes));
+
+        let sidecar = backup_path.with_extension("db.sha256");
+        let checksum_ok = if sidecar.exists() {
+            let stored = tokio::fs::read_to_string(&sidecar).await.unwrap_or_default();
+            stored.trim() == computed
+        } else {
+            // Write sidecar for future verifications
+            let _ = tokio::fs::write(&sidecar, &computed).await;
+            true // first time — treat as ok
+        };
+
+        if !checksum_ok {
+            tracing::warn!(
+                path = %backup_path.display(),
+                "Backup checksum mismatch — file may be corrupted"
+            );
+            crate::observability::metrics::record_backup_verification_failure("checksum_mismatch");
+            return Ok(BackupVerificationResult {
+                path: backup_path.to_path_buf(),
+                size_bytes: metadata.len(),
+                checksum_ok: false,
+                integrity_ok: false,
+                error: Some("Checksum mismatch".to_string()),
+            });
+        }
+
+        // --- SQLite integrity check via restore test ---
+        let integrity_ok = self.run_restore_test(backup_path).await.unwrap_or_else(|e| {
+            tracing::warn!(error = %e, path = %backup_path.display(), "Restore test failed");
+            false
+        });
+
+        if integrity_ok {
+            tracing::info!(
+                path = %backup_path.display(),
+                size_bytes = metadata.len(),
+                checksum = %computed,
+                "Backup verification passed"
+            );
+            crate::observability::metrics::record_backup_verification_success();
+        } else {
+            crate::observability::metrics::record_backup_verification_failure("integrity_check_failed");
+        }
+
+        Ok(BackupVerificationResult {
+            path: backup_path.to_path_buf(),
+            size_bytes: metadata.len(),
+            checksum_ok,
+            integrity_ok,
+            error: if integrity_ok { None } else { Some("SQLite integrity check failed".to_string()) },
+        })
+    }
+
+    /// Opens the backup as a temporary read-only SQLite database and runs
+    /// `PRAGMA integrity_check` to confirm the file is a valid, uncorrupted database.
+    async fn run_restore_test(&self, backup_path: &Path) -> Result<bool> {
+        let url = format!("sqlite://{}?mode=ro", backup_path.display());
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .with_context(|| format!("Could not open backup for restore test: {}", backup_path.display()))?;
+
+        let row: (String,) = sqlx::query_as("PRAGMA integrity_check")
+            .fetch_one(&pool)
+            .await
+            .context("integrity_check query failed")?;
+
+        pool.close().await;
+
+        let ok = row.0.trim().eq_ignore_ascii_case("ok");
+        tracing::info!(
+            path = %backup_path.display(),
+            result = %row.0,
+            "SQLite integrity_check completed"
+        );
+        Ok(ok)
+    }
+
     pub async fn run_once(&self) -> Result<()> {
         let backup_path = self.create_backup().await?;
         let cleaned = self.cleanup_old_backups().await?;
 
-        tracing::info!(
-            backup = %backup_path.display(),
-            removed_old_backups = cleaned,
-            "Backup run completed"
-        );
+        // Verify the backup we just created
+        match self.verify_backup(&backup_path).await {
+            Ok(result) if result.integrity_ok && result.checksum_ok => {
+                tracing::info!(
+                    backup = %backup_path.display(),
+                    size_bytes = result.size_bytes,
+                    removed_old_backups = cleaned,
+                    "Backup run completed and verified"
+                );
+            }
+            Ok(result) => {
+                tracing::error!(
+                    backup = %backup_path.display(),
+                    checksum_ok = result.checksum_ok,
+                    integrity_ok = result.integrity_ok,
+                    error = ?result.error,
+                    "Backup created but verification FAILED"
+                );
+            }
+            Err(e) => {
+                tracing::error!(error = %e, backup = %backup_path.display(), "Backup verification error");
+            }
+        }
 
         Ok(())
     }

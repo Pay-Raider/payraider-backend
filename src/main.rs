@@ -29,6 +29,7 @@ use stellar_insights_backend::{
     jobs::backfill::{BackfillJob, BackfillState},
     observability::metrics as obs_metrics,
     observability::tracing::trace_propagation_middleware,
+    observability::logging::request_response_logging_middleware,
     openapi::ApiDoc,
     rate_limit::RateLimiter,
     request_id::request_id_middleware,
@@ -443,6 +444,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(middleware::from_fn(trace_propagation_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
+        .layer(middleware::from_fn(request_response_logging_middleware))
         .layer(middleware::from_fn(request_id_middleware))
         .layer(timeout_layer)
         .layer(

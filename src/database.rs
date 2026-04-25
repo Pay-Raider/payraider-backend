@@ -291,6 +291,8 @@ impl Database {
                 self.slow_query_threshold_ms,
             );
 
+            crate::observability::metrics::record_slow_query(operation);
+
             if let Some(sql) = sql {
                 self.log_explain_query_plan(operation, sql).await;
             }
