@@ -11,9 +11,10 @@ use std::sync::Arc;
 use crate::{
     alerts::AlertManager,
     auth_middleware::AuthUser,
-    error::ApiResult,
+    error::{ApiError, ApiResult},
     models::alerts::{CreateAlertRuleRequest, SnoozeAlertRequest, UpdateAlertRuleRequest},
     state::AppState,
+    validation::ValidatedJson,
 };
 
 // Route configuration
@@ -67,7 +68,7 @@ async fn list_rules(
 async fn create_rule(
     State(state): State<AppState>,
     auth_user: AuthUser,
-    Json(payload): Json<CreateAlertRuleRequest>,
+    ValidatedJson(payload): ValidatedJson<CreateAlertRuleRequest>,
 ) -> ApiResult<impl IntoResponse> {
     let rule = state
         .db
@@ -97,7 +98,7 @@ async fn update_rule(
     State(state): State<AppState>,
     auth_user: AuthUser,
     Path(id): Path<String>,
-    Json(payload): Json<UpdateAlertRuleRequest>,
+    ValidatedJson(payload): ValidatedJson<UpdateAlertRuleRequest>,
 ) -> ApiResult<impl IntoResponse> {
     let rule = state
         .db
@@ -232,6 +233,13 @@ async fn snooze_rule_from_history(
     Path(id): Path<String>,
     Json(payload): Json<SnoozeAlertRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Reject snooze times in the past
+    if payload.snoozed_until <= chrono::Utc::now() {
+        return Err(ApiError::bad_request(
+            "INVALID_SNOOZE_TIME",
+            "snoozed_until must be a future timestamp",
+        ));
+    }
     // Id passed here is the rule's ID since we are snoozing the rule
     let rule = state
         .db

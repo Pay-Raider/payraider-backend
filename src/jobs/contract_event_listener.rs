@@ -3,6 +3,8 @@ use std::sync::Arc;
 use tokio::time::{interval, Duration as TokioDuration};
 use tracing::{debug, error, info};
 
+use crate::observability::job_metrics::JobMetricsCollector;
+
 use crate::database::Database;
 use crate::services::contract_listener::ListenerConfig;
 use crate::services::event_indexer::EventIndexer;
@@ -81,7 +83,8 @@ impl ContractEventListenerJob {
         loop {
             interval.tick().await;
 
-            match self
+            let _metrics = JobMetricsCollector::new("contract-event-listener");
+            let result = match self
                 .check_for_missed_events(&event_indexer, &listener_config)
                 .await
             {
@@ -89,10 +92,21 @@ impl ContractEventListenerJob {
                     if events_processed > 0 {
                         info!("Processed {} missed contract events", events_processed);
                     }
+                    Ok(())
                 }
                 Err(e) => {
                     error!("Error checking for missed events: {}", e);
                     // Continue running despite errors
+                    Err(e)
+                }
+            };
+            
+            match result {
+                Ok(_) => {
+                    _metrics.complete_success();
+                }
+                Err(e) => {
+                    _metrics.complete_failure(&e.to_string());
                 }
             }
         }

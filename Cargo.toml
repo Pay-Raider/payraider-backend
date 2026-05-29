@@ -36,6 +36,7 @@ legacy_sep10_tests = []
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }
+http-body-util = "0.1"
 tower = { version = "0.4", features = ["util", "timeout"] }
 tower-http = { version = "0.6", features = ["cors", "compression-gzip", "compression-br", "decompression-gzip", "decompression-br", "trace", "timeout"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -54,35 +55,37 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-log = "0.2"
 tracing-appender = "0.2"
 tracing-logstash = "0.2"
-opentelemetry = { version = "0.24", features = ["trace"] }
-opentelemetry_sdk = { version = "0.24", features = ["trace", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.17", default-features = false, features = ["trace", "http-proto", "reqwest-client"] }
-tracing-opentelemetry = "0.25"
+opentelemetry = { version = "0.27", features = ["trace"] }
+opentelemetry_sdk = { version = "0.27", features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "http-proto", "reqwest-client"] }
+tracing-opentelemetry = "0.28"
 dotenvy = "0.15"
 sha2 = "0.10"
 hex = "0.4"
-ndarray = "0.15"
+ndarray = "0.17"
 rand = "0.8"
 redis = { version = "0.25", features = ["aio", "tokio-comp", "connection-manager"] }
 async-lock = "3.3"
 futures = "0.3"
 tokio-tungstenite = "0.21"
 dashmap = "5.5"
-stellar-xdr = { version = "21.0.0", features = ["std", "curr"] }
+stellar-xdr = { version = "25.0.0", features = ["std", "curr"] }
 stellar_sdk = "0.1"
 base64 = "0.22"
 jsonwebtoken = "9.2"
 utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
+utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 urlencoding = "2.1"
-toml = "0.8"
+toml = "1.0"
 prometheus = "0.13"
 ipnetwork = "0.20"
 argon2 = "0.5.3"
 url = "2.5"
 aes-gcm = "0.10"
 lettre = "0.11"
-hmac = "0.12"
+hmac = "0.13"
 data-encoding = "2.5"
 lazy_static = "1.4"
 csv = "1.4"
@@ -97,10 +100,10 @@ failsafe = { version = "1.3", features = ["futures-support"] }
 # optional = true
 
 [dev-dependencies]
-urlencoding = "2.1"
-tempfile = "3.0"
-criterion = { version = "0.5", features = ["async_tokio"] }
-tokio = { version = "1", features = ["full", "test-util"] }
+urlencoding = "=2.1.3"
+tempfile = "=3.26.0"
+criterion = { version = "=0.5.1", features = ["async_tokio"] }
+tokio = { version = "=1.49.0", features = ["full", "test-util"] }
 
 [[bench]]
 name = "corridor_benchmarks"

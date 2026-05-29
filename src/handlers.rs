@@ -10,15 +10,17 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+use crate::api::corridors::ListCorridorsQuery;
 use crate::broadcast::{broadcast_anchor_update, broadcast_corridor_update};
 use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
-use crate::api::corridors::ListCorridorsQuery;
 use crate::models::{CreateAnchorRequest, CreateCorridorRequest};
 use crate::rpc::StellarRpcClient;
 use crate::state::AppState;
+
+pub mod job_monitoring;
 /// DTO for corridor transaction data
 #[derive(Debug, Deserialize, Clone)]
 pub struct CorridorTransactionDto {
@@ -34,6 +36,21 @@ pub struct HealthStatus {
     pub version: String,
     pub uptime_seconds: u64,
     pub checks: HealthChecks,
+    pub network: NetworkInfo,
+    pub client_info: Option<ClientInfo>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct NetworkInfo {
+    pub network: String,
+    pub display_name: String,
+    pub is_primary: bool,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ClientInfo {
+    pub client_type: String,
+    pub client_version: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -107,7 +124,7 @@ async fn check_rpc(rpc: &Arc<StellarRpcClient>) -> ComponentHealth {
     }
 }
 
-/// Detailed health check endpoint
+/// Detailed health check endpoint with network and client context
 pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatus> {
     let db_health = check_database(&app_state.db).await;
     let cache_health = check_cache(&app_state.cache).await;
@@ -127,6 +144,9 @@ pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatu
         .map_or(0, |d| d.as_secs());
     let uptime_seconds = now_epoch.saturating_sub(start_epoch);
 
+    let network_context = &app_state.network_context;
+    let is_primary = network_context.network == app_state.multi_network_config.primary_network;
+
     Json(HealthStatus {
         status: overall_status.to_string(),
         timestamp: Utc::now(),
@@ -137,6 +157,12 @@ pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatu
             cache: cache_health,
             rpc: rpc_health,
         },
+        network: NetworkInfo {
+            network: network_context.network_id(),
+            display_name: network_context.display_name().to_string(),
+            is_primary,
+        },
+        client_info: None,
     })
 }
 
@@ -163,6 +189,12 @@ pub async fn update_anchor_metrics(
         ));
     }
 
+    let computed = crate::analytics::compute_anchor_metrics(
+        req.total_transactions,
+        req.successful_transactions,
+        req.failed_transactions,
+        req.avg_settlement_time_ms,
+    );
     let anchor = app_state
         .db
         .update_anchor_metrics(crate::database::AnchorMetricsUpdate {
@@ -172,6 +204,10 @@ pub async fn update_anchor_metrics(
             failed_transactions: req.failed_transactions,
             avg_settlement_time_ms: req.avg_settlement_time_ms,
             volume_usd: req.volume_usd,
+            reliability_score: computed.reliability_score,
+            success_rate: computed.success_rate,
+            failure_rate: computed.failure_rate,
+            status: computed.status.as_str().to_string(),
         })
         .await?;
 
@@ -232,8 +268,10 @@ pub async fn get_anchor(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
-    let anchor = app_state.db.get_anchor_by_id(id).await?
-        .ok_or_else(|| ApiError::not_found("ANCHOR_NOT_FOUND", format!("Anchor {id} not found")))?;
+    let anchor =
+        app_state.db.get_anchor_by_id(id).await?.ok_or_else(|| {
+            ApiError::not_found("ANCHOR_NOT_FOUND", format!("Anchor {id} not found"))
+        })?;
     Ok(Json(anchor))
 }
 
@@ -242,7 +280,10 @@ pub async fn get_anchor_by_account(
     State(app_state): State<AppState>,
     Path(stellar_account): Path<String>,
 ) -> ApiResult<Json<crate::models::Anchor>> {
-    let anchor = app_state.db.get_anchor_by_stellar_account(&stellar_account).await?
+    let anchor = app_state
+        .db
+        .get_anchor_by_stellar_account(&stellar_account)
+        .await?
         .ok_or_else(|| {
             ApiError::not_found(
                 "ANCHOR_NOT_FOUND",

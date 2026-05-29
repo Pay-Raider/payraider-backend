@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::admin_audit_log::AdminAuditLogger;
-use crate::analytics::compute_anchor_metrics;
 use crate::cache::CacheManager;
 use crate::models::api_key::{
     generate_api_key, hash_api_key, ApiKey, ApiKeyInfo, CreateApiKeyRequest, CreateApiKeyResponse,
@@ -30,8 +29,8 @@ pub struct PoolConfig {
 impl Default for PoolConfig {
     fn default() -> Self {
         Self {
-            max_connections: 20,
-            min_connections: 5,
+            max_connections: 50,
+            min_connections: 10,
             connect_timeout_seconds: 30,
             idle_timeout_seconds: 600,
             max_lifetime_seconds: 1800,
@@ -112,11 +111,11 @@ impl PoolConfig {
             max_connections: std::env::var("DB_POOL_MAX_CONNECTIONS")
                 .ok()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(20),
+                .unwrap_or(50),
             min_connections: std::env::var("DB_POOL_MIN_CONNECTIONS")
                 .ok()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(5),
+                .unwrap_or(10),
             connect_timeout_seconds: std::env::var("DB_POOL_CONNECT_TIMEOUT_SECONDS")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -197,6 +196,15 @@ pub struct AnchorMetricsUpdate {
     pub failed_transactions: i64,
     pub avg_settlement_time_ms: Option<i32>,
     pub volume_usd: Option<f64>,
+    /// Pre-computed reliability score (0–100). Callers must compute this via
+    /// `analytics::compute_anchor_metrics` before calling `update_anchor_metrics`.
+    pub reliability_score: f64,
+    /// Pre-computed success rate (0–100).
+    pub success_rate: f64,
+    /// Pre-computed failure rate (0–100).
+    pub failure_rate: f64,
+    /// Pre-computed anchor status string ("green" | "yellow" | "red").
+    pub status: String,
 }
 
 /// Parameters for recording anchor metrics history
@@ -251,8 +259,22 @@ impl Database {
         }
     }
 
-    /// Executes `f`, records its duration via `observe_db_query`, and emits a WARN log
+    /// Executes `f`, records its duration via `observe_db_query`, and emits a WARN log.
+    /// For slow queries, also runs `EXPLAIN QUERY PLAN` on `sql` (if provided) so the
+    /// query planner output is captured in logs for index analysis.
     async fn execute_with_timing<T, F>(&self, operation: &str, f: F) -> Result<T>
+    where
+        F: std::future::Future<Output = Result<T>>,
+    {
+        self.execute_with_timing_sql(operation, None, f).await
+    }
+
+    async fn execute_with_timing_sql<T, F>(
+        &self,
+        operation: &str,
+        sql: Option<&str>,
+        f: F,
+    ) -> Result<T>
     where
         F: std::future::Future<Output = Result<T>>,
     {
@@ -268,11 +290,39 @@ impl Database {
                 elapsed.as_millis(),
                 self.slow_query_threshold_ms,
             );
+
+            crate::observability::metrics::record_slow_query(operation);
+
+            if let Some(sql) = sql {
+                self.log_explain_query_plan(operation, sql).await;
+            }
         }
 
         crate::observability::metrics::observe_db_query(operation, status, elapsed.as_secs_f64());
 
         result
+    }
+
+    /// Runs `EXPLAIN QUERY PLAN` on `sql` and logs the output at WARN level.
+    async fn log_explain_query_plan(&self, operation: &str, sql: &str) {
+        let explain_sql = format!("EXPLAIN QUERY PLAN {sql}");
+        match sqlx::query(&explain_sql).fetch_all(&self.pool).await {
+            Ok(rows) => {
+                use sqlx::Row;
+                let plan: Vec<String> = rows
+                    .iter()
+                    .filter_map(|r| r.try_get::<String, _>("detail").ok())
+                    .collect();
+                log::warn!(
+                    "EXPLAIN QUERY PLAN for '{}': {}",
+                    operation,
+                    plan.join(" | ")
+                );
+            }
+            Err(e) => {
+                log::debug!("Could not run EXPLAIN QUERY PLAN for '{}': {}", operation, e);
+            }
+        }
     }
 
     #[must_use]
@@ -472,19 +522,25 @@ impl Database {
         .await
     }
 
+    /// Returns the total number of anchors in the database.
+    pub async fn count_anchors(&self) -> Result<i64> {
+        self.execute_with_timing("count_anchors", async {
+            let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM anchors")
+                .fetch_one(&self.pool)
+                .await
+                .context("Failed to count anchors")?;
+            Ok(count)
+        })
+        .await
+    }
+
     /// Updates anchor metrics and records history.
     #[tracing::instrument(skip(self, update), fields(anchor_id = %update.anchor_id))]
     pub async fn update_anchor_metrics(&self, update: AnchorMetricsUpdate) -> Result<Anchor> {
         self.execute_with_timing("update_anchor_metrics", async {
-            // 1. Compute derived metrics (reliability, status, etc.)
-            let metrics = compute_anchor_metrics(
-                update.total_transactions,
-                update.successful_transactions,
-                update.failed_transactions,
-                update.avg_settlement_time_ms,
-            );
-
-            // 2. Start a transaction to ensure atomic updates
+            // Metrics (reliability_score, success_rate, failure_rate, status) are
+            // pre-computed by the caller so database.rs has no dependency on the
+            // analytics service layer (fixes #1134 circular-dependency risk).
             let mut tx = self.pool.begin().await.with_context(|| {
                 format!(
                     "Failed to begin database transaction for anchor: {}",
@@ -492,7 +548,7 @@ impl Database {
                 )
             })?;
 
-            // 3. Update the main anchor record
+            // Update the main anchor record
             let anchor = sqlx::query_as::<_, Anchor>(
                 r"
                 UPDATE anchors
@@ -512,8 +568,8 @@ impl Database {
             .bind(update.successful_transactions)
             .bind(update.failed_transactions)
             .bind(update.avg_settlement_time_ms.unwrap_or(0))
-            .bind(metrics.reliability_score)
-            .bind(metrics.status.as_str())
+            .bind(update.reliability_score)
+            .bind(&update.status)
             .bind(update.volume_usd)
             .bind(Utc::now())
             .bind(update.anchor_id.to_string())
@@ -526,7 +582,7 @@ impl Database {
                 )
             })?;
 
-            // 4. Record the entry in history table
+            // Record the entry in history table
             let history_id = Uuid::new_v4().to_string();
             sqlx::query(
                 r"
@@ -541,9 +597,9 @@ impl Database {
             .bind(history_id)
             .bind(update.anchor_id.to_string())
             .bind(Utc::now())
-            .bind(metrics.success_rate)
-            .bind(metrics.failure_rate)
-            .bind(metrics.reliability_score)
+            .bind(update.success_rate)
+            .bind(update.failure_rate)
+            .bind(update.reliability_score)
             .bind(update.total_transactions)
             .bind(update.successful_transactions)
             .bind(update.failed_transactions)
@@ -710,7 +766,8 @@ impl Database {
         self.execute_with_timing("get_all_anchors", async {
             let anchors = sqlx::query_as::<_, Anchor>("SELECT * FROM anchors ORDER BY name ASC")
                 .fetch_all(&self.pool)
-                .await?;
+                .await
+                .context("Failed to fetch all anchors from database")?;
             Ok(anchors)
         })
         .await
@@ -1014,6 +1071,18 @@ impl Database {
         .await
     }
 
+    /// Returns the total number of corridors in the database.
+    pub async fn count_corridors(&self) -> Result<i64> {
+        self.execute_with_timing("count_corridors", async {
+            let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM corridors")
+                .fetch_one(&self.pool)
+                .await
+                .context("Failed to count corridors")?;
+            Ok(count)
+        })
+        .await
+    }
+
     /// Retrieves a corridor by its ID.
     #[tracing::instrument(skip(self), fields(corridor_id = %id))]
     pub async fn get_corridor_by_id(
@@ -1265,7 +1334,7 @@ impl Database {
 
     /// Saves a batch of payment records to the database using a transaction.
     #[tracing::instrument(skip(self, payments), fields(payment_count = payments.len()))]
-    pub async fn save_payments(&self, payments: Vec<crate::models::PaymentRecord>) -> Result<()> {
+    pub async fn save_payments(&self, payments: Vec<crate::models::PaymentRow>) -> Result<()> {
         self.execute_with_timing("save_payments", async {
             let payment_count = payments.len();
             if payments.is_empty() {
@@ -1454,7 +1523,8 @@ impl Database {
             )
             .bind(MUXED_LEN)
             .fetch_one(&self.pool)
-            .await?;
+            .await
+            .context("Failed to count total muxed payments")?;
 
             #[derive(sqlx::FromRow)]
             struct AddrCount {
@@ -1474,7 +1544,8 @@ impl Database {
             .bind(MUXED_LEN)
             .bind(top_limit)
             .fetch_all(&self.pool)
-            .await?;
+            .await
+            .context("Failed to fetch top source muxed account counts")?;
 
             let dest_counts: Vec<AddrCount> = sqlx::query_as(
                 r"
@@ -1488,7 +1559,8 @@ impl Database {
             .bind(MUXED_LEN)
             .bind(top_limit)
             .fetch_all(&self.pool)
-            .await?;
+            .await
+            .context("Failed to fetch top destination muxed account counts")?;
 
             let mut by_addr: std::collections::HashMap<String, (i64, i64)> =
                 std::collections::HashMap::new();
@@ -1596,13 +1668,17 @@ impl Database {
         id: &str,
     ) -> Result<Option<crate::models::PendingTransactionWithSignatures>> {
         self.execute_with_timing("get_pending_transaction", async {
+            let mut tx = self.pool.begin().await.with_context(|| {
+                format!("Failed to begin transaction for get_pending_transaction id: {}", id)
+            })?;
+
             let pending_transaction = sqlx::query_as::<_, crate::models::PendingTransaction>(
                 r"
             SELECT * FROM pending_transactions WHERE id = $1
             ",
             )
             .bind(id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await
             .with_context(|| format!("Failed to fetch pending transaction with id: {}", id))?;
 
@@ -1613,10 +1689,14 @@ impl Database {
                 ",
                 )
                 .bind(id)
-                .fetch_all(&self.pool)
+                .fetch_all(&mut *tx)
                 .await
                 .with_context(|| {
                     format!("Failed to fetch signatures for transaction id: {}", id)
+                })?;
+
+                tx.commit().await.with_context(|| {
+                    format!("Failed to commit get_pending_transaction read for id: {}", id)
                 })?;
 
                 Ok(Some(crate::models::PendingTransactionWithSignatures {
@@ -1704,6 +1784,10 @@ impl Database {
             let scopes = req.scopes.unwrap_or_else(|| "read".to_string());
             let now = Utc::now().to_rfc3339();
 
+            let mut tx = self.pool.begin().await.with_context(|| {
+                format!("Failed to begin transaction for create_api_key for wallet: {}", wallet_address)
+            })?;
+
             sqlx::query(
                 r"
             INSERT INTO api_keys (id, name, key_prefix, key_hash, wallet_address, scopes, status, created_at, expires_at)
@@ -1718,15 +1802,19 @@ impl Database {
             .bind(&scopes)
             .bind(&now)
             .bind(&req.expires_at)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .with_context(|| format!("Failed to insert API key for wallet: {}, name: {}", wallet_address, req.name))?;
 
             let key = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = $1")
                 .bind(&id)
-                .fetch_one(&self.pool)
+                .fetch_one(&mut *tx)
                 .await
                 .with_context(|| format!("Failed to fetch newly created API key with id: {}", id))?;
+
+            tx.commit().await.with_context(|| {
+                format!("Failed to commit create_api_key transaction for wallet: {}", wallet_address)
+            })?;
 
             Ok(CreateApiKeyResponse {
                 key: ApiKeyInfo::from(key),

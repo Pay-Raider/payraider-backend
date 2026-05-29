@@ -1,14 +1,12 @@
 use anyhow::Result;
 use axum::{body::Body, extract::Request, middleware::Next, response::Response};
 use opentelemetry::global;
-use opentelemetry::propagation::TextMapPropagator;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::resource::Resource;
 use opentelemetry_sdk::runtime;
-use opentelemetry_sdk::trace::Config;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -17,7 +15,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 const MAX_LOG_FILES: usize = 30;
 
 fn init_otel_tracer(service_name: &str) -> Result<opentelemetry_sdk::trace::Tracer> {
-    // HTTP/protobuf OTLP on 4318; OTLP 0.17+ avoids pulling `tonic`'s legacy `axum` into this crate graph.
+    // HTTP/protobuf OTLP on 4318; avoids pulling `tonic` into the crate graph.
     let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_else(|_| {
         "http://localhost:4318/v1/traces".to_string()
     });
@@ -27,15 +25,15 @@ fn init_otel_tracer(service_name: &str) -> Result<opentelemetry_sdk::trace::Trac
         service_name.to_string(),
     )]);
 
-    let provider = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .http()
-                .with_endpoint(endpoint),
-        )
-        .with_trace_config(Config::default().with_resource(resource))
-        .install_batch(runtime::Tokio)?;
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_http()
+        .with_endpoint(endpoint)
+        .build()?;
+
+    let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+        .with_batch_exporter(exporter, runtime::Tokio)
+        .with_config(opentelemetry_sdk::trace::Config::default().with_resource(resource))
+        .build();
 
     global::set_tracer_provider(provider.clone());
     Ok(provider.tracer("stellar-insights-backend"))
@@ -85,6 +83,7 @@ pub fn init_tracing(service_name: &str) -> Result<Option<WorkerGuard>> {
         let otel_layer = tracing_opentelemetry::layer().with_tracer(otel_tracer);
         let base = tracing_subscriber::registry()
             .with(otel_layer)
+            .with(TraceIdLayer)
             .with(env_filter);
 
         match (use_json, file_writer) {
@@ -193,15 +192,98 @@ pub fn shutdown_tracing() {
     global::shutdown_tracer_provider();
 }
 
-/// Axum middleware that extracts W3C TraceContext headers (`traceparent`, `tracestate`)
-/// from incoming requests and sets them as the parent context on the current span.
+/// A [`tracing_subscriber::Layer`] that stamps `trace_id` and `span_id` onto
+/// every span's extensions the moment it is created, so that all log events
+/// emitted inside that span automatically carry those fields.
 ///
-/// This must be placed *after* `TraceLayer` in the middleware stack so that a span
-/// already exists when this middleware runs.
+/// This is the idiomatic way to get W3C trace context into structured logs
+/// without re-emitting events or touching the fmt layer.
+pub struct TraceIdLayer;
+
+impl<S> Layer<S> for TraceIdLayer
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+    fn on_new_span(
+        &self,
+        _attrs: &tracing::span::Attributes<'_>,
+        id: &tracing::span::Id,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let span = ctx.span(id).expect("span must exist on new_span");
+        // Seed with a placeholder; the real IDs are stamped in on_record once
+        // the OTel layer has attached its context (see trace_propagation_middleware).
+        span.extensions_mut().insert(TraceIds {
+            trace_id: String::new(),
+            span_id: String::new(),
+        });
+    }
+
+    fn on_record(
+        &self,
+        id: &tracing::span::Id,
+        values: &tracing::span::Record<'_>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let span = ctx.span(id).expect("span must exist on record");
+        let mut exts = span.extensions_mut();
+        if let Some(ids) = exts.get_mut::<TraceIds>() {
+            let mut visitor = TraceIdVisitor(ids);
+            values.record(&mut visitor);
+        }
+    }
+
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        // Pull trace_id / span_id from the nearest enclosing span that has them.
+        let ids = ctx.lookup_current().and_then(|span| {
+            let exts = span.extensions();
+            exts.get::<TraceIds>().cloned()
+        });
+
+        if let Some(TraceIds { trace_id, span_id }) = ids {
+            if !trace_id.is_empty() {
+                // Record onto the current span so the fmt layer picks them up.
+                tracing::Span::current().record("trace_id", &trace_id.as_str());
+                tracing::Span::current().record("span_id", &span_id.as_str());
+            }
+        }
+        let _ = event;
+    }
+}
+
+#[derive(Clone)]
+struct TraceIds {
+    trace_id: String,
+    span_id: String,
+}
+
+struct TraceIdVisitor<'a>(&'a mut TraceIds);
+
+impl tracing::field::Visit for TraceIdVisitor<'_> {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        match field.name() {
+            "trace_id" => self.0.trace_id = value.to_owned(),
+            "span_id" => self.0.span_id = value.to_owned(),
+            _ => {}
+        }
+    }
+    fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
+}
+
+/// Axum middleware that extracts W3C TraceContext headers (`traceparent`, `tracestate`)
+/// from incoming requests, sets them as the parent context on the current span, and
+/// records `trace_id` / `span_id` as structured span fields so every log event
+/// emitted during the request carries those IDs.
+///
+/// Must be placed *inside* `TraceLayer` in the middleware stack (i.e. added before
+/// `TraceLayer` in the `.layer()` chain) so a span already exists when this runs.
 pub async fn trace_propagation_middleware(req: Request<Body>, next: Next) -> Response {
-    // Build a simple header-map view that the OTel propagator can read from.
-    let headers = req.headers();
-    let carrier: std::collections::HashMap<String, String> = headers
+    let carrier: std::collections::HashMap<String, String> = req
+        .headers()
         .iter()
         .filter_map(|(name, value)| {
             value
@@ -211,22 +293,29 @@ pub async fn trace_propagation_middleware(req: Request<Body>, next: Next) -> Res
         })
         .collect();
 
-    // Extract the remote context using the globally registered propagator.
-    let propagator = TraceContextPropagator::new();
-    let parent_cx = propagator.extract(&carrier);
+    // Extract remote context via the globally registered W3C TraceContext propagator.
+    let parent_cx =
+        global::get_text_map_propagator(|propagator| propagator.extract(&carrier));
 
-    // Attach the remote context to the current tracing span so that child spans
-    // created during this request are correctly parented.
     let span = tracing::Span::current();
-    span.set_parent(parent_cx);
+    span.set_parent(parent_cx.clone());
+
+    // Stamp trace_id / span_id onto the span so structured logs carry them.
+    use opentelemetry::trace::TraceContextExt as _;
+    let span_ctx = parent_cx.span().span_context().clone();
+    if span_ctx.is_valid() {
+        span.record("trace_id", span_ctx.trace_id().to_string().as_str());
+        span.record("span_id", span_ctx.span_id().to_string().as_str());
+    }
 
     next.run(req).await
 }
 
 /// Inject the current trace context into an outbound `reqwest::RequestBuilder`.
 ///
-/// Call this on every outbound HTTP request to propagate `traceparent` /
-/// `tracestate` headers to downstream services.
+/// Uses the globally registered propagator (W3C `TraceContext` by default) so
+/// that `traceparent` / `tracestate` headers are forwarded to downstream
+/// services, preserving the distributed trace across service boundaries.
 ///
 /// # Example
 /// ```rust
@@ -234,9 +323,10 @@ pub async fn trace_propagation_middleware(req: Request<Body>, next: Next) -> Res
 /// ```
 pub fn inject_trace_context(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     let mut carrier = std::collections::HashMap::new();
-    let propagator = TraceContextPropagator::new();
     let cx = opentelemetry::Context::current();
-    propagator.inject_context(&cx, &mut carrier);
+    global::get_text_map_propagator(|propagator| {
+        propagator.inject_context(&cx, &mut carrier);
+    });
 
     let mut builder = builder;
     for (key, value) in carrier {
@@ -269,6 +359,17 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn inject_trace_context_does_not_panic_without_active_span() {
+        // Verify inject_trace_context is safe to call even when no OTel span is active.
+        // Without a real OTLP exporter the carrier will simply be empty.
+        global::set_text_map_propagator(TraceContextPropagator::new());
+        let client = reqwest::Client::new();
+        let builder = client.get("http://localhost");
+        // Should not panic
+        let _ = inject_trace_context(builder);
     }
 
     #[tokio::test]

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tower_http::{
-    compression::{predicate::SizeAbove, CompressionLayer},
+    compression::{predicate::{NotForContentType, Predicate, SizeAbove}, CompressionLayer, CompressionLevel},
     cors::{AllowOrigin, CorsLayer},
     timeout::TimeoutLayer,
     trace::TraceLayer,
@@ -26,17 +26,17 @@ use stellar_insights_backend::{
     database::{Database, PoolConfig},
     env_config,
     ingestion::DataIngestionService,
+    jobs::backfill::{BackfillJob, BackfillState},
     observability::metrics as obs_metrics,
     observability::tracing::trace_propagation_middleware,
+    observability::logging::request_response_logging_middleware,
     openapi::ApiDoc,
     rate_limit::RateLimiter,
     request_id::request_id_middleware,
     rpc::StellarRpcClient,
     services::{
-        account_merge_detector::AccountMergeDetector,
-        fee_bump_tracker::FeeBumpTrackerService,
-        liquidity_pool_analyzer::LiquidityPoolAnalyzer,
-        price_feed::{default_asset_mapping, PriceFeedClient, PriceFeedConfig},
+        event_indexer::EventIndexer,
+        service_container::ServiceContainer,
         webhook_dispatcher::WebhookDispatcher,
     },
     shutdown::{
@@ -45,6 +45,7 @@ use stellar_insights_backend::{
     },
     state::AppState,
     websocket::WsState,
+    middleware::{NetworkContextMiddleware, NetworkAwareRpcClient, MobilePaginationEndpoints, DatabaseSchemaSeparation},
 };
 
 const DB_POOL_LOG_INTERVAL: Duration = Duration::from_secs(60);
@@ -134,19 +135,21 @@ async fn main() -> anyhow::Result<()> {
                         active,
                         size
                     );
+                    stellar_insights_backend::observability::metrics::record_pool_error("near_exhaustion");
                 }
-                stellar_insights_backend::observability::metrics::set_pool_size(size as i64);
-                stellar_insights_backend::observability::metrics::set_pool_idle(idle as i64);
-                stellar_insights_backend::observability::metrics::set_pool_active(active as i64);
+                stellar_insights_backend::observability::metrics::set_pool_connections(active, idle as usize, size);
             }
         })
     };
 
     // Initialize cache manager
     let cache = Arc::new(
-        CacheManager::new(CacheConfig::default())
+        CacheManager::new(CacheConfig::from_env())
             .await
-            .context("Failed to initialize cache manager - check Redis connection")?,
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to initialize cache manager, using in-memory fallback: {}", e);
+                CacheManager::new_in_memory_for_tests(CacheConfig::from_env())
+            }),
     );
 
     // Initialize Stellar RPC Client
@@ -157,12 +160,11 @@ async fn main() -> anyhow::Result<()> {
 
     let rpc_client = Arc::new(StellarRpcClient::new_with_defaults(mock_mode));
 
-    let price_feed = Arc::new(PriceFeedClient::new(
-        PriceFeedConfig::default(),
-        default_asset_mapping(),
-    ));
+    // Build all services via the container (dependency injection — issue #1123)
+    let services = ServiceContainer::build(pool.clone(), rpc_client.clone());
 
     let ws_state = Arc::new(WsState::new());
+    ws_state.spawn_redis_subscriber();
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
     let app_state = AppState::new(
@@ -173,17 +175,23 @@ async fn main() -> anyhow::Result<()> {
         rpc_client.clone(),
     );
 
+    // Initialize new middleware components (lightweight registration)
+    let _network_context_middleware = NetworkContextMiddleware::new();
+    let _network_aware_rpc_client = NetworkAwareRpcClient::new(Default::default());
+    let _mobile_pagination_endpoints = MobilePaginationEndpoints::new(Default::default());
+    let _database_schema_separation = DatabaseSchemaSeparation::new(Default::default());
+
+    let fee_bump_tracker = services.fee_bump_tracker;
+    let account_merge_detector = services.account_merge_detector;
+    let lp_analyzer = services.lp_analyzer;
+    let price_feed = services.price_feed.clone();
+
     let cached_state = (
         db.clone(),
         cache.clone(),
         rpc_client.clone(),
         price_feed.clone(),
     );
-
-    let fee_bump_tracker = Arc::new(FeeBumpTrackerService::new(pool.clone()));
-    let account_merge_detector =
-        Arc::new(AccountMergeDetector::new(pool.clone(), rpc_client.clone()));
-    let lp_analyzer = Arc::new(LiquidityPoolAnalyzer::new(pool.clone(), rpc_client.clone()));
 
     let backup_config = BackupConfig::from_env();
     if backup_config.enabled {
@@ -192,18 +200,114 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Backup scheduler enabled");
     }
 
+    // Build the backfill job (shared state allows the status endpoint to read progress)
+    let backfill_state = Arc::new(tokio::sync::RwLock::new(BackfillState::default()));
+    let event_indexer_for_backfill = Arc::new(EventIndexer::new(db.clone()));
+    let backfill_job = Arc::new(BackfillJob::new(
+        event_indexer_for_backfill,
+        rpc_client.clone(),
+        backfill_state,
+    ));
+
     let rate_limiter = Arc::new(
         RateLimiter::new()
             .await
             .context("Failed to initialize rate limiter")?,
     );
 
+    // Configure rate limits for expensive operations
+    use stellar_insights_backend::rate_limit::{ClientRateLimits, RateLimitConfig};
+    
+    // Export endpoints (CSV/Excel generation)
+    rate_limiter.register_endpoint(
+        "/api/export/csv".to_string(),
+        RateLimitConfig {
+            requests_per_minute: 5,
+            whitelist_ips: vec![],
+            client_limits: Some(ClientRateLimits {
+                authenticated: 10,
+                premium: 20,
+                anonymous: 5,
+            }),
+        },
+    ).await;
+    
+    rate_limiter.register_endpoint(
+        "/api/export/excel".to_string(),
+        RateLimitConfig {
+            requests_per_minute: 5,
+            whitelist_ips: vec![],
+            client_limits: Some(ClientRateLimits {
+                authenticated: 10,
+                premium: 20,
+                anonymous: 5,
+            }),
+        },
+    ).await;
+    
+    // Analytics aggregation queries
+    rate_limiter.register_endpoint(
+        "/api/analytics".to_string(),
+        RateLimitConfig {
+            requests_per_minute: 20,
+            whitelist_ips: vec![],
+            client_limits: Some(ClientRateLimits {
+                authenticated: 40,
+                premium: 100,
+                anonymous: 20,
+            }),
+        },
+    ).await;
+    
+    // RPC proxy endpoints
+    rate_limiter.register_endpoint(
+        "/api/rpc".to_string(),
+        RateLimitConfig {
+            requests_per_minute: 100,
+            whitelist_ips: vec![],
+            client_limits: Some(ClientRateLimits {
+                authenticated: 200,
+                premium: 500,
+                anonymous: 100,
+            }),
+        },
+    ).await;
+
     let webhook_dispatcher_handle: JoinHandle<()> = {
         let webhook_pool = pool.clone();
+        let max_restarts: u32 = std::env::var("WEBHOOK_DISPATCHER_MAX_RESTARTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
         tokio::spawn(async move {
-            let dispatcher = WebhookDispatcher::new(webhook_pool);
-            if let Err(e) = dispatcher.run().await {
-                tracing::error!("Webhook dispatcher stopped: {}", e);
+            let mut restarts: u32 = 0;
+            loop {
+                let dispatcher = WebhookDispatcher::new(webhook_pool.clone());
+                match dispatcher.run().await {
+                    Ok(()) => {
+                        tracing::warn!("Webhook dispatcher exited cleanly; restarting");
+                    }
+                    Err(e) => {
+                        restarts += 1;
+                        tracing::error!(
+                            restarts,
+                            max_restarts,
+                            error = %e,
+                            "Webhook dispatcher failed"
+                        );
+                        if restarts >= max_restarts {
+                            tracing::error!(
+                                "Webhook dispatcher exceeded max restarts ({}); giving up",
+                                max_restarts
+                            );
+                            break;
+                        }
+                    }
+                }
+                // Exponential back-off capped at 60 s before restarting.
+                let backoff_secs = std::cmp::min(2u64.saturating_pow(restarts), 60);
+                tracing::info!("Restarting webhook dispatcher in {}s", backoff_secs);
+                tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
             }
         })
     };
@@ -263,9 +367,24 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1024);
 
+    // COMPRESSION_LEVEL: "fastest", "best", or a numeric quality (0-9). Default: "default".
+    let compression_level = match std::env::var("COMPRESSION_LEVEL")
+        .unwrap_or_default()
+        .to_lowercase()
+        .as_str()
+    {
+        "fastest" => CompressionLevel::Fastest,
+        "best" => CompressionLevel::Best,
+        s => s
+            .parse::<i32>()
+            .map(CompressionLevel::Precise)
+            .unwrap_or(CompressionLevel::Default),
+    };
+
     tracing::info!(
-        "Compression enabled (gzip, brotli) for responses > {} bytes",
-        compression_min_size
+        "Compression enabled (gzip, brotli) for responses > {} bytes, level={:?}",
+        compression_min_size,
+        compression_level
     );
 
     // Request timeout configuration — reads REQUEST_TIMEOUT_SECONDS from env,
@@ -310,23 +429,43 @@ async fn main() -> anyhow::Result<()> {
         cache.clone(),
     );
 
+    // Admin routes (backfill, etc.) — mounted at /admin
+    let admin_routes = stellar_insights_backend::api::backfill::routes(backfill_job);
+
     let app = base_routes
+        .nest("/admin", admin_routes)
         .merge(ws_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(middleware::from_fn(
+            stellar_insights_backend::payload_limit::payload_limit_middleware,
+        ))
+        .layer(middleware::from_fn(
+            stellar_insights_backend::api_deprecation_middleware::deprecation_middleware,
+        ))
         .layer(middleware::from_fn_with_state(
             db.clone(),
             stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
         ))
-        .layer(TraceLayer::new_for_http())
+        // trace_propagation_middleware must be inside TraceLayer so a span already
+        // exists when it calls set_parent(). In Axum's layer stack the last
+        // .layer() is outermost (runs first), so placing trace_propagation_middleware
+        // before TraceLayer here means it executes after TraceLayer at runtime.
         .layer(middleware::from_fn(trace_propagation_middleware))
+        .layer(TraceLayer::new_for_http())
         .layer(middleware::from_fn(obs_metrics::http_metrics_middleware))
+        .layer(middleware::from_fn(request_response_logging_middleware))
         .layer(middleware::from_fn(request_id_middleware))
         .layer(timeout_layer)
         .layer(
             CompressionLayer::new()
                 .gzip(true)
                 .br(true)
-                .compress_when(SizeAbove::new(compression_min_size)),
+                .quality(compression_level)
+                .compress_when(
+                    SizeAbove::new(compression_min_size)
+                        .and(NotForContentType::IMAGES)
+                        .and(NotForContentType::SSE),
+                ),
         );
 
     let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());

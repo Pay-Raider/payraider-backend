@@ -19,6 +19,7 @@ use crate::database::Database;
 use crate::error::{ApiError, ApiResult};
 use crate::models::corridor::Corridor;
 use crate::models::{CreateCorridorRequest, SortBy};
+use crate::pagination::PaginatedResponse;
 use crate::request_id::RequestId;
 use crate::rpc::{
     circuit_breaker::rpc_circuit_breaker,
@@ -501,12 +502,20 @@ pub async fn list_corridors(
                 })
                 .collect();
 
-            Ok(filtered)
+            // Apply limit/offset pagination to the filtered results
+            let total = filtered.len() as i64;
+            let page: Vec<_> = filtered
+                .into_iter()
+                .skip(params.offset as usize)
+                .take(params.limit as usize)
+                .collect();
+
+            Ok(PaginatedResponse::new(page, total, params.limit, params.offset))
         },
     )
     .await?;
 
-    crate::observability::metrics::set_corridors_tracked(corridors.len() as i64);
+    crate::observability::metrics::set_corridors_tracked(corridors.pagination.total);
 
     let ttl = cache.config.get_ttl("corridor");
     let response = crate::http_cache::cached_json_response(&headers, &cache_key, &corridors, ttl)?;
@@ -693,7 +702,7 @@ fn find_related_corridors(
     tag = "Corridors"
 )]
 #[tracing::instrument(
-    skip(_db, cache, rpc_client, price_feed),
+    skip(_db, cache, rpc_client, price_feed, headers),
     fields(request_id = %request_id.0, corridor_key = %corridor_key)
 )]
 pub async fn get_corridor_detail(
@@ -705,7 +714,8 @@ pub async fn get_corridor_detail(
         Arc<PriceFeedClient>,
     )>,
     Path(corridor_key): Path<String>,
-) -> ApiResult<Json<CorridorDetailResponse>> {
+    headers: HeaderMap,
+) -> ApiResult<Response> {
     use std::collections::HashMap;
     info!("Fetching corridor");
 
@@ -914,17 +924,16 @@ pub async fn get_corridor_detail(
         "Corridor found"
     );
 
-    Ok(Json(response))
+    let ttl = cache.config.get_ttl("corridor");
+    let cached = crate::http_cache::cached_json_response(&headers, &cache_key, &response, ttl)?;
+    Ok(cached)
 }
 
 /// POST /api/corridors - Create a new corridor
 pub async fn create_corridor(
     State(app_state): State<AppState>,
-    Json(req): Json<CreateCorridorRequest>,
+    crate::validation::ValidatedJson(req): crate::validation::ValidatedJson<CreateCorridorRequest>,
 ) -> ApiResult<Json<Corridor>> {
-    // Struct-level field validation (lengths, formats)
-    crate::validation::validate_request(&req)?;
-
     // Business logic: source and destination must differ
     crate::validation::validate_corridor_not_self_referential(
         &req.source_asset_code,

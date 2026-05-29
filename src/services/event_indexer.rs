@@ -2,7 +2,49 @@
 //!
 //! This service indexes contract events, provides query interfaces,
 //! and manages the event database for analytics and verification.
-
+//!
+//! # Features
+//!
+//! - **Event Storage**: Store and retrieve contract events with metadata
+//! - **Query Interface**: Flexible filtering and sorting options
+//! - **Verification Tracking**: Monitor event verification status
+//! - **Statistics**: Aggregate event data for analytics
+//!
+//! # Quick Start
+//!
+//! ```rust,no_run
+//! use stellar_insights_backend::services::event_indexer::{EventIndexer, EventQuery, EventOrderBy};
+//! use stellar_insights_backend::database::Database;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let db = Database::new(pool).await?;
+//!     let indexer = EventIndexer::new(db);
+//!     
+//!     // Query events
+//!     let query = EventQuery {
+//!         contract_id: Some("contract_123".to_string()),
+//!         limit: Some(100),
+//!         order_by: Some(EventOrderBy::CreatedAtDesc),
+//!         ..Default::default()
+//!     };
+//!     
+//!     let events = indexer.query_events(query).await?;
+//!     println!("Found {} events", events.len());
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Configuration
+//!
+//! The indexer supports various query options:
+//!
+//! - **Time-based filtering**: by creation time, ledger, or epoch
+//! - **Status filtering**: by verification status
+//! - **Pagination**: limit and offset for large result sets
+//! - **Sorting**: multiple sort orders for different use cases
+//!
 use crate::database::Database;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -338,7 +380,7 @@ impl EventIndexer {
         Ok(())
     }
 
-    /// Get event statistics
+    /// Get event statistics. This is the canonical implementation; no legacy variant exists.
     pub async fn get_event_stats(&self) -> Result<EventStats> {
         let total_events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contract_events")
             .fetch_one(self.db.pool())
@@ -539,6 +581,78 @@ impl EventIndexer {
         info!("Cleaned up {} old events", deleted_count);
 
         Ok(deleted_count as i64)
+    }
+
+    /// Return the min and max ledger numbers currently indexed.
+    ///
+    /// Returns `None` when the table is empty.
+    pub async fn get_indexed_ledger_range(&self) -> Result<Option<(u64, u64)>> {
+        let row: Option<(Option<i64>, Option<i64>)> =
+            sqlx::query_as("SELECT MIN(ledger), MAX(ledger) FROM contract_events")
+                .fetch_optional(self.db.pool())
+                .await
+                .context("Failed to query indexed ledger range")?;
+
+        Ok(row.and_then(|(min, max)| {
+            match (min, max) {
+                (Some(lo), Some(hi)) => Some((lo as u64, hi as u64)),
+                _ => None,
+            }
+        }))
+    }
+
+    /// Detect ledger gaps in the indexed event sequence within `[from, to]`.
+    ///
+    /// A gap is a contiguous sub-range of ledgers that have no entry in
+    /// `contract_events`. The returned list is sorted by `start` ascending.
+    ///
+    /// This is used by the backfill job to avoid re-fetching already-indexed
+    /// ledgers.
+    pub async fn detect_ledger_gaps(
+        &self,
+        from_ledger: u64,
+        to_ledger: u64,
+    ) -> Result<Vec<crate::jobs::backfill::LedgerGap>> {
+        // Fetch all distinct ledger numbers in the range, sorted ascending.
+        let rows: Vec<(i64,)> = sqlx::query_as(
+            "SELECT DISTINCT ledger FROM contract_events \
+             WHERE ledger BETWEEN ? AND ? \
+             ORDER BY ledger ASC",
+        )
+        .bind(from_ledger as i64)
+        .bind(to_ledger as i64)
+        .fetch_all(self.db.pool())
+        .await
+        .context("Failed to query indexed ledgers for gap detection")?;
+
+        let indexed: std::collections::BTreeSet<u64> =
+            rows.into_iter().map(|(l,)| l as u64).collect();
+
+        let mut gaps = Vec::new();
+        let mut gap_start: Option<u64> = None;
+
+        for ledger in from_ledger..=to_ledger {
+            if indexed.contains(&ledger) {
+                if let Some(start) = gap_start.take() {
+                    gaps.push(crate::jobs::backfill::LedgerGap {
+                        start,
+                        end: ledger - 1,
+                    });
+                }
+            } else if gap_start.is_none() {
+                gap_start = Some(ledger);
+            }
+        }
+
+        // Close any trailing gap
+        if let Some(start) = gap_start {
+            gaps.push(crate::jobs::backfill::LedgerGap {
+                start,
+                end: to_ledger,
+            });
+        }
+
+        Ok(gaps)
     }
 
     /// Rebuild indexes for performance
