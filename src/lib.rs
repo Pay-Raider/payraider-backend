@@ -24,6 +24,7 @@ pub mod email;
 pub mod env_config;
 pub mod error;
 pub mod handlers; // Core handlers (pool_metrics, health_check, ingestion_status)
+pub mod health_check_enhanced; // Enhanced health check with mobile support
 pub mod http_cache; // HTTP caching layer (ETag/conditional responses)
 pub mod ingestion;
 pub mod ip_whitelist_middleware;
@@ -35,6 +36,7 @@ pub mod muxed;
 pub mod request_signing_middleware;
 
 pub mod network;
+pub mod multi_network;
 pub mod observability;
 pub mod openapi;
 pub mod pagination;
