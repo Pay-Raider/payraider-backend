@@ -7,6 +7,7 @@ pub mod api_key;
 pub mod api_gateway;
 pub mod asset_verification;
 pub mod corridor;
+pub mod distributed_tracing;
 pub mod rate_limiting_advanced;
 pub mod service_mesh;
 
