@@ -45,7 +45,11 @@ use stellar_insights_backend::{
     },
     state::AppState,
     websocket::WsState,
-    middleware::{NetworkContextMiddleware, NetworkAwareRpcClient, MobilePaginationEndpoints, DatabaseSchemaSeparation},
+    middleware::{
+        NetworkContextMiddleware, NetworkAwareRpcClient, MobilePaginationEndpoints,
+        DatabaseSchemaSeparation, WebSocketRealTimeUpdates, ApiVersioning,
+        DeprecationWarnings, MobileRequestLogging,
+    },
 };
 
 const DB_POOL_LOG_INTERVAL: Duration = Duration::from_secs(60);
@@ -180,6 +184,10 @@ async fn main() -> anyhow::Result<()> {
     let _network_aware_rpc_client = NetworkAwareRpcClient::new(Default::default());
     let _mobile_pagination_endpoints = MobilePaginationEndpoints::new(Default::default());
     let _database_schema_separation = DatabaseSchemaSeparation::new(Default::default());
+    let _websocket_real_time_updates = WebSocketRealTimeUpdates::new(Default::default());
+    let _api_versioning = ApiVersioning::new(Default::default());
+    let _deprecation_warnings = DeprecationWarnings::new(Default::default());
+    let _mobile_request_logging = MobileRequestLogging::new(Default::default());
 
     let fee_bump_tracker = services.fee_bump_tracker;
     let account_merge_detector = services.account_merge_detector;

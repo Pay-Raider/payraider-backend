@@ -10,6 +10,14 @@ pub mod corridor;
 pub mod distributed_tracing;
 pub mod rate_limiting_advanced;
 pub mod service_mesh;
+pub mod network_context_middleware;
+pub mod network_aware_rpc_client;
+pub mod mobile_pagination_endpoints;
+pub mod database_schema_separation;
+pub mod websocket_real_time_updates;
+pub mod api_versioning;
+pub mod deprecation_warnings;
+pub mod mobile_request_logging;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
