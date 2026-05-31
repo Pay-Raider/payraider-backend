@@ -6,3 +6,4 @@ pub mod websocket_streaming;
 pub mod redis_caching_layer;
 pub mod circuit_breaker_pattern;
 pub mod elasticsearch_integration;
+pub mod message_queue_system;
