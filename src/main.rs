@@ -5,6 +5,7 @@ use axum::{
         HeaderValue, Method,
     },
     middleware,
+    routing::{get, post},
     Router,
 };
 use std::sync::Arc;
@@ -25,6 +26,7 @@ use stellar_insights_backend::{
     cache::{CacheConfig, CacheManager},
     database::{Database, PoolConfig},
     env_config,
+    features::graphql_api::{graphql_handler, graphql_health_handler, GraphQLAPI, GraphQLAPIConfig},
     ingestion::DataIngestionService,
     jobs::backfill::{BackfillJob, BackfillState},
     observability::metrics as obs_metrics,
@@ -448,8 +450,15 @@ async fn main() -> anyhow::Result<()> {
     // Admin routes (backfill, etc.) — mounted at /admin
     let admin_routes = stellar_insights_backend::api::backfill::routes(backfill_job);
 
+    let graphql_api = Arc::new(GraphQLAPI::new(GraphQLAPIConfig::default(), 0));
+    let graphql_routes = Router::new()
+        .route("/graphql", post(graphql_handler))
+        .route("/graphql/health", get(graphql_health_handler))
+        .layer(axum::Extension(Arc::clone(&graphql_api)));
+
     let app = base_routes
         .nest("/admin", admin_routes)
+        .merge(graphql_routes)
         .merge(ws_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn(
