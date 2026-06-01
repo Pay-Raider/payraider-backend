@@ -27,6 +27,9 @@ pub mod message_queue_system;
 pub mod field_selection_parameter;
 pub mod etag_caching_support;
 pub mod batch_endpoints;
+pub mod rate_limiting_by_client;
+pub mod network_status_endpoint;
+pub mod jwt_token_refresh;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]

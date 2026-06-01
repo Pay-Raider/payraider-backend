@@ -11,6 +11,9 @@ pub mod field_selection_parameter;
 pub mod etag_caching_support;
 pub mod batch_endpoints;
 pub mod response_compression;
+pub mod rate_limiting_by_client;
+pub mod network_status_endpoint;
+pub mod jwt_token_refresh;
 
 pub use network_context_middleware::NetworkContextMiddleware;
 pub use network_aware_rpc_client::NetworkAwareRpcClient;
@@ -25,3 +28,6 @@ pub use field_selection_parameter::FieldSelectionParameter;
 pub use etag_caching_support::ETagCachingSupport;
 pub use batch_endpoints::BatchEndpoints;
 pub use response_compression::ResponseCompression;
+pub use rate_limiting_by_client::RateLimitingByClient;
+pub use network_status_endpoint::NetworkStatusEndpoint;
+pub use jwt_token_refresh::JWTTokenRefresh;
