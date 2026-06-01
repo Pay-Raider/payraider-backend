@@ -36,6 +36,21 @@ pub struct HealthStatus {
     pub version: String,
     pub uptime_seconds: u64,
     pub checks: HealthChecks,
+    pub network: NetworkInfo,
+    pub client_info: Option<ClientInfo>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct NetworkInfo {
+    pub network: String,
+    pub display_name: String,
+    pub is_primary: bool,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ClientInfo {
+    pub client_type: String,
+    pub client_version: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -109,7 +124,7 @@ async fn check_rpc(rpc: &Arc<StellarRpcClient>) -> ComponentHealth {
     }
 }
 
-/// Detailed health check endpoint
+/// Detailed health check endpoint with network and client context
 pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatus> {
     let db_health = check_database(&app_state.db).await;
     let cache_health = check_cache(&app_state.cache).await;
@@ -129,6 +144,9 @@ pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatu
         .map_or(0, |d| d.as_secs());
     let uptime_seconds = now_epoch.saturating_sub(start_epoch);
 
+    let network_context = &app_state.network_context;
+    let is_primary = network_context.network == app_state.multi_network_config.primary_network;
+
     Json(HealthStatus {
         status: overall_status.to_string(),
         timestamp: Utc::now(),
@@ -139,6 +157,12 @@ pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatu
             cache: cache_health,
             rpc: rpc_health,
         },
+        network: NetworkInfo {
+            network: network_context.network_id(),
+            display_name: network_context.display_name().to_string(),
+            is_primary,
+        },
+        client_info: None,
     })
 }
 

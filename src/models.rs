@@ -4,8 +4,29 @@ use validator::Validate;
 
 pub mod alerts;
 pub mod api_key;
+pub mod api_gateway;
+pub mod graphql_api;
 pub mod asset_verification;
 pub mod corridor;
+pub mod distributed_tracing;
+pub mod rate_limiting_advanced;
+pub mod service_mesh;
+pub mod network_context_middleware;
+pub mod network_aware_rpc_client;
+pub mod mobile_pagination_endpoints;
+pub mod database_schema_separation;
+pub mod websocket_real_time_updates;
+pub mod api_versioning;
+pub mod deprecation_warnings;
+pub mod mobile_request_logging;
+pub mod response_compression;
+pub mod websocket_streaming_models;
+pub mod redis_caching_models;
+pub mod elasticsearch_integration;
+pub mod message_queue_system;
+pub mod field_selection_parameter;
+pub mod etag_caching_support;
+pub mod batch_endpoints;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -241,6 +262,8 @@ pub struct PaymentRow {
 }
 
 impl PaymentRow {
+    #[must_use]
+    pub fn to_corridor(&self) -> crate::models::corridor::Corridor {
         let src_code = if self.source_asset_code.is_empty() {
             self.asset_code.clone().unwrap_or_default()
         } else {

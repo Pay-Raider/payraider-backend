@@ -5,13 +5,14 @@ use axum::{
         HeaderValue, Method,
     },
     middleware,
+    routing::{get, post},
     Router,
 };
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tower_http::{
-    compression::{predicate::{And, NotForContentType, SizeAbove}, CompressionLayer, CompressionLevel},
+    compression::{predicate::{NotForContentType, Predicate, SizeAbove}, CompressionLayer, CompressionLevel},
     cors::{AllowOrigin, CorsLayer},
     timeout::TimeoutLayer,
     trace::TraceLayer,
@@ -25,6 +26,7 @@ use stellar_insights_backend::{
     cache::{CacheConfig, CacheManager},
     database::{Database, PoolConfig},
     env_config,
+    features::graphql_api::{graphql_handler, graphql_health_handler, GraphQLAPI, GraphQLAPIConfig},
     ingestion::DataIngestionService,
     jobs::backfill::{BackfillJob, BackfillState},
     observability::metrics as obs_metrics,
@@ -45,6 +47,16 @@ use stellar_insights_backend::{
     },
     state::AppState,
     websocket::WsState,
+    middleware::{
+        NetworkContextMiddleware, NetworkAwareRpcClient, MobilePaginationEndpoints,
+        DatabaseSchemaSeparation, WebSocketRealTimeUpdates, ApiVersioning,
+        DeprecationWarnings, MobileRequestLogging,
+        ConcurrencyLimitState, concurrency_limit_middleware, panic_recovery_middleware,
+        FieldSelectionParameter,
+        ETagCachingSupport,
+        BatchEndpoints,
+        ResponseCompression,
+    },
 };
 
 const DB_POOL_LOG_INTERVAL: Duration = Duration::from_secs(60);
@@ -134,10 +146,9 @@ async fn main() -> anyhow::Result<()> {
                         active,
                         size
                     );
+                    stellar_insights_backend::observability::metrics::record_pool_error("near_exhaustion");
                 }
-                stellar_insights_backend::observability::metrics::set_pool_size(size as i64);
-                stellar_insights_backend::observability::metrics::set_pool_idle(idle as i64);
-                stellar_insights_backend::observability::metrics::set_pool_active(active as i64);
+                stellar_insights_backend::observability::metrics::set_pool_connections(active, idle as usize, size);
             }
         })
     };
@@ -164,6 +175,7 @@ async fn main() -> anyhow::Result<()> {
     let services = ServiceContainer::build(pool.clone(), rpc_client.clone());
 
     let ws_state = Arc::new(WsState::new());
+    ws_state.spawn_redis_subscriber();
     let ingestion = Arc::new(DataIngestionService::new(rpc_client.clone(), db.clone()));
 
     let app_state = AppState::new(
@@ -173,6 +185,25 @@ async fn main() -> anyhow::Result<()> {
         ingestion,
         rpc_client.clone(),
     );
+
+    // Initialize new middleware components (lightweight registration)
+    let _network_context_middleware = NetworkContextMiddleware::new();
+    let _network_aware_rpc_client = NetworkAwareRpcClient::new(Default::default());
+    let _mobile_pagination_endpoints = MobilePaginationEndpoints::new(Default::default());
+    let _database_schema_separation = DatabaseSchemaSeparation::new(Default::default());
+    let _websocket_real_time_updates = WebSocketRealTimeUpdates::new(Default::default());
+    let _api_versioning = ApiVersioning::new(Default::default());
+    let _deprecation_warnings = DeprecationWarnings::new(Default::default());
+    let _mobile_request_logging = MobileRequestLogging::new(Default::default());
+    let _field_selection_parameter = FieldSelectionParameter::new(Default::default());
+    let _etag_caching_support = ETagCachingSupport::new(Default::default());
+    let _batch_endpoints = BatchEndpoints::new(Default::default());
+    let _response_compression = ResponseCompression::new(
+        stellar_insights_backend::models::response_compression::CompressionConfig::from_env(),
+    );
+    if let Err(e) = _response_compression.validate() {
+        tracing::warn!("Response compression config invalid: {}", e);
+    }
 
     let fee_bump_tracker = services.fee_bump_tracker;
     let account_merge_detector = services.account_merge_detector;
@@ -206,6 +237,13 @@ async fn main() -> anyhow::Result<()> {
         RateLimiter::new()
             .await
             .context("Failed to initialize rate limiter")?,
+    );
+
+    // Concurrency limiter — caps in-flight requests to prevent 500s under spike load
+    let concurrency_state = ConcurrencyLimitState::from_env();
+    tracing::info!(
+        max_in_flight = concurrency_state.current(),
+        "Concurrency limit initialized (MAX_IN_FLIGHT_REQUESTS env var, default 500)"
     );
 
     // Configure rate limits for expensive operations
@@ -425,18 +463,34 @@ async fn main() -> anyhow::Result<()> {
     // Admin routes (backfill, etc.) — mounted at /admin
     let admin_routes = stellar_insights_backend::api::backfill::routes(backfill_job);
 
+    let graphql_api = Arc::new(GraphQLAPI::new(GraphQLAPIConfig::default(), 0));
+    let graphql_routes = Router::new()
+        .route("/graphql", post(graphql_handler))
+        .route("/graphql/health", get(graphql_health_handler))
+        .layer(axum::Extension(Arc::clone(&graphql_api)));
+
     let app = base_routes
         .nest("/admin", admin_routes)
+        .merge(graphql_routes)
         .merge(ws_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn(
-            stellar_insights_backend::api_deprecation_middleware::deprecation_middleware,
             stellar_insights_backend::payload_limit::payload_limit_middleware,
+        ))
+        .layer(middleware::from_fn(
+            stellar_insights_backend::api_deprecation_middleware::deprecation_middleware,
         ))
         .layer(middleware::from_fn_with_state(
             db.clone(),
             stellar_insights_backend::api_analytics_middleware::api_analytics_middleware,
         ))
+        // Concurrency limiter — rejects excess requests with 503 instead of letting them pile up
+        .layer(middleware::from_fn_with_state(
+            concurrency_state,
+            concurrency_limit_middleware,
+        ))
+        // Panic recovery — converts handler panics to 500 JSON responses
+        .layer(middleware::from_fn(panic_recovery_middleware))
         // trace_propagation_middleware must be inside TraceLayer so a span already
         // exists when it calls set_parent(). In Axum's layer stack the last
         // .layer() is outermost (runs first), so placing trace_propagation_middleware

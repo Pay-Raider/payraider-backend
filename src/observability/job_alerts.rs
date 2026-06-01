@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+use async_trait::async_trait;
 
-use crate::observability::job_metrics::{JobRegistry, JobStatus};
+use crate::observability::job_metrics::JobRegistry;
 
 /// Job alert configuration
 #[derive(Debug, Clone)]
@@ -97,6 +98,7 @@ pub enum JobAlertSeverity {
 }
 
 /// Alert handler trait
+#[async_trait]
 pub trait AlertHandler: Send + Sync {
     async fn send_alert(&self, alert: &JobAlert);
 }
@@ -104,6 +106,7 @@ pub trait AlertHandler: Send + Sync {
 /// Console alert handler (logs to console)
 pub struct ConsoleAlertHandler;
 
+#[async_trait]
 impl AlertHandler for ConsoleAlertHandler {
     async fn send_alert(&self, alert: &JobAlert) {
         match alert.severity {
@@ -260,7 +263,7 @@ impl JobAlertManager {
     /// Get alert statistics
     pub async fn get_alert_stats(&self) -> serde_json::Value {
         let last_alerts = self.last_alerts.read().await;
-        let now = Instant::now();
+        let _now = Instant::now();
 
         let mut recent_alerts = 0usize;
         let mut cooldown_alerts = 0usize;
@@ -340,6 +343,7 @@ impl WebhookAlertHandler {
     }
 }
 
+#[async_trait]
 impl AlertHandler for WebhookAlertHandler {
     async fn send_alert(&self, alert: &JobAlert) {
         let client = reqwest::Client::new();

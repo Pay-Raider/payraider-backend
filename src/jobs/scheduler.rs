@@ -2,9 +2,10 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::info;
 
-use crate::observability::job_metrics::instrument_job;
+use crate::distributed_lock::DistributedLock;
+use crate::observability::job_metrics::JobMetricsCollector;
 
 use crate::cache::CacheManager;
 use crate::database::Database;
@@ -74,14 +75,36 @@ impl JobScheduler {
             config.name, config.interval_seconds
         );
 
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+
         let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(config.interval_seconds));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             loop {
                 interval.tick().await;
+                let lock_key = format!("job-lock:{}", config.name);
+                // TTL is slightly shorter than the interval so the lock expires before
+                // the next tick, allowing any instance to acquire it next round.
+                let lock_ttl = config.interval_seconds.saturating_sub(5).max(1);
+                if !DistributedLock::try_acquire(&redis_url, &lock_key, lock_ttl).await {
+                    info!("Job '{}' skipped — another instance holds the lock", config.name);
+                    continue;
+                }
+                
+                // Execute job with metrics tracking
                 let job_name = config.name.clone();
-                instrument_job!(job_name.as_str(), { job_fn().await });
+                let _metrics = JobMetricsCollector::new(&job_name);
+                
+                match job_fn().await {
+                    Ok(_) => {
+                        _metrics.complete_success();
+                    }
+                    Err(e) => {
+                        _metrics.complete_failure(&e.to_string());
+                    }
+                }
             }
         });
 

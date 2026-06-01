@@ -2,63 +2,76 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use lazy_static::lazy_static;
 use prometheus::{
-    register_counter, register_gauge, register_histogram, Counter, Gauge, Histogram,
-    HistogramOpts, Opts,
+    IntCounterVec, HistogramVec, IntGaugeVec, Opts, HistogramOpts,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 lazy_static! {
     // Job execution metrics
-    pub static ref JOB_EXECUTIONS_TOTAL: Counter = register_counter!(Opts::new(
-        "job_executions_total",
-        "Total number of job executions"
+    pub static ref JOB_EXECUTIONS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new(
+            "job_executions_total",
+            "Total number of job executions"
+        ),
+        &["job_name", "status"]
     )
-    .label_names(vec!["job_name", "status"]))
     .expect("Failed to register job_executions_total counter");
 
-    pub static ref JOB_DURATION_SECONDS: Histogram = register_histogram!(HistogramOpts::new(
-        "job_duration_seconds",
-        "Job execution duration in seconds"
+    pub static ref JOB_DURATION_SECONDS: HistogramVec = HistogramVec::new(
+        HistogramOpts::new(
+            "job_duration_seconds",
+            "Job execution duration in seconds"
+        )
+        .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0]),
+        &["job_name"]
     )
-    .label_names(vec!["job_name"])
-    .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0]))
     .expect("Failed to register job_duration_seconds histogram");
 
-    pub static ref JOB_FAILURES_TOTAL: Counter = register_counter!(Opts::new(
-        "job_failures_total",
-        "Total number of job failures"
+    pub static ref JOB_FAILURES_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new(
+            "job_failures_total",
+            "Total number of job failures"
+        ),
+        &["job_name", "error_type"]
     )
-    .label_names(vec!["job_name", "error_type"]))
     .expect("Failed to register job_failures_total counter");
 
-    pub static ref JOB_LAST_SUCCESS_TIMESTAMP: Gauge = register_gauge!(Opts::new(
-        "job_last_success_timestamp",
-        "Unix timestamp of last successful job execution"
+    pub static ref JOB_LAST_SUCCESS_TIMESTAMP: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "job_last_success_timestamp",
+            "Unix timestamp of last successful job execution"
+        ),
+        &["job_name"]
     )
-    .label_names(vec!["job_name"]))
     .expect("Failed to register job_last_success_timestamp gauge");
 
-    pub static ref JOB_LAST_FAILURE_TIMESTAMP: Gauge = register_gauge!(Opts::new(
-        "job_last_failure_timestamp",
-        "Unix timestamp of last failed job execution"
+    pub static ref JOB_LAST_FAILURE_TIMESTAMP: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "job_last_failure_timestamp",
+            "Unix timestamp of last failed job execution"
+        ),
+        &["job_name"]
     )
-    .label_names(vec!["job_name"]))
     .expect("Failed to register job_last_failure_timestamp gauge");
 
-    pub static ref JOB_ACTIVE_STATUS: Gauge = register_gauge!(Opts::new(
-        "job_active_status",
-        "Whether a job is currently active (1) or inactive (0)"
+    pub static ref JOB_ACTIVE_STATUS: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "job_active_status",
+            "Whether a job is currently active (1) or inactive (0)"
+        ),
+        &["job_name"]
     )
-    .label_names(vec!["job_name"]))
     .expect("Failed to register job_active_status gauge");
 
-    pub static ref JOB_CONSECUTIVE_FAILURES: Gauge = register_gauge!(Opts::new(
-        "job_consecutive_failures",
-        "Number of consecutive failures for a job"
+    pub static ref JOB_CONSECUTIVE_FAILURES: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "job_consecutive_failures",
+            "Number of consecutive failures for a job"
+        ),
+        &["job_name"]
     )
-    .label_names(vec!["job_name"]))
     .expect("Failed to register job_consecutive_failures gauge");
 
     // Global job registry for status tracking
@@ -75,7 +88,7 @@ pub enum JobStatus {
 }
 
 /// Job execution record
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct JobExecution {
     pub job_name: String,
     pub status: JobStatus,
@@ -127,14 +140,14 @@ pub struct JobRegistry {
 }
 
 #[derive(Debug, Clone)]
-struct JobInfo {
-    last_execution: Option<JobExecution>,
-    consecutive_failures: u64,
-    is_active: bool,
-    total_executions: u64,
-    total_failures: u64,
-    last_success_timestamp: Option<i64>,
-    last_failure_timestamp: Option<i64>,
+pub struct JobInfo {
+    pub last_execution: Option<JobExecution>,
+    pub consecutive_failures: u64,
+    pub is_active: bool,
+    pub total_executions: u64,
+    pub total_failures: u64,
+    pub last_success_timestamp: Option<i64>,
+    pub last_failure_timestamp: Option<i64>,
 }
 
 impl JobRegistry {
@@ -175,22 +188,22 @@ impl JobRegistry {
                 JobStatus::Success => {
                     info.consecutive_failures = 0;
                     info.last_success_timestamp = Some(now);
-                    JOB_LAST_SUCCESS_TIMESTAMP.with_label_values(&[job_name]).set(now as f64);
+                    JOB_LAST_SUCCESS_TIMESTAMP.with_label_values(&[job_name]).set(now);
                     JOB_CONSECUTIVE_FAILURES.with_label_values(&[job_name]).set(0);
                 }
-                JobStatus::Failed(error) => {
+                JobStatus::Failed(_error) => {
                     info.consecutive_failures += 1;
                     info.total_failures += 1;
                     info.last_failure_timestamp = Some(now);
-                    JOB_LAST_FAILURE_TIMESTAMP.with_label_values(&[job_name]).set(now as f64);
-                    JOB_CONSECUTIVE_FAILURES.with_label_values(&[job_name]).set(info.consecutive_failures as f64);
+                    JOB_LAST_FAILURE_TIMESTAMP.with_label_values(&[job_name]).set(now);
+                    JOB_CONSECUTIVE_FAILURES.with_label_values(&[job_name]).set(info.consecutive_failures as i64);
                 }
                 JobStatus::Timeout => {
                     info.consecutive_failures += 1;
                     info.total_failures += 1;
                     info.last_failure_timestamp = Some(now);
-                    JOB_LAST_FAILURE_TIMESTAMP.with_label_values(&[job_name]).set(now as f64);
-                    JOB_CONSECUTIVE_FAILURES.with_label_values(&[job_name]).set(info.consecutive_failures as f64);
+                    JOB_LAST_FAILURE_TIMESTAMP.with_label_values(&[job_name]).set(now);
+                    JOB_CONSECUTIVE_FAILURES.with_label_values(&[job_name]).set(info.consecutive_failures as i64);
                 }
                 JobStatus::Running => {} // Still running, shouldn't happen here
             }
@@ -333,7 +346,9 @@ macro_rules! instrument_job {
     ($job_name:expr, $async_block:block) => {{
         let _metrics = $crate::observability::job_metrics::JobMetricsCollector::new($job_name);
         
-        match async move $async_block.await {
+        let result = $async_block;
+        
+        match result {
             Ok(_) => {
                 _metrics.complete_success();
                 Ok(())
@@ -362,7 +377,7 @@ pub async fn get_job_status_summary() -> serde_json::Value {
             "last_failure_timestamp": info.last_failure_timestamp,
             "last_execution": info.last_execution.as_ref().map(|exec| {
                 match &exec.status {
-                    $crate::observability::job_metrics::JobStatus::Success => {
+                    JobStatus::Success => {
                         serde_json::json!({
                             "status": "success",
                             "started_at": exec.started_at.elapsed().as_secs(),
@@ -370,7 +385,7 @@ pub async fn get_job_status_summary() -> serde_json::Value {
                             "completed_at": exec.completed_at.map(|t| t.elapsed().as_secs())
                         })
                     }
-                    $crate::observability::job_metrics::JobStatus::Failed(err) => {
+                    JobStatus::Failed(err) => {
                         serde_json::json!({
                             "status": "failed",
                             "started_at": exec.started_at.elapsed().as_secs(),
@@ -379,7 +394,7 @@ pub async fn get_job_status_summary() -> serde_json::Value {
                             "error": err
                         })
                     }
-                    $crate::observability::job_metrics::JobStatus::Timeout => {
+                    JobStatus::Timeout => {
                         serde_json::json!({
                             "status": "timeout",
                             "started_at": exec.started_at.elapsed().as_secs(),
@@ -387,7 +402,7 @@ pub async fn get_job_status_summary() -> serde_json::Value {
                             "completed_at": exec.completed_at.map(|t| t.elapsed().as_secs())
                         })
                     }
-                    $crate::observability::job_metrics::JobStatus::Running => {
+                    JobStatus::Running => {
                         serde_json::json!({
                             "status": "running",
                             "started_at": exec.started_at.elapsed().as_secs(),

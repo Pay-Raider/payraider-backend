@@ -6,6 +6,7 @@ pub mod api_analytics_middleware;
 pub mod api_deprecation_middleware;
 pub mod api_v1_middleware;
 pub mod deprecation_middleware;
+pub mod distributed_lock;
 pub mod monitor;
 
 pub mod auth;
@@ -22,7 +23,9 @@ pub mod db;
 pub mod email;
 pub mod env_config;
 pub mod error;
+pub mod features;
 pub mod handlers; // Core handlers (pool_metrics, health_check, ingestion_status)
+pub mod health_check_enhanced; // Enhanced health check with mobile support
 pub mod http_cache; // HTTP caching layer (ETag/conditional responses)
 pub mod ingestion;
 pub mod ip_whitelist_middleware;
@@ -34,6 +37,7 @@ pub mod muxed;
 pub mod request_signing_middleware;
 
 pub mod network;
+pub mod multi_network;
 pub mod observability;
 pub mod openapi;
 pub mod pagination;
@@ -51,4 +55,5 @@ pub mod webhooks;
 pub mod websocket;
 
 pub mod rpc;
+pub mod middleware;
 
