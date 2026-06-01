@@ -52,6 +52,7 @@ use stellar_insights_backend::{
         DatabaseSchemaSeparation, WebSocketRealTimeUpdates, ApiVersioning,
         DeprecationWarnings, MobileRequestLogging,
         ConcurrencyLimitState, concurrency_limit_middleware, panic_recovery_middleware,
+        ETagCachingSupport,
         BatchEndpoints,
         ResponseCompression,
     },
@@ -193,6 +194,7 @@ async fn main() -> anyhow::Result<()> {
     let _api_versioning = ApiVersioning::new(Default::default());
     let _deprecation_warnings = DeprecationWarnings::new(Default::default());
     let _mobile_request_logging = MobileRequestLogging::new(Default::default());
+    let _etag_caching_support = ETagCachingSupport::new(Default::default());
     let _batch_endpoints = BatchEndpoints::new(Default::default());
     let _response_compression = ResponseCompression::new(
         stellar_insights_backend::models::response_compression::CompressionConfig::from_env(),

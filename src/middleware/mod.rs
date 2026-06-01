@@ -7,6 +7,7 @@ pub mod api_versioning;
 pub mod deprecation_warnings;
 pub mod mobile_request_logging;
 pub mod concurrency_limit;
+pub mod etag_caching_support;
 pub mod batch_endpoints;
 pub mod response_compression;
 
@@ -19,5 +20,6 @@ pub use api_versioning::ApiVersioning;
 pub use deprecation_warnings::DeprecationWarnings;
 pub use mobile_request_logging::MobileRequestLogging;
 pub use concurrency_limit::{ConcurrencyLimitState, concurrency_limit_middleware, panic_recovery_middleware};
+pub use etag_caching_support::ETagCachingSupport;
 pub use batch_endpoints::BatchEndpoints;
 pub use response_compression::ResponseCompression;
