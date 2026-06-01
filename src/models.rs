@@ -30,6 +30,7 @@ pub mod batch_endpoints;
 pub mod rate_limiting_by_client;
 pub mod network_status_endpoint;
 pub mod jwt_token_refresh;
+pub mod push_notification_service;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
