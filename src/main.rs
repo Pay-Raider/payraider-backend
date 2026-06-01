@@ -56,6 +56,7 @@ use stellar_insights_backend::{
         ETagCachingSupport,
         BatchEndpoints,
         ResponseCompression,
+        PushNotificationService,
     },
 };
 
@@ -204,6 +205,11 @@ async fn main() -> anyhow::Result<()> {
     if let Err(e) = _response_compression.validate() {
         tracing::warn!("Response compression config invalid: {}", e);
     }
+
+    let _push_notification_service = PushNotificationService::new(
+        stellar_insights_backend::models::push_notification_service::Config::default(),
+    );
+    tracing::info!("Push notification service initialized");
 
     let fee_bump_tracker = services.fee_bump_tracker;
     let account_merge_detector = services.account_merge_detector;
