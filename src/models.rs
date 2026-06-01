@@ -19,11 +19,13 @@ pub mod websocket_real_time_updates;
 pub mod api_versioning;
 pub mod deprecation_warnings;
 pub mod mobile_request_logging;
+pub mod response_compression;
 pub mod websocket_streaming_models;
 pub mod redis_caching_models;
 pub mod elasticsearch_integration;
 pub mod message_queue_system;
 pub mod etag_caching_support;
+pub mod batch_endpoints;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
