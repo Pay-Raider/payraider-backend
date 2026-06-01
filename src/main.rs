@@ -52,6 +52,7 @@ use stellar_insights_backend::{
         DatabaseSchemaSeparation, WebSocketRealTimeUpdates, ApiVersioning,
         DeprecationWarnings, MobileRequestLogging,
         ConcurrencyLimitState, concurrency_limit_middleware, panic_recovery_middleware,
+        FieldSelectionParameter,
     },
 };
 
@@ -191,6 +192,7 @@ async fn main() -> anyhow::Result<()> {
     let _api_versioning = ApiVersioning::new(Default::default());
     let _deprecation_warnings = DeprecationWarnings::new(Default::default());
     let _mobile_request_logging = MobileRequestLogging::new(Default::default());
+    let _field_selection_parameter = FieldSelectionParameter::new(Default::default());
 
     let fee_bump_tracker = services.fee_bump_tracker;
     let account_merge_detector = services.account_merge_detector;
