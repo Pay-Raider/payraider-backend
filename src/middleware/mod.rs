@@ -8,6 +8,8 @@ pub mod deprecation_warnings;
 pub mod mobile_request_logging;
 pub mod concurrency_limit;
 pub mod field_selection_parameter;
+pub mod etag_caching_support;
+pub mod batch_endpoints;
 pub mod response_compression;
 
 pub use network_context_middleware::NetworkContextMiddleware;
@@ -20,4 +22,6 @@ pub use deprecation_warnings::DeprecationWarnings;
 pub use mobile_request_logging::MobileRequestLogging;
 pub use concurrency_limit::{ConcurrencyLimitState, concurrency_limit_middleware, panic_recovery_middleware};
 pub use field_selection_parameter::FieldSelectionParameter;
+pub use etag_caching_support::ETagCachingSupport;
+pub use batch_endpoints::BatchEndpoints;
 pub use response_compression::ResponseCompression;
