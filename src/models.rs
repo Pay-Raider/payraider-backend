@@ -23,6 +23,7 @@ pub mod websocket_streaming_models;
 pub mod redis_caching_models;
 pub mod elasticsearch_integration;
 pub mod message_queue_system;
+pub mod batch_endpoints;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
