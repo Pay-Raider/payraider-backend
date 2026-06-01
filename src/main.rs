@@ -53,6 +53,7 @@ use stellar_insights_backend::{
         DeprecationWarnings, MobileRequestLogging,
         ConcurrencyLimitState, concurrency_limit_middleware, panic_recovery_middleware,
         FieldSelectionParameter,
+        ResponseCompression,
     },
 };
 
@@ -193,6 +194,12 @@ async fn main() -> anyhow::Result<()> {
     let _deprecation_warnings = DeprecationWarnings::new(Default::default());
     let _mobile_request_logging = MobileRequestLogging::new(Default::default());
     let _field_selection_parameter = FieldSelectionParameter::new(Default::default());
+    let _response_compression = ResponseCompression::new(
+        stellar_insights_backend::models::response_compression::CompressionConfig::from_env(),
+    );
+    if let Err(e) = _response_compression.validate() {
+        tracing::warn!("Response compression config invalid: {}", e);
+    }
 
     let fee_bump_tracker = services.fee_bump_tracker;
     let account_merge_detector = services.account_merge_detector;

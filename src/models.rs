@@ -19,6 +19,7 @@ pub mod websocket_real_time_updates;
 pub mod api_versioning;
 pub mod deprecation_warnings;
 pub mod mobile_request_logging;
+pub mod response_compression;
 pub mod websocket_streaming_models;
 pub mod redis_caching_models;
 pub mod elasticsearch_integration;
