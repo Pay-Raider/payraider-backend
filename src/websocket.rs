@@ -118,7 +118,12 @@ impl WsState {
         let redis_url =
             std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
         let redis_client = redis::Client::open(redis_url.as_str())
-            .map_err(|e| warn!("WsState: Redis unavailable, cross-instance broadcast disabled: {}", e))
+            .map_err(|e| {
+                warn!(
+                    "WsState: Redis unavailable, cross-instance broadcast disabled: {}",
+                    e
+                )
+            })
             .ok();
         Self {
             connections: DashMap::new(),
@@ -149,17 +154,25 @@ impl WsState {
                             tokio::time::sleep(Duration::from_secs(5)).await;
                             continue;
                         }
-                        info!("WsState: subscribed to Redis channel '{}'", REDIS_WS_CHANNEL);
+                        info!(
+                            "WsState: subscribed to Redis channel '{}'",
+                            REDIS_WS_CHANNEL
+                        );
                         let mut stream = pubsub.on_message();
                         loop {
                             match stream.next().await {
                                 Some(msg) => {
                                     let payload: String = match msg.get_payload() {
                                         Ok(p) => p,
-                                        Err(e) => { warn!("WsState Redis payload error: {}", e); continue; }
+                                        Err(e) => {
+                                            warn!("WsState Redis payload error: {}", e);
+                                            continue;
+                                        }
                                     };
                                     match serde_json::from_str::<WsMessage>(&payload) {
-                                        Ok(ws_msg) => { let _ = local_tx.send(ws_msg); }
+                                        Ok(ws_msg) => {
+                                            let _ = local_tx.send(ws_msg);
+                                        }
                                         Err(e) => warn!("WsState Redis deserialize error: {}", e),
                                     }
                                 }
@@ -208,7 +221,10 @@ impl WsState {
     /// Check per-IP connection limit and connection-attempt rate limit.
     /// Returns `Ok(())` if the connection should be allowed, `Err` with a message otherwise.
     pub fn check_ip_limits(&self, ip: IpAddr) -> Result<(), &'static str> {
-        let mut entry = self.ip_rate_limits.entry(ip).or_insert_with(IpRateLimit::new);
+        let mut entry = self
+            .ip_rate_limits
+            .entry(ip)
+            .or_insert_with(IpRateLimit::new);
 
         // Reset attempt window if expired.
         let now = Instant::now();
@@ -245,12 +261,11 @@ impl WsState {
                 tokio::spawn(async move {
                     match client.get_multiplexed_tokio_connection().await {
                         Ok(mut conn) => {
-                            let _: redis::RedisResult<()> =
-                                redis::cmd("PUBLISH")
-                                    .arg(REDIS_WS_CHANNEL)
-                                    .arg(payload_clone)
-                                    .query_async(&mut conn)
-                                    .await;
+                            let _: redis::RedisResult<()> = redis::cmd("PUBLISH")
+                                .arg(REDIS_WS_CHANNEL)
+                                .arg(payload_clone)
+                                .query_async(&mut conn)
+                                .await;
                         }
                         Err(e) => warn!("WsState broadcast: Redis publish failed: {}", e),
                     }
@@ -499,10 +514,7 @@ pub async fn ws_handler(
 
     // Per-IP rate limit check — connection attempts and concurrent connections per IP.
     if let Err(reason) = state.check_ip_limits(client_ip) {
-        warn!(
-            "Per-IP limit exceeded for {}: {}",
-            client_ip, reason
-        );
+        warn!("Per-IP limit exceeded for {}: {}", client_ip, reason);
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({ "error": reason })),
@@ -791,7 +803,11 @@ async fn send_ws_message(sender: &SharedWebSocketSender, message: &WsMessage) ->
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::collection_is_never_read, clippy::expect_used, clippy::unwrap_used)]
+#[allow(
+    clippy::collection_is_never_read,
+    clippy::expect_used,
+    clippy::unwrap_used
+)]
 mod tests {
     use super::*;
     use std::sync::Arc;
@@ -856,16 +872,27 @@ mod tests {
         // so release after each to keep active count low).
         for i in 0..MAX_CONNECT_ATTEMPTS_PER_IP {
             if i < MAX_CONNECTIONS_PER_IP as u32 {
-                assert!(state.check_ip_limits(ip).is_ok(), "attempt {} should pass", i);
+                assert!(
+                    state.check_ip_limits(ip).is_ok(),
+                    "attempt {} should pass",
+                    i
+                );
             } else {
                 // Release one active slot so active_connections isn't the blocker.
                 state.release_ip_connection(ip);
-                assert!(state.check_ip_limits(ip).is_ok(), "attempt {} should pass", i);
+                assert!(
+                    state.check_ip_limits(ip).is_ok(),
+                    "attempt {} should pass",
+                    i
+                );
             }
         }
         // Now attempt budget is exhausted.
         state.release_ip_connection(ip);
-        assert!(state.check_ip_limits(ip).is_err(), "should be blocked by attempt rate limit");
+        assert!(
+            state.check_ip_limits(ip).is_err(),
+            "should be blocked by attempt rate limit"
+        );
     }
 
     #[test]
@@ -878,7 +905,10 @@ mod tests {
             state.check_ip_limits(ip_a).unwrap();
         }
         assert!(state.check_ip_limits(ip_a).is_err());
-        assert!(state.check_ip_limits(ip_b).is_ok(), "ip_b should be unaffected");
+        assert!(
+            state.check_ip_limits(ip_b).is_ok(),
+            "ip_b should be unaffected"
+        );
     }
 
     #[test]

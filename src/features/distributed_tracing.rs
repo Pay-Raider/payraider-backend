@@ -162,12 +162,10 @@ impl DistributedTracing {
             DistributedTracingError::StorageError("Lock error".to_string())
         })?;
 
-        let trace_spans = spans
-            .get_mut(trace_id)
-            .ok_or_else(|| {
-                error!("Trace not found: {}", trace_id);
-                DistributedTracingError::TraceNotFound(trace_id.to_string())
-            })?;
+        let trace_spans = spans.get_mut(trace_id).ok_or_else(|| {
+            error!("Trace not found: {}", trace_id);
+            DistributedTracingError::TraceNotFound(trace_id.to_string())
+        })?;
 
         let span = trace_spans
             .iter_mut()
@@ -190,13 +188,10 @@ impl DistributedTracing {
             DistributedTracingError::StorageError("Lock error".to_string())
         })?;
 
-        spans
-            .get(trace_id)
-            .cloned()
-            .ok_or_else(|| {
-                error!("Trace not found: {}", trace_id);
-                DistributedTracingError::TraceNotFound(trace_id.to_string())
-            })
+        spans.get(trace_id).cloned().ok_or_else(|| {
+            error!("Trace not found: {}", trace_id);
+            DistributedTracingError::TraceNotFound(trace_id.to_string())
+        })
     }
 
     pub fn list_traces(&self) -> Result<Vec<String>, DistributedTracingError> {

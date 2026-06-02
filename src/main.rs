@@ -12,7 +12,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tower_http::{
-    compression::{predicate::{NotForContentType, Predicate, SizeAbove}, CompressionLayer, CompressionLevel},
+    compression::{
+        predicate::{NotForContentType, Predicate, SizeAbove},
+        CompressionLayer, CompressionLevel,
+    },
     cors::{AllowOrigin, CorsLayer},
     timeout::TimeoutLayer,
     trace::TraceLayer,
@@ -26,19 +29,27 @@ use stellar_insights_backend::{
     cache::{CacheConfig, CacheManager},
     database::{Database, PoolConfig},
     env_config,
-    features::graphql_api::{graphql_handler, graphql_health_handler, GraphQLAPI, GraphQLAPIConfig},
+    features::graphql_api::{
+        graphql_handler, graphql_health_handler, GraphQLAPI, GraphQLAPIConfig,
+    },
     ingestion::DataIngestionService,
     jobs::backfill::{BackfillJob, BackfillState},
+    middleware::{
+        concurrency_limit_middleware, panic_recovery_middleware, ApiVersioning, BatchEndpoints,
+        ConcurrencyLimitState, DatabaseSchemaSeparation, DeprecationWarnings, ETagCachingSupport,
+        FieldSelectionParameter, MobilePaginationEndpoints, MobileRequestLogging,
+        NetworkAwareRpcClient, NetworkContextMiddleware, PushNotificationService,
+        ResponseCompression, WebSocketRealTimeUpdates,
+    },
+    observability::logging::request_response_logging_middleware,
     observability::metrics as obs_metrics,
     observability::tracing::trace_propagation_middleware,
-    observability::logging::request_response_logging_middleware,
     openapi::ApiDoc,
     rate_limit::RateLimiter,
     request_id::request_id_middleware,
     rpc::StellarRpcClient,
     services::{
-        event_indexer::EventIndexer,
-        service_container::ServiceContainer,
+        event_indexer::EventIndexer, service_container::ServiceContainer,
         webhook_dispatcher::WebhookDispatcher,
     },
     shutdown::{
@@ -149,9 +160,15 @@ async fn main() -> anyhow::Result<()> {
                         active,
                         size
                     );
-                    stellar_insights_backend::observability::metrics::record_pool_error("near_exhaustion");
+                    stellar_insights_backend::observability::metrics::record_pool_error(
+                        "near_exhaustion",
+                    );
                 }
-                stellar_insights_backend::observability::metrics::set_pool_connections(active, idle as usize, size);
+                stellar_insights_backend::observability::metrics::set_pool_connections(
+                    active,
+                    idle as usize,
+                    size,
+                );
             }
         })
     };
@@ -161,7 +178,10 @@ async fn main() -> anyhow::Result<()> {
         CacheManager::new(CacheConfig::from_env())
             .await
             .unwrap_or_else(|e| {
-                tracing::warn!("Failed to initialize cache manager, using in-memory fallback: {}", e);
+                tracing::warn!(
+                    "Failed to initialize cache manager, using in-memory fallback: {}",
+                    e
+                );
                 CacheManager::new_in_memory_for_tests(CacheConfig::from_env())
             }),
     );
@@ -268,61 +288,69 @@ async fn main() -> anyhow::Result<()> {
 
     // Configure rate limits for expensive operations
     use stellar_insights_backend::rate_limit::{ClientRateLimits, RateLimitConfig};
-    
+
     // Export endpoints (CSV/Excel generation)
-    rate_limiter.register_endpoint(
-        "/api/export/csv".to_string(),
-        RateLimitConfig {
-            requests_per_minute: 5,
-            whitelist_ips: vec![],
-            client_limits: Some(ClientRateLimits {
-                authenticated: 10,
-                premium: 20,
-                anonymous: 5,
-            }),
-        },
-    ).await;
-    
-    rate_limiter.register_endpoint(
-        "/api/export/excel".to_string(),
-        RateLimitConfig {
-            requests_per_minute: 5,
-            whitelist_ips: vec![],
-            client_limits: Some(ClientRateLimits {
-                authenticated: 10,
-                premium: 20,
-                anonymous: 5,
-            }),
-        },
-    ).await;
-    
+    rate_limiter
+        .register_endpoint(
+            "/api/export/csv".to_string(),
+            RateLimitConfig {
+                requests_per_minute: 5,
+                whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 10,
+                    premium: 20,
+                    anonymous: 5,
+                }),
+            },
+        )
+        .await;
+
+    rate_limiter
+        .register_endpoint(
+            "/api/export/excel".to_string(),
+            RateLimitConfig {
+                requests_per_minute: 5,
+                whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 10,
+                    premium: 20,
+                    anonymous: 5,
+                }),
+            },
+        )
+        .await;
+
     // Analytics aggregation queries
-    rate_limiter.register_endpoint(
-        "/api/analytics".to_string(),
-        RateLimitConfig {
-            requests_per_minute: 20,
-            whitelist_ips: vec![],
-            client_limits: Some(ClientRateLimits {
-                authenticated: 40,
-                premium: 100,
-                anonymous: 20,
-            }),
-        },
-    ).await;
-    
+    rate_limiter
+        .register_endpoint(
+            "/api/analytics".to_string(),
+            RateLimitConfig {
+                requests_per_minute: 20,
+                whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 40,
+                    premium: 100,
+                    anonymous: 20,
+                }),
+            },
+        )
+        .await;
+
     // RPC proxy endpoints
-    rate_limiter.register_endpoint(
-        "/api/rpc".to_string(),
-        RateLimitConfig {
-            requests_per_minute: 100,
-            whitelist_ips: vec![],
-            client_limits: Some(ClientRateLimits {
-                authenticated: 200,
-                premium: 500,
-                anonymous: 100,
-            }),
-        },
-    ).await;
+    rate_limiter
+        .register_endpoint(
+            "/api/rpc".to_string(),
+            RateLimitConfig {
+                requests_per_minute: 100,
+                whitelist_ips: vec![],
+                client_limits: Some(ClientRateLimits {
+                    authenticated: 200,
+                    premium: 500,
+                    anonymous: 100,
+                }),
+            },
+        )
+        .await;
 
     let webhook_dispatcher_handle: JoinHandle<()> = {
         let webhook_pool = pool.clone();

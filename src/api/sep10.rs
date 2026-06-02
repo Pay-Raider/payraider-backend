@@ -41,9 +41,7 @@ async fn check_challenge_rate_limit(ip: &str) -> Option<u64> {
     let now = Instant::now();
     let window = Duration::from_secs(60);
     let mut buckets = SEP10_CHALLENGE_WINDOWS.lock().await;
-    let entries = buckets
-        .entry(ip.to_string())
-        .or_insert_with(VecDeque::new);
+    let entries = buckets.entry(ip.to_string()).or_insert_with(VecDeque::new);
 
     while let Some(oldest) = entries.front().copied() {
         if now.duration_since(oldest) >= window {
@@ -116,7 +114,9 @@ pub async fn request_challenge(
             retry_after_seconds,
             "SEP-10 challenge rate limit exceeded"
         );
-        return Err(Sep10ApiError::RateLimited { retry_after_seconds });
+        return Err(Sep10ApiError::RateLimited {
+            retry_after_seconds,
+        });
     }
 
     let response = sep10_service
@@ -203,7 +203,9 @@ impl IntoResponse for Sep10ApiError {
                 format!("Logout failed: {msg}"),
                 None,
             ),
-            Self::RateLimited { retry_after_seconds } => (
+            Self::RateLimited {
+                retry_after_seconds,
+            } => (
                 StatusCode::TOO_MANY_REQUESTS,
                 format!(
                     "Too many SEP-10 challenge requests. Retry after {retry_after_seconds} seconds"

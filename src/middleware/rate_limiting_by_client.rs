@@ -1,8 +1,8 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use chrono::{DateTime, Utc};
 
 use crate::models::network_context_middleware::NetworkContext;
 
@@ -32,12 +32,12 @@ impl RateLimitingByClient {
         let mut clients = self.clients.write().await;
         let now = Utc::now();
 
-        let limit = clients.entry(client_id.to_string()).or_insert_with(|| {
-            ClientRateLimit {
+        let limit = clients
+            .entry(client_id.to_string())
+            .or_insert_with(|| ClientRateLimit {
                 requests: 0,
                 reset_time: now + chrono::Duration::seconds(self.window_secs as i64),
-            }
-        });
+            });
 
         if now >= limit.reset_time {
             limit.requests = 0;
@@ -54,10 +54,7 @@ impl RateLimitingByClient {
             );
             Ok(true)
         } else {
-            tracing::warn!(
-                client_id = client_id,
-                "Rate limit exceeded for client"
-            );
+            tracing::warn!(client_id = client_id, "Rate limit exceeded for client");
             Ok(false)
         }
     }

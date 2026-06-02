@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::models::corridor::CorridorMetrics;
+use async_trait::async_trait;
 
 /// Defines the contract for fetching data needed by the broadcaster.
 /// Decouples RealtimeBroadcaster from the concrete Database type.

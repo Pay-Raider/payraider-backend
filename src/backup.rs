@@ -146,9 +146,9 @@ impl BackupManager {
     /// 3. Opening the backup as a read-only SQLite connection and running `PRAGMA integrity_check`
     pub async fn verify_backup(&self, backup_path: &Path) -> Result<BackupVerificationResult> {
         // --- existence & size ---
-        let metadata = tokio::fs::metadata(backup_path).await.with_context(|| {
-            format!("Backup file not found: {}", backup_path.display())
-        })?;
+        let metadata = tokio::fs::metadata(backup_path)
+            .await
+            .with_context(|| format!("Backup file not found: {}", backup_path.display()))?;
 
         if metadata.len() == 0 {
             return Ok(BackupVerificationResult {
@@ -162,14 +162,19 @@ impl BackupManager {
 
         // --- checksum ---
         let bytes = tokio::fs::read(backup_path).await.with_context(|| {
-            format!("Failed to read backup for checksum: {}", backup_path.display())
+            format!(
+                "Failed to read backup for checksum: {}",
+                backup_path.display()
+            )
         })?;
         let digest = Sha256::digest(&bytes);
         let computed = hex::encode(digest);
 
         let sidecar = backup_path.with_extension("db.sha256");
         let checksum_ok = if sidecar.exists() {
-            let stored = tokio::fs::read_to_string(&sidecar).await.unwrap_or_default();
+            let stored = tokio::fs::read_to_string(&sidecar)
+                .await
+                .unwrap_or_default();
             stored.trim() == computed
         } else {
             // Write sidecar for future verifications
@@ -193,10 +198,13 @@ impl BackupManager {
         }
 
         // --- SQLite integrity check via restore test ---
-        let integrity_ok = self.run_restore_test(backup_path).await.unwrap_or_else(|e| {
-            tracing::warn!(error = %e, path = %backup_path.display(), "Restore test failed");
-            false
-        });
+        let integrity_ok = self
+            .run_restore_test(backup_path)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, path = %backup_path.display(), "Restore test failed");
+                false
+            });
 
         if integrity_ok {
             tracing::info!(
@@ -207,7 +215,9 @@ impl BackupManager {
             );
             crate::observability::metrics::record_backup_verification_success();
         } else {
-            crate::observability::metrics::record_backup_verification_failure("integrity_check_failed");
+            crate::observability::metrics::record_backup_verification_failure(
+                "integrity_check_failed",
+            );
         }
 
         Ok(BackupVerificationResult {
@@ -215,7 +225,11 @@ impl BackupManager {
             size_bytes: metadata.len(),
             checksum_ok,
             integrity_ok,
-            error: if integrity_ok { None } else { Some("SQLite integrity check failed".to_string()) },
+            error: if integrity_ok {
+                None
+            } else {
+                Some("SQLite integrity check failed".to_string())
+            },
         })
     }
 
@@ -227,7 +241,12 @@ impl BackupManager {
             .max_connections(1)
             .connect(&url)
             .await
-            .with_context(|| format!("Could not open backup for restore test: {}", backup_path.display()))?;
+            .with_context(|| {
+                format!(
+                    "Could not open backup for restore test: {}",
+                    backup_path.display()
+                )
+            })?;
 
         let row: (String,) = sqlx::query_as("PRAGMA integrity_check")
             .fetch_one(&pool)

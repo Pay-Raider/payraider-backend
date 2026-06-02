@@ -41,7 +41,10 @@ pub async fn create_api_key(
     let wallet_address = extract_wallet_address(&headers)?;
 
     let name = req.name.trim();
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ') {
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ')
+    {
         return Err(ApiKeyError::BadRequest(
             "Key name may only contain letters, digits, spaces, hyphens, and underscores"
                 .to_string(),

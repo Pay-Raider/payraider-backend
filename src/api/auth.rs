@@ -55,7 +55,9 @@ impl IntoResponse for AuthApiError {
                 "Invalid or expired token".to_string(),
                 None,
             ),
-            Self::AccountLocked { retry_after_seconds } => (
+            Self::AccountLocked {
+                retry_after_seconds,
+            } => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "ACCOUNT_LOCKED",
                 "Account temporarily locked due to repeated failed login attempts".to_string(),
@@ -67,7 +69,9 @@ impl IntoResponse for AuthApiError {
                 "CAPTCHA verification required after repeated failed login attempts".to_string(),
                 None,
             ),
-            Self::RateLimited { retry_after_seconds } => (
+            Self::RateLimited {
+                retry_after_seconds,
+            } => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "RATE_LIMITED",
                 "Too many authentication attempts. Please try again later.".to_string(),
@@ -232,12 +236,17 @@ pub async fn login(
             retry_after_seconds,
             "Token endpoint rate limit exceeded for account"
         );
-        return Err(AuthApiError::RateLimited { retry_after_seconds });
+        return Err(AuthApiError::RateLimited {
+            retry_after_seconds,
+        });
     }
 
     preflight_login_guards(&request.username, &headers).await?;
 
-    let response = auth_service.login(request).await.map_err(|_| AuthApiError::InvalidCredentials);
+    let response = auth_service
+        .login(request)
+        .await
+        .map_err(|_| AuthApiError::InvalidCredentials);
     match response {
         Ok(login_response) => {
             clear_failed_login_state(&account_key).await;

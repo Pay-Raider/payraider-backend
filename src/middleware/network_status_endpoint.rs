@@ -29,16 +29,16 @@ impl NetworkStatusEndpoint {
 
     pub async fn check_status(&self, context: &NetworkContext) -> Result<NetworkStatus> {
         let mut status = self.status.write().await;
-        
+
         let start = std::time::Instant::now();
-        
+
         match context.network {
             crate::models::network_context_middleware::Network::Testnet
             | crate::models::network_context_middleware::Network::Mainnet => {
                 status.operational = true;
                 status.latency_ms = start.elapsed().as_millis() as u64;
                 status.timestamp = chrono::Utc::now();
-                
+
                 tracing::info!(
                     network = ?context.network,
                     latency_ms = status.latency_ms,
@@ -59,12 +59,12 @@ impl NetworkStatusEndpoint {
         let mut status = self.status.write().await;
         status.operational = operational;
         status.timestamp = chrono::Utc::now();
-        
+
         tracing::info!(
             operational = operational,
             "Network operational status updated"
         );
-        
+
         Ok(())
     }
 }
@@ -117,7 +117,7 @@ mod tests {
     #[tokio::test]
     async fn test_set_operational() {
         let endpoint = NetworkStatusEndpoint::new();
-        
+
         let result = endpoint.set_operational(false).await;
         assert!(result.is_ok());
 
@@ -129,10 +129,10 @@ mod tests {
     #[tokio::test]
     async fn test_timestamp_updates() {
         let endpoint = NetworkStatusEndpoint::new();
-        
+
         let status1 = endpoint.get_status().await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-        
+
         let _ = endpoint.set_operational(false).await;
         let status2 = endpoint.get_status().await.unwrap();
 

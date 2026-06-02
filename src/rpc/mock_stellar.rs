@@ -1,10 +1,10 @@
 //! Deterministic Stellar Horizon/RPC fixtures for tests and mock-mode clients.
 
 use super::stellar::{
-    Asset, AssetAccounts, AssetBalances, AssetFlags, AssetBalanceChange, FeeBumpTransactionInfo,
+    Asset, AssetAccounts, AssetBalanceChange, AssetBalances, AssetFlags, FeeBumpTransactionInfo,
     GetLedgersResult, HealthResponse, HorizonAsset, HorizonEffect, HorizonLiquidityPool,
-    HorizonOperation, HorizonPoolReserve, HorizonTransaction, InnerTransaction, LedgerInfo, OrderBook,
-    OrderBookEntry, Payment, Price, RpcLedger, Trade,
+    HorizonOperation, HorizonPoolReserve, HorizonTransaction, InnerTransaction, LedgerInfo,
+    OrderBook, OrderBookEntry, Payment, Price, RpcLedger, Trade,
 };
 
 pub const MOCK_OLDEST_LEDGER: u64 = 51_565_760;
@@ -44,8 +44,7 @@ pub fn mock_get_ledgers(start: u64, limit: u32) -> GetLedgersResult {
         };
     }
 
-    let end =
-        (start.saturating_add(u64::from(limit)).saturating_sub(1)).min(MOCK_LATEST_LEDGER);
+    let end = (start.saturating_add(u64::from(limit)).saturating_sub(1)).min(MOCK_LATEST_LEDGER);
     let ledgers = (start..=end)
         .enumerate()
         .map(|(i, seq)| RpcLedger {
@@ -75,10 +74,8 @@ pub fn mock_payments(limit: u32) -> Vec<Payment> {
             // tests exercise both the legacy and new code paths.
             let use_new_format = i % 2 == 0;
 
-            let dest_account =
-                format!("GDYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY{i:03}");
-            let src_account =
-                format!("GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX{i:03}");
+            let dest_account = format!("GDYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY{i:03}");
+            let src_account = format!("GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX{i:03}");
             let asset_type_str = if is_native_dest {
                 "native".to_string()
             } else if i % 2 == 0 {
@@ -317,8 +314,7 @@ pub fn mock_operations_for_ledger(sequence: u64) -> Vec<HorizonOperation> {
             id: format!("op_{sequence}_1"),
             paging_token: format!("pt_{sequence}_1"),
             transaction_hash: format!("txhash_{sequence}_1"),
-            source_account: "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
-                .to_string(),
+            source_account: "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
             operation_type: "payment".to_string(),
             created_at: "2026-01-22T10:31:00Z".to_string(),
             account: None,
@@ -344,9 +340,7 @@ pub fn mock_effects_for_operation(operation_id: &str) -> Vec<HorizonEffect> {
         return vec![HorizonEffect {
             id: format!("effect_{operation_id}_0"),
             effect_type: "account_credited".to_string(),
-            account: Some(
-                "GDESTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
-            ),
+            account: Some("GDESTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string()),
             amount: Some("125.5000000".to_string()),
             asset_type: Some("native".to_string()),
         }];

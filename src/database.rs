@@ -323,7 +323,11 @@ impl Database {
                 );
             }
             Err(e) => {
-                log::debug!("Could not run EXPLAIN QUERY PLAN for '{}': {}", operation, e);
+                log::debug!(
+                    "Could not run EXPLAIN QUERY PLAN for '{}': {}",
+                    operation,
+                    e
+                );
             }
         }
     }
@@ -889,7 +893,7 @@ impl Database {
     }
 
     // Metrics history operations
-    
+
     /// Records a new metric point for an anchor's history.
     #[tracing::instrument(skip(self, params), fields(anchor_id = %params.anchor_id))]
     pub async fn record_anchor_metrics_history(
@@ -1162,7 +1166,7 @@ impl Database {
     }
 
     // Generic Metric operations
-    
+
     /// Records a generic system or entity metric.
     #[tracing::instrument(skip(self), fields(metric_name = %name))]
     pub async fn record_metric(
@@ -1201,7 +1205,7 @@ impl Database {
     }
 
     // Snapshot operations
-    
+
     /// Creates a snapshot of an entity's state at a specific point in time or epoch.
     #[tracing::instrument(skip(self, data), fields(entity_id = %entity_id, entity_type = %entity_type))]
     pub async fn create_snapshot(
@@ -1287,7 +1291,7 @@ impl Database {
     }
 
     // Ingestion methods
-    
+
     /// Retrieves the last processed cursor for a given ingestion task.
     #[tracing::instrument(skip(self), fields(task_name = %task_name))]
     pub async fn get_ingestion_cursor(&self, task_name: &str) -> Result<Option<String>> {
@@ -1382,7 +1386,7 @@ impl Database {
     }
 
     // Aggregation methods
-    
+
     /// Returns a handle to the aggregation database.
     #[must_use]
     pub fn aggregation_db(&self) -> crate::db::aggregation::AggregationDb {
@@ -1590,7 +1594,7 @@ impl Database {
                 })
                 .collect();
             top_muxed_by_activity.sort_by(|a, b| b.total_payments.cmp(&a.total_payments));
-            
+
             let limit = std::cmp::max(0, top_limit) as usize;
             top_muxed_by_activity.truncate(limit);
 
@@ -1665,14 +1669,16 @@ impl Database {
         .await
     }
 
-
     pub async fn get_pending_transaction(
         &self,
         id: &str,
     ) -> Result<Option<crate::models::PendingTransactionWithSignatures>> {
         self.execute_with_timing("get_pending_transaction", async {
             let mut tx = self.pool.begin().await.with_context(|| {
-                format!("Failed to begin transaction for get_pending_transaction id: {}", id)
+                format!(
+                    "Failed to begin transaction for get_pending_transaction id: {}",
+                    id
+                )
             })?;
 
             let pending_transaction = sqlx::query_as::<_, crate::models::PendingTransaction>(
@@ -1699,7 +1705,10 @@ impl Database {
                 })?;
 
                 tx.commit().await.with_context(|| {
-                    format!("Failed to commit get_pending_transaction read for id: {}", id)
+                    format!(
+                        "Failed to commit get_pending_transaction read for id: {}",
+                        id
+                    )
                 })?;
 
                 Ok(Some(crate::models::PendingTransactionWithSignatures {
@@ -2057,11 +2066,10 @@ impl Database {
     ) -> Result<crate::models::AnchorMetrics> {
         self.execute_with_timing("get_recent_anchor_performance", async {
             let start_time = Utc::now() - chrono::Duration::minutes(minutes);
-            
+
             // Query aggregates from the normalized payments table.
             // This table stores only successful payment operations, so success count equals total count.
             // In a real system, we'd join with anchors/assets to filter by anchor_id.
-            
 
             // Query for aggregates from payments table
             // In a real system, we'd join with anchors/assets to filter by anchor_id
@@ -2148,8 +2156,10 @@ impl Database {
 impl crate::services::data_port::DataPort for Database {
     async fn fetch_corridor_updates(
         &self,
-    ) -> Result<Vec<crate::models::corridor::CorridorMetrics>, Box<dyn std::error::Error + Send + Sync>>
-    {
+    ) -> Result<
+        Vec<crate::models::corridor::CorridorMetrics>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         self.fetch_latest_corridor_metrics_for_broadcast()
             .await
             .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })

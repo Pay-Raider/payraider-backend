@@ -13,10 +13,14 @@ pub struct NetworkContext {
 
 impl NetworkContext {
     pub fn testnet() -> Self {
-        Self { network: Network::Testnet }
+        Self {
+            network: Network::Testnet,
+        }
     }
 
     pub fn mainnet() -> Self {
-        Self { network: Network::Mainnet }
+        Self {
+            network: Network::Mainnet,
+        }
     }
 }

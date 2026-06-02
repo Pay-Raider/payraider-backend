@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use chrono::{Duration, Utc};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -26,14 +26,28 @@ impl JWTTokenRefresh {
         }
     }
 
-    pub async fn issue_token(&self, client_id: &str, _context: &NetworkContext) -> Result<TokenInfo> {
+    pub async fn issue_token(
+        &self,
+        client_id: &str,
+        _context: &NetworkContext,
+    ) -> Result<TokenInfo> {
         let now = Utc::now();
         let expires_at = now + Duration::seconds(self.expiry_duration_secs);
-        
+
         let token = TokenInfo {
-            token: format!("token_{}_{}_{}", client_id, now.timestamp(), uuid::Uuid::new_v4()),
+            token: format!(
+                "token_{}_{}_{}",
+                client_id,
+                now.timestamp(),
+                uuid::Uuid::new_v4()
+            ),
             expires_at,
-            refresh_token: format!("refresh_{}_{}_{}", client_id, now.timestamp(), uuid::Uuid::new_v4()),
+            refresh_token: format!(
+                "refresh_{}_{}_{}",
+                client_id,
+                now.timestamp(),
+                uuid::Uuid::new_v4()
+            ),
         };
 
         let mut tokens = self.tokens.write().await;
@@ -48,7 +62,12 @@ impl JWTTokenRefresh {
         Ok(token)
     }
 
-    pub async fn refresh_token(&self, client_id: &str, refresh_token: &str, _context: &NetworkContext) -> Result<TokenInfo> {
+    pub async fn refresh_token(
+        &self,
+        client_id: &str,
+        refresh_token: &str,
+        _context: &NetworkContext,
+    ) -> Result<TokenInfo> {
         let mut tokens = self.tokens.write().await;
 
         let existing = tokens
@@ -63,9 +82,19 @@ impl JWTTokenRefresh {
         let expires_at = now + Duration::seconds(self.expiry_duration_secs);
 
         let new_token = TokenInfo {
-            token: format!("token_{}_{}_{}", client_id, now.timestamp(), uuid::Uuid::new_v4()),
+            token: format!(
+                "token_{}_{}_{}",
+                client_id,
+                now.timestamp(),
+                uuid::Uuid::new_v4()
+            ),
             expires_at,
-            refresh_token: format!("refresh_{}_{}_{}", client_id, now.timestamp(), uuid::Uuid::new_v4()),
+            refresh_token: format!(
+                "refresh_{}_{}_{}",
+                client_id,
+                now.timestamp(),
+                uuid::Uuid::new_v4()
+            ),
         };
 
         tokens.insert(client_id.to_string(), new_token.clone());
@@ -130,7 +159,9 @@ mod tests {
         let ctx = NetworkContext::testnet();
 
         let issued = jwt.issue_token("client2", &ctx).await.unwrap();
-        let refreshed = jwt.refresh_token("client2", &issued.refresh_token, &ctx).await;
+        let refreshed = jwt
+            .refresh_token("client2", &issued.refresh_token, &ctx)
+            .await;
 
         assert!(refreshed.is_ok());
         let new_token = refreshed.unwrap();
@@ -143,7 +174,9 @@ mod tests {
         let ctx = NetworkContext::testnet();
 
         let _ = jwt.issue_token("client3", &ctx).await;
-        let result = jwt.refresh_token("client3", "invalid_refresh_token", &ctx).await;
+        let result = jwt
+            .refresh_token("client3", "invalid_refresh_token", &ctx)
+            .await;
 
         assert!(result.is_err());
     }

@@ -1,13 +1,11 @@
 use crate::models::message_queue_system::{
-    Message, MessagePriority, MessageProcessingResult, MessageStatus, QueueConfig, QueueMetrics,
-    QueueStats,
+    Message, MessagePriority, MessageStatus, QueueConfig, QueueMetrics, QueueStats,
 };
 use anyhow::Result;
 use dashmap::DashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 type MessageStore = Arc<DashMap<String, Message>>;
@@ -64,7 +62,11 @@ impl MessageQueueSystem {
         Ok(response)
     }
 
-    pub async fn enqueue(&self, payload: serde_json::Value, priority: MessagePriority) -> Result<String> {
+    pub async fn enqueue(
+        &self,
+        payload: serde_json::Value,
+        priority: MessagePriority,
+    ) -> Result<String> {
         let message_id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
 
@@ -83,7 +85,10 @@ impl MessageQueueSystem {
 
         self.messages.insert(message_id.clone(), message);
 
-        let mut queue = self.queues.entry(self.config.name.clone()).or_insert_with(Vec::new);
+        let mut queue = self
+            .queues
+            .entry(self.config.name.clone())
+            .or_insert_with(Vec::new);
         queue.push(message_id.clone());
 
         let mut metrics = self.metrics.write().await;
@@ -166,7 +171,10 @@ impl MessageQueueSystem {
                 }
             } else {
                 message.status = MessageStatus::Retrying;
-                let mut queue = self.queues.entry(self.config.name.clone()).or_insert_with(Vec::new);
+                let mut queue = self
+                    .queues
+                    .entry(self.config.name.clone())
+                    .or_insert_with(Vec::new);
                 queue.push(message_id.to_string());
 
                 let mut metrics = self.metrics.write().await;
@@ -175,10 +183,16 @@ impl MessageQueueSystem {
             }
 
             message.updated_at = chrono::Utc::now();
-            message.metadata.insert("last_error".to_string(), error.to_string());
+            message
+                .metadata
+                .insert("last_error".to_string(), error.to_string());
 
+            let retry_count = message.retry_count;
             self.messages.insert(message_id.to_string(), message);
-            debug!("Message marked as failed: {} (retry: {})", message_id, message.retry_count);
+            debug!(
+                "Message marked as failed: {} (retry: {})",
+                message_id, retry_count
+            );
             Ok(())
         } else {
             error!("Message not found: {}", message_id);

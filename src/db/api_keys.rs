@@ -63,9 +63,7 @@ impl ApiKeyDb {
             .bind(&id)
             .fetch_one(&mut *tx)
             .await
-            .with_context(|| {
-                format!("Failed to fetch newly created API key with id: {}", id)
-            })?;
+            .with_context(|| format!("Failed to fetch newly created API key with id: {}", id))?;
 
         tx.commit().await.with_context(|| {
             format!(
@@ -233,9 +231,7 @@ impl ApiKeyDb {
             .bind(&new_id)
             .fetch_one(&mut *tx)
             .await
-            .with_context(|| {
-                format!("Failed to fetch rotated API key with id: {}", new_id)
-            })?;
+            .with_context(|| format!("Failed to fetch rotated API key with id: {}", new_id))?;
 
         tx.commit().await.with_context(|| {
             format!(

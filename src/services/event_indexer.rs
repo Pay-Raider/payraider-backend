@@ -593,11 +593,9 @@ impl EventIndexer {
                 .await
                 .context("Failed to query indexed ledger range")?;
 
-        Ok(row.and_then(|(min, max)| {
-            match (min, max) {
-                (Some(lo), Some(hi)) => Some((lo as u64, hi as u64)),
-                _ => None,
-            }
+        Ok(row.and_then(|(min, max)| match (min, max) {
+            (Some(lo), Some(hi)) => Some((lo as u64, hi as u64)),
+            _ => None,
         }))
     }
 

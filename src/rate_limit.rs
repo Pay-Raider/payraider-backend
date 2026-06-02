@@ -90,9 +90,9 @@ pub enum ClientTier {
 
 /// Comma-separated user/API-key IDs in `STELLAR_INSIGHTS_PREMIUM_CLIENT_IDS` map to premium tier.
 fn client_id_has_premium_env_override(client_id: &str) -> bool {
-    std::env::var("STELLAR_INSIGHTS_PREMIUM_CLIENT_IDS").ok().is_some_and(|raw| {
-        raw.split(',').any(|part| part.trim() == client_id)
-    })
+    std::env::var("STELLAR_INSIGHTS_PREMIUM_CLIENT_IDS")
+        .ok()
+        .is_some_and(|raw| raw.split(',').any(|part| part.trim() == client_id))
 }
 
 /// Rate limiter state

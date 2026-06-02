@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use crate::models::corridor::CorridorMetrics;
 use crate::models::AnchorMetrics;
+use async_trait::async_trait;
 
 /// Defines the contract for broadcasting real-time events.
 /// Any struct implementing this can be used in place of RealtimeBroadcaster.
@@ -21,12 +21,7 @@ pub trait BroadcasterPort: Send + Sync {
         successful: bool,
         timestamp: String,
     );
-    async fn broadcast_health_alert(
-        &self,
-        corridor_id: String,
-        severity: String,
-        message: String,
-    );
+    async fn broadcast_health_alert(&self, corridor_id: String, severity: String, message: String);
     fn connection_count(&self) -> usize;
     fn channel_subscription_count(&self, channel: &str) -> usize;
 }

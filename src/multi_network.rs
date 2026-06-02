@@ -84,11 +84,7 @@ impl MultiNetworkConfig {
 
     /// Get network context by network type
     pub fn get_context(&self, network: StellarNetwork) -> Option<NetworkContext> {
-        let config = self
-            .networks
-            .values()
-            .find(|c| c.network == network)
-            .cloned()?;
+        self.networks.values().find(|c| c.network == network)?;
 
         Some(NetworkContext::new(network))
     }

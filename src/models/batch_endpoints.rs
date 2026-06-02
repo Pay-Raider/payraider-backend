@@ -8,7 +8,9 @@ pub struct BatchConfig {
 
 impl Default for BatchConfig {
     fn default() -> Self {
-        Self { max_batch_size: 100 }
+        Self {
+            max_batch_size: 100,
+        }
     }
 }
 

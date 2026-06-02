@@ -143,10 +143,7 @@ impl StateBuilder {
     }
 
     /// Apply snapshot submission event
-    fn apply_snapshot_submission(
-        &mut self,
-        event: &ContractEvent,
-    ) -> Result<ProcessingResult> {
+    fn apply_snapshot_submission(&mut self, event: &ContractEvent) -> Result<ProcessingResult> {
         let epoch = event
             .data
             .get("epoch")
@@ -181,10 +178,7 @@ impl StateBuilder {
     }
 
     /// Apply snapshot verification event
-    fn apply_snapshot_verification(
-        &mut self,
-        event: &ContractEvent,
-    ) -> Result<ProcessingResult> {
+    fn apply_snapshot_verification(&mut self, event: &ContractEvent) -> Result<ProcessingResult> {
         let epoch = event
             .data
             .get("epoch")

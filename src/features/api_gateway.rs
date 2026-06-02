@@ -1,4 +1,3 @@
-use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -126,13 +125,10 @@ impl APIGateway {
             ApiGatewayError::ConfigError("Cache lock error".to_string())
         })?;
 
-        cache
-            .get(&key)
-            .cloned()
-            .ok_or_else(|| {
-                error!("Route not found: {}", key);
-                ApiGatewayError::RouteNotFound(key)
-            })
+        cache.get(&key).cloned().ok_or_else(|| {
+            error!("Route not found: {}", key);
+            ApiGatewayError::RouteNotFound(key)
+        })
     }
 
     pub fn list_routes(&self) -> Result<Vec<RouteConfig>, ApiGatewayError> {

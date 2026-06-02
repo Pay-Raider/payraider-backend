@@ -104,9 +104,7 @@ mod tests {
     async fn test_too_many_fields_returns_error() {
         let config = FieldSelectionConfig { max_fields: 2 };
         let instance = FieldSelectionParameter::new(config);
-        let result = instance
-            .process("a,b,c", &NetworkContext::testnet())
-            .await;
+        let result = instance.process("a,b,c", &NetworkContext::testnet()).await;
         assert!(matches!(
             result,
             Err(FieldSelectionError::TooManyFields { .. })

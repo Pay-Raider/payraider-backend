@@ -53,10 +53,7 @@ impl ClientType {
     }
 
     pub fn is_mobile(&self) -> bool {
-        matches!(
-            self,
-            Self::Mobile | Self::MobileIOS | Self::MobileAndroid
-        )
+        matches!(self, Self::Mobile | Self::MobileIOS | Self::MobileAndroid)
     }
 }
 
@@ -186,18 +183,14 @@ impl EnhancedHealthChecker {
         .await
         {
             Ok(Ok(_)) => DetailedComponentHealth::healthy(start.elapsed().as_millis() as u64),
-            Ok(Err(e)) => {
-                DetailedComponentHealth::unhealthy(
-                    start.elapsed().as_millis() as u64,
-                    format!("Database error: {}", e),
-                )
-            }
-            Err(_) => {
-                DetailedComponentHealth::unhealthy(
-                    start.elapsed().as_millis() as u64,
-                    "Database health check timeout".to_string(),
-                )
-            }
+            Ok(Err(e)) => DetailedComponentHealth::unhealthy(
+                start.elapsed().as_millis() as u64,
+                format!("Database error: {}", e),
+            ),
+            Err(_) => DetailedComponentHealth::unhealthy(
+                start.elapsed().as_millis() as u64,
+                "Database health check timeout".to_string(),
+            ),
         }
     }
 
@@ -218,12 +211,10 @@ impl EnhancedHealthChecker {
                     format!("Cache unavailable: {}", e),
                 )
             }
-            Err(_) => {
-                DetailedComponentHealth::degraded(
-                    start.elapsed().as_millis() as u64,
-                    "Cache health check timeout".to_string(),
-                )
-            }
+            Err(_) => DetailedComponentHealth::degraded(
+                start.elapsed().as_millis() as u64,
+                "Cache health check timeout".to_string(),
+            ),
         }
     }
 
@@ -237,18 +228,14 @@ impl EnhancedHealthChecker {
         .await
         {
             Ok(Ok(_)) => DetailedComponentHealth::healthy(start.elapsed().as_millis() as u64),
-            Ok(Err(e)) => {
-                DetailedComponentHealth::unhealthy(
-                    start.elapsed().as_millis() as u64,
-                    format!("RPC error: {}", e),
-                )
-            }
-            Err(_) => {
-                DetailedComponentHealth::unhealthy(
-                    start.elapsed().as_millis() as u64,
-                    "RPC health check timeout".to_string(),
-                )
-            }
+            Ok(Err(e)) => DetailedComponentHealth::unhealthy(
+                start.elapsed().as_millis() as u64,
+                format!("RPC error: {}", e),
+            ),
+            Err(_) => DetailedComponentHealth::unhealthy(
+                start.elapsed().as_millis() as u64,
+                "RPC health check timeout".to_string(),
+            ),
         }
     }
 
@@ -261,9 +248,8 @@ impl EnhancedHealthChecker {
         let mut recommendations = Vec::new();
 
         if !db_health.healthy {
-            recommendations.push(
-                "Database is unavailable. Try again in a few moments.".to_string(),
-            );
+            recommendations
+                .push("Database is unavailable. Try again in a few moments.".to_string());
         }
 
         if !cache_health.healthy {
@@ -271,9 +257,8 @@ impl EnhancedHealthChecker {
         }
 
         if !rpc_health.healthy {
-            recommendations.push(
-                "Stellar RPC is unavailable. Blockchain operations may fail.".to_string(),
-            );
+            recommendations
+                .push("Stellar RPC is unavailable. Blockchain operations may fail.".to_string());
         }
 
         if db_health.response_time_ms > 1000 {
@@ -281,9 +266,8 @@ impl EnhancedHealthChecker {
         }
 
         if rpc_health.response_time_ms > 2000 {
-            recommendations.push(
-                "RPC response time is high. Consider using a different network.".to_string(),
-            );
+            recommendations
+                .push("RPC response time is high. Consider using a different network.".to_string());
         }
 
         recommendations
@@ -346,9 +330,8 @@ mod tests {
 
     #[test]
     fn test_health_context_creation() {
-        let context = HealthCheckContext::with_user_agent(Some(
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0)",
-        ));
+        let context =
+            HealthCheckContext::with_user_agent(Some("Mozilla/5.0 (iPhone; CPU iPhone OS 14_0)"));
         assert_eq!(context.client_type, ClientType::MobileIOS);
         assert!(context.include_network_details);
     }
@@ -366,18 +349,12 @@ mod tests {
     #[test]
     fn test_recommendations_generation() {
         let db_health = DetailedComponentHealth::healthy(100);
-        let cache_health =
-            DetailedComponentHealth::degraded(200, "Cache slow".to_string());
-        let rpc_health = DetailedComponentHealth::unhealthy(
-            3000,
-            "RPC timeout".to_string(),
-        );
+        let cache_health = DetailedComponentHealth::degraded(200, "Cache slow".to_string());
+        let rpc_health = DetailedComponentHealth::unhealthy(3000, "RPC timeout".to_string());
 
         let recommendations =
             EnhancedHealthChecker::generate_recommendations(&db_health, &cache_health, &rpc_health);
         assert!(!recommendations.is_empty());
-        assert!(recommendations
-            .iter()
-            .any(|r| r.contains("RPC")));
+        assert!(recommendations.iter().any(|r| r.contains("RPC")));
     }
 }
