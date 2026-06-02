@@ -15,12 +15,12 @@ use uuid::Uuid;
 /// Real-time broadcaster service for WebSocket updates.
 /// Depends on traits (`BroadcasterPort`, `DataPort`) — not concrete types.
 pub struct RealtimeBroadcaster {
-    ws_state:       Arc<WsState>,
-    data:           Arc<dyn DataPort>,
-    subscriptions:  Arc<DashMap<Uuid, HashSet<String>>>,
+    ws_state: Arc<WsState>,
+    data: Arc<dyn DataPort>,
+    subscriptions: Arc<DashMap<Uuid, HashSet<String>>>,
     webhook_events: Arc<WebhookEventService>,
-    shutdown_rx:    Option<tokio::sync::oneshot::Receiver<()>>,
-    shutdown_tx:    std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
+    shutdown_tx: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,22 +33,31 @@ pub enum SubscriptionMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum BroadcastMessage {
-    CorridorUpdate { corridor: CorridorMetrics, channel: String },
-    AnchorStatusChange { anchor: AnchorMetrics, old_status: String, channel: String },
+    CorridorUpdate {
+        corridor: CorridorMetrics,
+        channel: String,
+    },
+    AnchorStatusChange {
+        anchor: AnchorMetrics,
+        old_status: String,
+        channel: String,
+    },
     NewPayment {
         corridor_key: String,
-        amount:       f64,
-        successful:   bool,
-        timestamp:    String,
-        channel:      String,
+        amount: f64,
+        successful: bool,
+        timestamp: String,
+        channel: String,
     },
     HealthAlert {
         corridor_id: String,
-        severity:    String,
-        message:     String,
-        timestamp:   String,
+        severity: String,
+        message: String,
+        timestamp: String,
     },
-    ConnectionStatus { status: String },
+    ConnectionStatus {
+        status: String,
+    },
 }
 
 impl RealtimeBroadcaster {
@@ -181,7 +190,10 @@ impl RealtimeBroadcaster {
     pub fn unsubscribe_connection(&self, connection_id: Uuid, channels: Vec<String>) {
         if let Some(mut set) = self.subscriptions.get_mut(&connection_id) {
             for ch in channels {
-                info!("Connection {} unsubscribed from channel: {}", connection_id, ch);
+                info!(
+                    "Connection {} unsubscribed from channel: {}",
+                    connection_id, ch
+                );
                 set.remove(&ch);
             }
         }
@@ -209,7 +221,8 @@ impl BroadcasterPort for RealtimeBroadcaster {
             corridor,
             channel: channel.clone(),
         };
-        Self::broadcast_to_subscribers(&self.ws_state, &self.subscriptions, &channel, message).await;
+        Self::broadcast_to_subscribers(&self.ws_state, &self.subscriptions, &channel, message)
+            .await;
     }
 
     async fn broadcast_anchor_status(
@@ -225,7 +238,8 @@ impl BroadcasterPort for RealtimeBroadcaster {
             old_status: old_status.clone(),
             channel: channel.clone(),
         };
-        Self::broadcast_to_subscribers(&self.ws_state, &self.subscriptions, &channel, message).await;
+        Self::broadcast_to_subscribers(&self.ws_state, &self.subscriptions, &channel, message)
+            .await;
 
         let webhook_events = Arc::clone(&self.webhook_events);
         let new_status = anchor.status.as_str().to_string();
@@ -263,15 +277,11 @@ impl BroadcasterPort for RealtimeBroadcaster {
             timestamp,
             channel: channel.clone(),
         };
-        Self::broadcast_to_subscribers(&self.ws_state, &self.subscriptions, &channel, message).await;
+        Self::broadcast_to_subscribers(&self.ws_state, &self.subscriptions, &channel, message)
+            .await;
     }
 
-    async fn broadcast_health_alert(
-        &self,
-        corridor_id: String,
-        severity: String,
-        message: String,
-    ) {
+    async fn broadcast_health_alert(&self, corridor_id: String, severity: String, message: String) {
         let channel = format!("corridor:{corridor_id}");
         let alert = BroadcastMessage::HealthAlert {
             corridor_id: corridor_id.clone(),
@@ -285,15 +295,15 @@ impl BroadcasterPort for RealtimeBroadcaster {
         tokio::spawn(async move {
             use crate::webhooks::events::CorridorMetrics as EventMetrics;
             let empty = EventMetrics {
-                success_rate:               0.0,
-                avg_latency_ms:             0.0,
-                p95_latency_ms:             0.0,
-                p99_latency_ms:             0.0,
-                liquidity_depth_usd:        0.0,
-                liquidity_volume_24h_usd:   0.0,
-                total_attempts:             0,
-                successful_payments:        0,
-                failed_payments:            0,
+                success_rate: 0.0,
+                avg_latency_ms: 0.0,
+                p95_latency_ms: 0.0,
+                p99_latency_ms: 0.0,
+                liquidity_depth_usd: 0.0,
+                liquidity_volume_24h_usd: 0.0,
+                total_attempts: 0,
+                successful_payments: 0,
+                failed_payments: 0,
             };
             if let Err(e) = webhook_events
                 .trigger_corridor_health_degraded(
@@ -328,18 +338,18 @@ impl WsMessage {
     pub fn from_broadcast_message(msg: BroadcastMessage) -> Self {
         match msg {
             BroadcastMessage::CorridorUpdate { corridor, .. } => Self::CorridorUpdate {
-                corridor_key:           corridor.corridor_key,
-                source_asset_code:      corridor.source_asset_code,
-                source_asset_issuer:    corridor.source_asset_issuer,
+                corridor_key: corridor.corridor_key,
+                source_asset_code: corridor.source_asset_code,
+                source_asset_issuer: corridor.source_asset_issuer,
                 destination_asset_code: corridor.destination_asset_code,
                 destination_asset_issuer: corridor.destination_asset_issuer,
-                success_rate:           Some(corridor.success_rate),
-                health_score:           Some(corridor.success_rate * 100.0),
-                last_updated:           Some(corridor.updated_at.to_rfc3339()),
+                success_rate: Some(corridor.success_rate),
+                health_score: Some(corridor.success_rate * 100.0),
+                last_updated: Some(corridor.updated_at.to_rfc3339()),
             },
             BroadcastMessage::AnchorStatusChange { anchor, .. } => Self::AnchorUpdate {
-                anchor_id:         "unknown".to_string(),
-                name:              "unknown".to_string(),
+                anchor_id: "unknown".to_string(),
+                name: "unknown".to_string(),
                 reliability_score: anchor.reliability_score,
                 status: AnchorStatus::from_metrics(anchor.success_rate, anchor.failure_rate)
                     .as_str()

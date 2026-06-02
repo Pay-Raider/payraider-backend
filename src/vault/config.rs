@@ -71,7 +71,9 @@ mod tests {
 
     #[test]
     fn from_env_returns_error_when_vault_addr_missing() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         std::env::remove_var("VAULT_ADDR");
         std::env::remove_var("VAULT_TOKEN");
         std::env::remove_var("VAULT_NAMESPACE");
@@ -88,7 +90,9 @@ mod tests {
 
     #[test]
     fn from_env_returns_error_when_vault_token_missing() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         std::env::set_var("VAULT_ADDR", "https://vault.example.com");
         std::env::remove_var("VAULT_TOKEN");
         std::env::remove_var("VAULT_NAMESPACE");
@@ -107,7 +111,9 @@ mod tests {
 
     #[test]
     fn from_env_uses_default_db_role() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         std::env::set_var("VAULT_ADDR", "https://vault.example.com");
         std::env::set_var("VAULT_TOKEN", "s.testtoken");
         std::env::remove_var("VAULT_NAMESPACE");
@@ -126,7 +132,9 @@ mod tests {
 
     #[test]
     fn from_env_reads_optional_namespace_and_role() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         std::env::set_var("VAULT_ADDR", "https://vault.example.com");
         std::env::set_var("VAULT_TOKEN", "s.testtoken");
         std::env::set_var("VAULT_NAMESPACE", "admin");

@@ -1,10 +1,8 @@
+use lazy_static::lazy_static;
+use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, IntGaugeVec, Opts};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use lazy_static::lazy_static;
-use prometheus::{
-    IntCounterVec, HistogramVec, IntGaugeVec, Opts, HistogramOpts,
-};
-use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -156,15 +154,17 @@ impl JobRegistry {
     }
 
     pub fn register_job(&mut self, job_name: &str) {
-        self.jobs.entry(job_name.to_string()).or_insert_with(|| JobInfo {
-            last_execution: None,
-            consecutive_failures: 0,
-            is_active: false,
-            total_executions: 0,
-            total_failures: 0,
-            last_success_timestamp: None,
-            last_failure_timestamp: None,
-        });
+        self.jobs
+            .entry(job_name.to_string())
+            .or_insert_with(|| JobInfo {
+                last_execution: None,
+                consecutive_failures: 0,
+                is_active: false,
+                total_executions: 0,
+                total_failures: 0,
+                last_success_timestamp: None,
+                last_failure_timestamp: None,
+            });
     }
 
     pub fn start_execution(&mut self, job_name: &str) {
@@ -176,7 +176,7 @@ impl JobRegistry {
 
     pub fn complete_execution(&mut self, execution: JobExecution) {
         let job_name = &execution.job_name;
-        
+
         if let Some(info) = self.jobs.get_mut(job_name) {
             info.is_active = false;
             info.last_execution = Some(execution.clone());
@@ -188,22 +188,34 @@ impl JobRegistry {
                 JobStatus::Success => {
                     info.consecutive_failures = 0;
                     info.last_success_timestamp = Some(now);
-                    JOB_LAST_SUCCESS_TIMESTAMP.with_label_values(&[job_name]).set(now);
-                    JOB_CONSECUTIVE_FAILURES.with_label_values(&[job_name]).set(0);
+                    JOB_LAST_SUCCESS_TIMESTAMP
+                        .with_label_values(&[job_name])
+                        .set(now);
+                    JOB_CONSECUTIVE_FAILURES
+                        .with_label_values(&[job_name])
+                        .set(0);
                 }
                 JobStatus::Failed(_error) => {
                     info.consecutive_failures += 1;
                     info.total_failures += 1;
                     info.last_failure_timestamp = Some(now);
-                    JOB_LAST_FAILURE_TIMESTAMP.with_label_values(&[job_name]).set(now);
-                    JOB_CONSECUTIVE_FAILURES.with_label_values(&[job_name]).set(info.consecutive_failures as i64);
+                    JOB_LAST_FAILURE_TIMESTAMP
+                        .with_label_values(&[job_name])
+                        .set(now);
+                    JOB_CONSECUTIVE_FAILURES
+                        .with_label_values(&[job_name])
+                        .set(info.consecutive_failures as i64);
                 }
                 JobStatus::Timeout => {
                     info.consecutive_failures += 1;
                     info.total_failures += 1;
                     info.last_failure_timestamp = Some(now);
-                    JOB_LAST_FAILURE_TIMESTAMP.with_label_values(&[job_name]).set(now);
-                    JOB_CONSECUTIVE_FAILURES.with_label_values(&[job_name]).set(info.consecutive_failures as i64);
+                    JOB_LAST_FAILURE_TIMESTAMP
+                        .with_label_values(&[job_name])
+                        .set(now);
+                    JOB_CONSECUTIVE_FAILURES
+                        .with_label_values(&[job_name])
+                        .set(info.consecutive_failures as i64);
                 }
                 JobStatus::Running => {} // Still running, shouldn't happen here
             }
@@ -251,8 +263,12 @@ impl JobMetricsCollector {
         let job_name = &self.job_name;
 
         // Record metrics
-        JOB_EXECUTIONS_TOTAL.with_label_values(&[job_name, "success"]).inc();
-        JOB_DURATION_SECONDS.with_label_values(&[job_name]).observe(duration.as_secs_f64());
+        JOB_EXECUTIONS_TOTAL
+            .with_label_values(&[job_name, "success"])
+            .inc();
+        JOB_DURATION_SECONDS
+            .with_label_values(&[job_name])
+            .observe(duration.as_secs_f64());
 
         // Update registry
         if let Ok(mut registry) = JOB_REGISTRY.try_write() {
@@ -274,9 +290,15 @@ impl JobMetricsCollector {
         let error_type = self.classify_error(error);
 
         // Record metrics
-        JOB_EXECUTIONS_TOTAL.with_label_values(&[job_name, "failure"]).inc();
-        JOB_FAILURES_TOTAL.with_label_values(&[job_name, &error_type]).inc();
-        JOB_DURATION_SECONDS.with_label_values(&[job_name]).observe(duration.as_secs_f64());
+        JOB_EXECUTIONS_TOTAL
+            .with_label_values(&[job_name, "failure"])
+            .inc();
+        JOB_FAILURES_TOTAL
+            .with_label_values(&[job_name, &error_type])
+            .inc();
+        JOB_DURATION_SECONDS
+            .with_label_values(&[job_name])
+            .observe(duration.as_secs_f64());
 
         // Update registry
         if let Ok(mut registry) = JOB_REGISTRY.try_write() {
@@ -299,9 +321,15 @@ impl JobMetricsCollector {
         let job_name = &self.job_name;
 
         // Record metrics
-        JOB_EXECUTIONS_TOTAL.with_label_values(&[job_name, "timeout"]).inc();
-        JOB_FAILURES_TOTAL.with_label_values(&[job_name, "timeout"]).inc();
-        JOB_DURATION_SECONDS.with_label_values(&[job_name]).observe(duration.as_secs_f64());
+        JOB_EXECUTIONS_TOTAL
+            .with_label_values(&[job_name, "timeout"])
+            .inc();
+        JOB_FAILURES_TOTAL
+            .with_label_values(&[job_name, "timeout"])
+            .inc();
+        JOB_DURATION_SECONDS
+            .with_label_values(&[job_name])
+            .observe(duration.as_secs_f64());
 
         // Update registry
         if let Ok(mut registry) = JOB_REGISTRY.try_write() {
@@ -319,7 +347,7 @@ impl JobMetricsCollector {
 
     fn classify_error(&self, error: &str) -> String {
         let error_lower = error.to_lowercase();
-        
+
         if error_lower.contains("timeout") || error_lower.contains("timed out") {
             "timeout".to_string()
         } else if error_lower.contains("connection") || error_lower.contains("network") {
@@ -345,9 +373,9 @@ impl JobMetricsCollector {
 macro_rules! instrument_job {
     ($job_name:expr, $async_block:block) => {{
         let _metrics = $crate::observability::job_metrics::JobMetricsCollector::new($job_name);
-        
+
         let result = $async_block;
-        
+
         match result {
             Ok(_) => {
                 _metrics.complete_success();

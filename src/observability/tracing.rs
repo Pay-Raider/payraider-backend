@@ -16,14 +16,10 @@ const MAX_LOG_FILES: usize = 30;
 
 fn init_otel_tracer(service_name: &str) -> Result<opentelemetry_sdk::trace::Tracer> {
     // HTTP/protobuf OTLP on 4318; avoids pulling `tonic` into the crate graph.
-    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_else(|_| {
-        "http://localhost:4318/v1/traces".to_string()
-    });
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .unwrap_or_else(|_| "http://localhost:4318/v1/traces".to_string());
 
-    let resource = Resource::new([KeyValue::new(
-        "service.name",
-        service_name.to_string(),
-    )]);
+    let resource = Resource::new([KeyValue::new("service.name", service_name.to_string())]);
 
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
@@ -32,7 +28,7 @@ fn init_otel_tracer(service_name: &str) -> Result<opentelemetry_sdk::trace::Trac
 
     let provider = opentelemetry_sdk::trace::TracerProvider::builder()
         .with_batch_exporter(exporter, runtime::Tokio)
-        .with_config(opentelemetry_sdk::trace::Config::default().with_resource(resource))
+        .with_resource(resource)
         .build();
 
     global::set_tracer_provider(provider.clone());
@@ -233,11 +229,7 @@ where
         }
     }
 
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
         // Pull trace_id / span_id from the nearest enclosing span that has them.
         let ids = ctx.lookup_current().and_then(|span| {
             let exts = span.extensions();
@@ -294,8 +286,7 @@ pub async fn trace_propagation_middleware(req: Request<Body>, next: Next) -> Res
         .collect();
 
     // Extract remote context via the globally registered W3C TraceContext propagator.
-    let parent_cx =
-        global::get_text_map_propagator(|propagator| propagator.extract(&carrier));
+    let parent_cx = global::get_text_map_propagator(|propagator| propagator.extract(&carrier));
 
     let span = tracing::Span::current();
     span.set_parent(parent_cx.clone());

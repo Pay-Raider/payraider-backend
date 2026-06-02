@@ -13,7 +13,7 @@ use tracing::{debug, error, info, warn};
 // Full keypair-based signing requires a Soroban-compatible SDK; the current
 // implementation delegates auth to the RPC layer via simulateTransaction.
 
-// Note: KeyPair and Network are not in stellar-xdr. 
+// Note: KeyPair and Network are not in stellar-xdr.
 // They are expected to be provided by a future update or a separate crate.
 // For now, we use stubs to allow compilation if possible, or assume they'll be fixed in Cargo.toml.
 // The compiler suggested using stellar_xdr::curr for most types.
@@ -283,7 +283,7 @@ impl ContractService {
         // In a full implementation, we would decode the XDR, add resources, sign, and encode.
         // For this task, we'll implement a robust signing flow with stellar-sdk.
 
-        // FIXME: KeyPair and Network are not resolving from stellar_sdk "0.1". 
+        // FIXME: KeyPair and Network are not resolving from stellar_sdk "0.1".
         // This service needs a working KeyPair implementation for on-chain signing.
         // For now, we return the transaction as-is from simulation to allow the rest of the file to compile.
         /*
@@ -380,11 +380,7 @@ impl ContractService {
             .context("sendTransaction result missing transaction hash")
     }
 
-    async fn wait_for_transaction(
-        &self,
-        tx_hash: &str,
-        epoch: u64,
-    ) -> Result<SubmissionResult> {
+    async fn wait_for_transaction(&self, tx_hash: &str, epoch: u64) -> Result<SubmissionResult> {
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: 1,
@@ -407,10 +403,7 @@ impl ContractService {
                 .context("Failed to parse getTransaction RPC response")?;
 
             if let Some(error) = &body.error {
-                let transient = error
-                    .message
-                    .to_ascii_lowercase()
-                    .contains("not found");
+                let transient = error.message.to_ascii_lowercase().contains("not found");
                 if !transient {
                     return Err(anyhow::anyhow!(
                         "getTransaction failed: {} (code: {})",
@@ -419,13 +412,8 @@ impl ContractService {
                     ));
                 }
             } else if let Some(result) = body.result {
-                let status = result
-                    .get("status")
-                    .and_then(|s| s.as_str())
-                    .unwrap_or("");
-                if status.eq_ignore_ascii_case("success")
-                    || status.eq_ignore_ascii_case("failed")
-                {
+                let status = result.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                if status.eq_ignore_ascii_case("success") || status.eq_ignore_ascii_case("failed") {
                     let ledger = result
                         .get("ledger")
                         .and_then(serde_json::Value::as_u64)

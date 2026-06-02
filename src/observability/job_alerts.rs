@@ -1,8 +1,8 @@
+use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
-use async_trait::async_trait;
 
 use crate::observability::job_metrics::JobRegistry;
 
@@ -43,22 +43,28 @@ impl JobAlertConfig {
                 .unwrap_or_else(|_| "true".to_string())
                 .parse()
                 .unwrap_or(true),
-            consecutive_failure_threshold: std::env::var("JOB_ALERTS_CONSECUTIVE_FAILURE_THRESHOLD")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(3),
+            consecutive_failure_threshold: std::env::var(
+                "JOB_ALERTS_CONSECUTIVE_FAILURE_THRESHOLD",
+            )
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(3),
             success_rate_threshold: std::env::var("JOB_ALERTS_SUCCESS_RATE_THRESHOLD")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(80.0),
-            last_success_threshold_seconds: std::env::var("JOB_ALERTS_LAST_SUCCESS_THRESHOLD_SECONDS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(3600),
-            min_executions_for_rate_check: std::env::var("JOB_ALERTS_MIN_EXECUTIONS_FOR_RATE_CHECK")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(5),
+            last_success_threshold_seconds: std::env::var(
+                "JOB_ALERTS_LAST_SUCCESS_THRESHOLD_SECONDS",
+            )
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(3600),
+            min_executions_for_rate_check: std::env::var(
+                "JOB_ALERTS_MIN_EXECUTIONS_FOR_RATE_CHECK",
+            )
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(5),
             alert_cooldown_seconds: std::env::var("JOB_ALERTS_COOLDOWN_SECONDS")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -110,9 +116,15 @@ pub struct ConsoleAlertHandler;
 impl AlertHandler for ConsoleAlertHandler {
     async fn send_alert(&self, alert: &JobAlert) {
         match alert.severity {
-            JobAlertSeverity::Info => info!(job = %alert.job_name, alert_type = ?alert.alert_type, "{}", alert.message),
-            JobAlertSeverity::Warning => warn!(job = %alert.job_name, alert_type = ?alert.alert_type, "{}", alert.message),
-            JobAlertSeverity::Critical => error!(job = %alert.job_name, alert_type = ?alert.alert_type, "{}", alert.message),
+            JobAlertSeverity::Info => {
+                info!(job = %alert.job_name, alert_type = ?alert.alert_type, "{}", alert.message)
+            }
+            JobAlertSeverity::Warning => {
+                warn!(job = %alert.job_name, alert_type = ?alert.alert_type, "{}", alert.message)
+            }
+            JobAlertSeverity::Critical => {
+                error!(job = %alert.job_name, alert_type = ?alert.alert_type, "{}", alert.message)
+            }
         }
     }
 }
@@ -153,11 +165,17 @@ impl JobAlertManager {
     }
 
     /// Evaluate if a job should trigger an alert
-    async fn evaluate_job_alert(&self, job_name: &str, job_info: &crate::observability::job_metrics::JobInfo) -> Option<JobAlert> {
+    async fn evaluate_job_alert(
+        &self,
+        job_name: &str,
+        job_info: &crate::observability::job_metrics::JobInfo,
+    ) -> Option<JobAlert> {
         // Check cooldown period
         if let Ok(last_alerts) = self.last_alerts.try_read() {
             if let Some(last_alert_time) = last_alerts.get(job_name) {
-                if last_alert_time.elapsed() < Duration::from_secs(self.config.alert_cooldown_seconds) {
+                if last_alert_time.elapsed()
+                    < Duration::from_secs(self.config.alert_cooldown_seconds)
+                {
                     debug!("Job {} is in alert cooldown period", job_name);
                     return None;
                 }
@@ -189,7 +207,9 @@ impl JobAlertManager {
 
         // Check success rate
         if job_info.total_executions >= self.config.min_executions_for_rate_check {
-            let success_rate = ((job_info.total_executions - job_info.total_failures) as f64 / job_info.total_executions as f64) * 100.0;
+            let success_rate = ((job_info.total_executions - job_info.total_failures) as f64
+                / job_info.total_executions as f64)
+                * 100.0;
             if success_rate < self.config.success_rate_threshold {
                 return Some(JobAlert {
                     job_name: job_name.to_string(),
@@ -218,12 +238,16 @@ impl JobAlertManager {
         if let Some(last_success) = job_info.last_success_timestamp {
             let now = chrono::Utc::now().timestamp();
             let time_since_success = now - last_success;
-            
-            if time_since_success > self.config.last_success_threshold_seconds as i64 && job_info.total_failures > 0 {
+
+            if time_since_success > self.config.last_success_threshold_seconds as i64
+                && job_info.total_failures > 0
+            {
                 return Some(JobAlert {
                     job_name: job_name.to_string(),
                     alert_type: JobAlertType::StuckJob,
-                    severity: if time_since_success > (self.config.last_success_threshold_seconds as i64 * 2) {
+                    severity: if time_since_success
+                        > (self.config.last_success_threshold_seconds as i64 * 2)
+                    {
                         JobAlertSeverity::Critical
                     } else {
                         JobAlertSeverity::Warning
@@ -312,7 +336,10 @@ impl JobAlertChecker {
     }
 
     pub async fn start(self: Arc<Self>) {
-        info!("Starting job alert checker (interval: {}s)", self.check_interval.as_secs());
+        info!(
+            "Starting job alert checker (interval: {}s)",
+            self.check_interval.as_secs()
+        );
 
         let mut interval = tokio::time::interval(self.check_interval);
         interval.tick().await; // Skip first immediate tick
@@ -347,7 +374,7 @@ impl WebhookAlertHandler {
 impl AlertHandler for WebhookAlertHandler {
     async fn send_alert(&self, alert: &JobAlert) {
         let client = reqwest::Client::new();
-        
+
         let payload = serde_json::json!({
             "alert": {
                 "job_name": alert.job_name,
@@ -370,13 +397,23 @@ impl AlertHandler for WebhookAlertHandler {
         {
             Ok(response) => {
                 if response.status().is_success() {
-                    debug!("Successfully sent webhook alert for job: {}", alert.job_name);
+                    debug!(
+                        "Successfully sent webhook alert for job: {}",
+                        alert.job_name
+                    );
                 } else {
-                    error!("Failed to send webhook alert for job {}: {}", alert.job_name, response.status());
+                    error!(
+                        "Failed to send webhook alert for job {}: {}",
+                        alert.job_name,
+                        response.status()
+                    );
                 }
             }
             Err(e) => {
-                error!("Error sending webhook alert for job {}: {}", alert.job_name, e);
+                error!(
+                    "Error sending webhook alert for job {}: {}",
+                    alert.job_name, e
+                );
             }
         }
     }

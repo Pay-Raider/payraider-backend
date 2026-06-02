@@ -2,7 +2,9 @@ use anyhow::Result;
 use axum::{
     body::Body,
     http::{
-        header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED},
+        header::{
+            CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED,
+        },
         HeaderMap, HeaderValue, StatusCode,
     },
     response::Response,
@@ -180,7 +182,9 @@ fn if_modified_since_matches(headers: &HeaderMap, last_modified: DateTime<Utc>) 
     let Some(raw) = headers.get(IF_MODIFIED_SINCE).and_then(|v| v.to_str().ok()) else {
         return false;
     };
-    parse_http_date(raw).map_or(false, |since| since.timestamp() >= last_modified.timestamp())
+    parse_http_date(raw).map_or(false, |since| {
+        since.timestamp() >= last_modified.timestamp()
+    })
 }
 
 fn set_cache_headers(

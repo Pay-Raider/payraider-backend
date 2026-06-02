@@ -1,8 +1,7 @@
 use crate::error::ApiError;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{error, info};
+use tracing::error;
 
 /// WebSocket streaming configuration
 #[derive(Debug, Clone)]
@@ -59,8 +58,9 @@ impl WebSocketStreaming {
     pub fn subscribe(&self) -> Result<broadcast::Receiver<StreamMessage>, ApiError> {
         if self.tx.receiver_count() >= self.config.max_subscribers {
             error!("Max subscribers reached: {}", self.config.max_subscribers);
-            return Err(ApiError::TooManyRequests(
-                "WebSocket streaming at capacity".to_string(),
+            return Err(ApiError::service_unavailable(
+                "WEBSOCKET_CAPACITY_REACHED",
+                "WebSocket streaming at capacity",
             ));
         }
         Ok(self.tx.subscribe())
@@ -70,7 +70,7 @@ impl WebSocketStreaming {
     pub async fn publish(&self, message: StreamMessage) -> Result<(), ApiError> {
         self.tx.send(message).map_err(|e| {
             error!("Failed to publish message: {}", e);
-            ApiError::InternalServerError("Failed to publish message".to_string())
+            ApiError::internal("WEBSOCKET_PUBLISH_FAILED", "Failed to publish message")
         })?;
         Ok(())
     }
@@ -81,8 +81,7 @@ impl WebSocketStreaming {
         channel: String,
         payload: serde_json::Value,
     ) -> Result<(), ApiError> {
-        self.publish(StreamMessage::Data { channel, payload })
-            .await
+        self.publish(StreamMessage::Data { channel, payload }).await
     }
 
     /// Get current subscriber count
@@ -134,8 +133,12 @@ mod tests {
         config.max_subscribers = 2;
         let streaming = Arc::new(WebSocketStreaming::new(config));
 
-        let _rx1 = streaming.subscribe().expect("First subscription should work");
-        let _rx2 = streaming.subscribe().expect("Second subscription should work");
+        let _rx1 = streaming
+            .subscribe()
+            .expect("First subscription should work");
+        let _rx2 = streaming
+            .subscribe()
+            .expect("Second subscription should work");
         let result = streaming.subscribe();
         assert!(result.is_err(), "Third subscription should fail");
     }

@@ -8,8 +8,8 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use prometheus::{
-    gather, IntCounter, IntGauge, Histogram, HistogramOpts, Opts, Registry, TextEncoder,
-    IntCounterVec, HistogramVec, Encoder,
+    gather, Encoder, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    Opts, Registry, TextEncoder,
 };
 
 lazy_static! {
@@ -19,19 +19,24 @@ lazy_static! {
         "Total number of HTTP requests processed"
     )
     .expect("Failed to register http_requests_total counter");
-    pub static ref HTTP_REQUEST_DURATION_SECONDS: Histogram =
-        Histogram::with_opts(HistogramOpts::new(
+    pub static ref HTTP_REQUEST_DURATION_SECONDS: Histogram = Histogram::with_opts(
+        HistogramOpts::new(
             "http_request_duration_seconds",
             "HTTP request duration in seconds with p50/p95/p99 buckets"
         )
-        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]))
-        .expect("Failed to register http_request_duration_seconds histogram");
+        .buckets(vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0
+        ])
+    )
+    .expect("Failed to register http_request_duration_seconds histogram");
     pub static ref HTTP_REQUEST_DURATION_BY_ENDPOINT: HistogramVec = HistogramVec::new(
         HistogramOpts::new(
             "http_request_duration_by_endpoint_seconds",
             "HTTP request duration in seconds per endpoint"
         )
-        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]),
+        .buckets(vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0
+        ]),
         &["method", "endpoint"]
     )
     .expect("Failed to register http_request_duration_by_endpoint_seconds histogram");
@@ -69,18 +74,12 @@ lazy_static! {
     )
     .expect("Failed to register http_errors_total counter");
     pub static ref DB_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new(
-            "db_errors_total",
-            "Total number of database errors by type"
-        ),
+        Opts::new("db_errors_total", "Total number of database errors by type"),
         &["error_type", "query_type"]
     )
     .expect("Failed to register db_errors_total counter");
     pub static ref RPC_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new(
-            "rpc_errors_total",
-            "Total number of RPC errors by method"
-        ),
+        Opts::new("rpc_errors_total", "Total number of RPC errors by method"),
         &["method", "error_type"]
     )
     .expect("Failed to register rpc_errors_total counter");
@@ -131,7 +130,9 @@ lazy_static! {
             "db_pool_wait_time_seconds",
             "Time spent waiting for a database pool connection"
         )
-        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
+        .buckets(vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0
+        ])
     )
     .expect("Failed to register db_pool_wait_time_seconds histogram");
     pub static ref DB_POOL_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
@@ -168,7 +169,9 @@ lazy_static! {
             "db_query_duration_by_operation_seconds",
             "Database query duration in seconds per operation"
         )
-        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]),
+        .buckets(vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0
+        ]),
         &["operation", "status"]
     )
     .expect("Failed to register db_query_duration_by_operation_seconds histogram");
@@ -180,9 +183,11 @@ lazy_static! {
         &["result"]
     )
     .expect("Failed to register backup_verifications_total counter");
-    pub static ref BACKUP_SIZE_BYTES: IntGauge =
-        IntGauge::new("backup_size_bytes", "Size of the most recent backup in bytes")
-            .expect("Failed to register backup_size_bytes gauge");
+    pub static ref BACKUP_SIZE_BYTES: IntGauge = IntGauge::new(
+        "backup_size_bytes",
+        "Size of the most recent backup in bytes"
+    )
+    .expect("Failed to register backup_size_bytes gauge");
 }
 
 pub fn init_metrics() {
@@ -216,10 +221,10 @@ pub async fn http_metrics_middleware(req: Request<Body>, next: Next) -> Response
     let start = Instant::now();
     let method = req.method().to_string();
     let uri = req.uri().to_string();
-    
+
     // Normalize endpoint path (remove IDs to group similar endpoints)
     let endpoint = normalize_endpoint(&uri);
-    
+
     let response = next.run(req).await;
     let duration = start.elapsed().as_secs_f64();
     HTTP_IN_FLIGHT_REQUESTS.dec();
@@ -232,7 +237,10 @@ pub async fn http_metrics_middleware(req: Request<Body>, next: Next) -> Response
     // Check SLO violations
     check_slo_violation(&endpoint, duration * 1000.0);
 
-    if response.headers().contains_key(axum::http::header::CONTENT_ENCODING) {
+    if response
+        .headers()
+        .contains_key(axum::http::header::CONTENT_ENCODING)
+    {
         HTTP_RESPONSES_COMPRESSED_TOTAL.inc();
     }
 
@@ -252,7 +260,7 @@ pub async fn http_metrics_middleware(req: Request<Body>, next: Next) -> Response
 fn normalize_endpoint(uri: &str) -> String {
     let path = uri.split('?').next().unwrap_or(uri);
     let parts: Vec<&str> = path.split('/').collect();
-    
+
     let normalized = parts
         .iter()
         .map(|part| {
@@ -265,7 +273,7 @@ fn normalize_endpoint(uri: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("/");
-    
+
     if normalized.is_empty() {
         "/".to_string()
     } else {
@@ -334,9 +342,7 @@ pub fn observe_db_query(operation: &str, status: &str, duration_seconds: f64) {
 }
 
 pub fn record_slow_query(operation: &str) {
-    DB_SLOW_QUERIES_TOTAL
-        .with_label_values(&[operation])
-        .inc();
+    DB_SLOW_QUERIES_TOTAL.with_label_values(&[operation]).inc();
 }
 
 pub fn record_backup_verification_success() {
@@ -576,13 +582,34 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let text = String::from_utf8(body.to_vec()).unwrap();
 
-        assert!(text.contains("db_pool_connections_active"), "missing db_pool_connections_active");
-        assert!(text.contains("db_pool_connections_idle"), "missing db_pool_connections_idle");
-        assert!(text.contains("db_pool_wait_time_seconds"), "missing db_pool_wait_time_seconds");
-        assert!(text.contains("db_pool_errors_total"), "missing db_pool_errors_total");
-        assert!(text.contains("db_pool_utilization"), "missing db_pool_utilization");
-        assert!(text.contains("kind=\"exhausted\""), "missing exhausted label");
-        assert!(text.contains("kind=\"near_exhaustion\""), "missing near_exhaustion label");
+        assert!(
+            text.contains("db_pool_connections_active"),
+            "missing db_pool_connections_active"
+        );
+        assert!(
+            text.contains("db_pool_connections_idle"),
+            "missing db_pool_connections_idle"
+        );
+        assert!(
+            text.contains("db_pool_wait_time_seconds"),
+            "missing db_pool_wait_time_seconds"
+        );
+        assert!(
+            text.contains("db_pool_errors_total"),
+            "missing db_pool_errors_total"
+        );
+        assert!(
+            text.contains("db_pool_utilization"),
+            "missing db_pool_utilization"
+        );
+        assert!(
+            text.contains("kind=\"exhausted\""),
+            "missing exhausted label"
+        );
+        assert!(
+            text.contains("kind=\"near_exhaustion\""),
+            "missing near_exhaustion label"
+        );
     }
 
     #[test]

@@ -1,12 +1,12 @@
 use crate::models::elasticsearch_integration::{
-    ElasticsearchConfig, SearchQuery, SearchResponse, SearchResult, IndexMetrics,
+    ElasticsearchConfig, IndexMetrics, SearchQuery, SearchResponse, SearchResult,
 };
 use anyhow::Result;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 #[derive(Clone)]
 pub struct ElasticsearchIntegration {
@@ -55,7 +55,10 @@ impl ElasticsearchIntegration {
             info!("Elasticsearch cluster health check passed");
             Ok(health)
         } else {
-            error!("Elasticsearch health check failed with status: {}", response.status());
+            error!(
+                "Elasticsearch health check failed with status: {}",
+                response.status()
+            );
             Err(anyhow::anyhow!(
                 "Elasticsearch health check failed: {}",
                 response.status()
@@ -123,9 +126,7 @@ impl ElasticsearchIntegration {
             let result = response.json::<serde_json::Value>().await?;
             let took_ms = start.elapsed().as_millis() as u64;
 
-            let total = result["hits"]["total"]["value"]
-                .as_u64()
-                .unwrap_or(0);
+            let total = result["hits"]["total"]["value"].as_u64().unwrap_or(0);
 
             let results = result["hits"]["hits"]
                 .as_array()
@@ -147,10 +148,7 @@ impl ElasticsearchIntegration {
             })
         } else {
             error!("Search failed with status: {}", response.status());
-            Err(anyhow::anyhow!(
-                "Search failed: {}",
-                response.status()
-            ))
+            Err(anyhow::anyhow!("Search failed: {}", response.status()))
         }
     }
 
@@ -172,7 +170,11 @@ impl ElasticsearchIntegration {
             debug!("Document deleted successfully: {}", doc_id);
             Ok(())
         } else {
-            error!("Failed to delete document {}: {}", doc_id, response.status());
+            error!(
+                "Failed to delete document {}: {}",
+                doc_id,
+                response.status()
+            );
             Err(anyhow::anyhow!(
                 "Failed to delete document: {}",
                 response.status()
@@ -185,7 +187,10 @@ impl ElasticsearchIntegration {
     }
 
     fn get_index_url(&self, index: &str) -> String {
-        format!("{}/{}-{}", self.config.hosts[0], self.config.index_prefix, index)
+        format!(
+            "{}/{}-{}",
+            self.config.hosts[0], self.config.index_prefix, index
+        )
     }
 
     fn build_query(&self, query: &SearchQuery) -> serde_json::Value {

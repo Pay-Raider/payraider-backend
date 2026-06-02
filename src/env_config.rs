@@ -212,12 +212,18 @@ fn validate_jwt_secret(value: &str) -> bool {
 
 /// Validate REQUEST_TIMEOUT_SECONDS: must be in range [1, 300]
 fn validate_request_timeout(value: &str) -> bool {
-    value.parse::<u64>().map(|n| (1..=300).contains(&n)).unwrap_or(false)
+    value
+        .parse::<u64>()
+        .map(|n| (1..=300).contains(&n))
+        .unwrap_or(false)
 }
 
 /// Validate SLOW_QUERY_THRESHOLD_MS: must be in range [1, 60000]
 fn validate_slow_query_threshold(value: &str) -> bool {
-    value.parse::<u64>().map(|n| (1..=60_000).contains(&n)).unwrap_or(false)
+    value
+        .parse::<u64>()
+        .map(|n| (1..=60_000).contains(&n))
+        .unwrap_or(false)
 }
 
 /// Validate Stellar public key format

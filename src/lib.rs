@@ -36,8 +36,8 @@ pub mod models;
 pub mod muxed;
 pub mod request_signing_middleware;
 
-pub mod network;
 pub mod multi_network;
+pub mod network;
 pub mod observability;
 pub mod openapi;
 pub mod pagination;
@@ -54,6 +54,5 @@ pub mod vault;
 pub mod webhooks;
 pub mod websocket;
 
-pub mod rpc;
 pub mod middleware;
-
+pub mod rpc;

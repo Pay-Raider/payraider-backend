@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct NetworkAwareRpcConfig {
     pub timeout_ms: u64,
 }

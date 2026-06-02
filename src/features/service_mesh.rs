@@ -173,13 +173,10 @@ impl ServiceMesh {
             ServiceMeshError::ConfigError("Registry lock error".to_string())
         })?;
 
-        registry
-            .get(service_name)
-            .cloned()
-            .ok_or_else(|| {
-                error!("Service not found: {}", service_name);
-                ServiceMeshError::ServiceNotFound(service_name.to_string())
-            })
+        registry.get(service_name).cloned().ok_or_else(|| {
+            error!("Service not found: {}", service_name);
+            ServiceMeshError::ServiceNotFound(service_name.to_string())
+        })
     }
 
     pub fn list_services(&self) -> Result<Vec<ServiceConfig>, ServiceMeshError> {

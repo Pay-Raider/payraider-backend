@@ -27,10 +27,7 @@ pub trait StellarRpcClientTrait: Send + Sync {
     async fn fetch_latest_ledger(&self) -> Result<LedgerInfo, RpcError>;
 
     /// Fetch ledger by sequence number
-    async fn fetch_ledger_by_sequence(
-        &self,
-        sequence: u64,
-    ) -> Result<LedgerInfo, RpcError>;
+    async fn fetch_ledger_by_sequence(&self, sequence: u64) -> Result<LedgerInfo, RpcError>;
 
     /// Fetch multiple ledgers with pagination
     async fn fetch_ledgers(
@@ -73,11 +70,7 @@ pub trait StellarRpcClientTrait: Send + Sync {
     ) -> Result<Vec<HorizonOperation>, RpcError>;
 
     /// Fetch trades from the order book
-    async fn fetch_trades(
-        &self,
-        limit: u32,
-        cursor: Option<&str>,
-    ) -> Result<Vec<Trade>, RpcError>;
+    async fn fetch_trades(&self, limit: u32, cursor: Option<&str>) -> Result<Vec<Trade>, RpcError>;
 
     /// Fetch order book for a trading pair
     async fn fetch_order_book(
@@ -95,11 +88,7 @@ pub trait StellarRpcClientTrait: Send + Sync {
     ) -> Result<Vec<crate::rpc::stellar::HorizonLiquidityPool>, RpcError>;
 
     /// Fetch pool trades
-    async fn fetch_pool_trades(
-        &self,
-        pool_id: &str,
-        limit: u32,
-    ) -> Result<Vec<Trade>, RpcError>;
+    async fn fetch_pool_trades(&self, pool_id: &str, limit: u32) -> Result<Vec<Trade>, RpcError>;
 
     /// Fetch assets
     async fn fetch_assets(
@@ -176,11 +165,7 @@ impl StellarRpcClientTrait for StellarRpcClient {
         StellarRpcClient::fetch_operations_for_ledger(self, ledger_sequence).await
     }
 
-    async fn fetch_trades(
-        &self,
-        limit: u32,
-        cursor: Option<&str>,
-    ) -> Result<Vec<Trade>, RpcError> {
+    async fn fetch_trades(&self, limit: u32, cursor: Option<&str>) -> Result<Vec<Trade>, RpcError> {
         StellarRpcClient::fetch_trades(self, limit, cursor).await
     }
 
@@ -201,11 +186,7 @@ impl StellarRpcClientTrait for StellarRpcClient {
         StellarRpcClient::fetch_liquidity_pools(self, limit, cursor).await
     }
 
-    async fn fetch_pool_trades(
-        &self,
-        pool_id: &str,
-        limit: u32,
-    ) -> Result<Vec<Trade>, RpcError> {
+    async fn fetch_pool_trades(&self, pool_id: &str, limit: u32) -> Result<Vec<Trade>, RpcError> {
         StellarRpcClient::fetch_pool_trades(self, pool_id, limit).await
     }
 
@@ -392,11 +373,7 @@ impl StellarRpcClientTrait for MockStellarRpcClient {
         Ok(vec![])
     }
 
-    async fn fetch_pool_trades(
-        &self,
-        _pool_id: &str,
-        _limit: u32,
-    ) -> Result<Vec<Trade>, RpcError> {
+    async fn fetch_pool_trades(&self, _pool_id: &str, _limit: u32) -> Result<Vec<Trade>, RpcError> {
         Ok(vec![])
     }
 

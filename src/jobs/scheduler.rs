@@ -89,14 +89,17 @@ impl JobScheduler {
                 // the next tick, allowing any instance to acquire it next round.
                 let lock_ttl = config.interval_seconds.saturating_sub(5).max(1);
                 if !DistributedLock::try_acquire(&redis_url, &lock_key, lock_ttl).await {
-                    info!("Job '{}' skipped — another instance holds the lock", config.name);
+                    info!(
+                        "Job '{}' skipped — another instance holds the lock",
+                        config.name
+                    );
                     continue;
                 }
-                
+
                 // Execute job with metrics tracking
                 let job_name = config.name.clone();
                 let _metrics = JobMetricsCollector::new(&job_name);
-                
+
                 match job_fn().await {
                     Ok(_) => {
                         _metrics.complete_success();

@@ -146,9 +146,7 @@ impl MLService {
             &Some((*parts.get(1).unwrap_or(&"")).to_string()),
         );
 
-        let liquidity = self
-            .get_corridor_liquidity(corridor)
-            .unwrap_or(1000.0);
+        let liquidity = self.get_corridor_liquidity(corridor).unwrap_or(1000.0);
         let recent_success = self.get_recent_success_rate(corridor).unwrap_or(0.8);
 
         let features = PredictionFeatures {

@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -116,7 +116,9 @@ mod tests {
     async fn test_basic_functionality() {
         let inst = instance();
         let ctx = NetworkContext::testnet();
-        let req = BatchRequest { items: vec![1u32, 2, 3] };
+        let req = BatchRequest {
+            items: vec![1u32, 2, 3],
+        };
         let result = inst.process(&ctx, req, |_, v| Ok(v * 2)).await;
         assert!(result.is_ok());
         let resp = result.unwrap();
@@ -129,7 +131,9 @@ mod tests {
     async fn test_mainnet_supported() {
         let inst = instance();
         let ctx = NetworkContext::mainnet();
-        let req = BatchRequest { items: vec!["a", "b"] };
+        let req = BatchRequest {
+            items: vec!["a", "b"],
+        };
         let result = inst.process(&ctx, req, |_, v| Ok(v.to_uppercase())).await;
         assert!(result.is_ok());
     }
@@ -138,7 +142,9 @@ mod tests {
     async fn test_partial_failures_captured() {
         let inst = instance();
         let ctx = NetworkContext::testnet();
-        let req = BatchRequest { items: vec![0u32, 1, 2] };
+        let req = BatchRequest {
+            items: vec![0u32, 1, 2],
+        };
         let result = inst
             .process(&ctx, req, |_, v| {
                 if v == 0 {
@@ -161,7 +167,9 @@ mod tests {
     async fn test_exceeds_max_batch_size_returns_error() {
         let inst = BatchEndpoints::new(BatchConfig { max_batch_size: 2 });
         let ctx = NetworkContext::testnet();
-        let req = BatchRequest { items: vec![1, 2, 3] };
+        let req = BatchRequest {
+            items: vec![1, 2, 3],
+        };
         let result = inst.process(&ctx, req, |_, v: i32| Ok(v)).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("exceeds maximum"));
@@ -184,7 +192,9 @@ mod tests {
     async fn test_result_indices_are_correct() {
         let inst = instance();
         let ctx = NetworkContext::testnet();
-        let req = BatchRequest { items: vec!["x", "y", "z"] };
+        let req = BatchRequest {
+            items: vec!["x", "y", "z"],
+        };
         let resp = inst
             .process(&ctx, req, |_, v| Ok(v.to_string()))
             .await

@@ -111,7 +111,11 @@ pub async fn get_job_status(
         let is_active = job_obj.get("is_active").unwrap().as_bool().unwrap();
         let total_executions_job = job_obj.get("total_executions").unwrap().as_u64().unwrap();
         let total_failures_job = job_obj.get("total_failures").unwrap().as_u64().unwrap();
-        let consecutive_failures = job_obj.get("consecutive_failures").unwrap().as_u64().unwrap();
+        let consecutive_failures = job_obj
+            .get("consecutive_failures")
+            .unwrap()
+            .as_u64()
+            .unwrap();
         let last_success_timestamp = job_obj.get("last_success_timestamp").unwrap().as_i64();
         let last_failure_timestamp = job_obj.get("last_failure_timestamp").unwrap().as_i64();
 
@@ -119,7 +123,8 @@ pub async fn get_job_status(
         total_failures += total_failures_job;
 
         let success_rate = if total_executions_job > 0 {
-            ((total_executions_job - total_failures_job) as f64 / total_executions_job as f64) * 100.0
+            ((total_executions_job - total_failures_job) as f64 / total_executions_job as f64)
+                * 100.0
         } else {
             0.0
         };
@@ -141,11 +146,19 @@ pub async fn get_job_status(
 
         let last_execution = job_obj.get("last_execution").and_then(|exec| {
             exec.as_object().map(|exec_obj| LastExecutionDetail {
-                status: exec_obj.get("status").unwrap().as_str().unwrap().to_string(),
+                status: exec_obj
+                    .get("status")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
                 started_at: exec_obj.get("started_at").unwrap().as_u64().unwrap(),
                 duration_ms: exec_obj.get("duration_ms").and_then(|v| v.as_u64()),
                 completed_at: exec_obj.get("completed_at").and_then(|v| v.as_u64()),
-                error: exec_obj.get("error").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                error: exec_obj
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             })
         });
 
@@ -208,7 +221,11 @@ pub async fn get_job_health(
         let is_active = job_obj.get("is_active").unwrap().as_bool().unwrap();
         let total_executions = job_obj.get("total_executions").unwrap().as_u64().unwrap();
         let total_failures = job_obj.get("total_failures").unwrap().as_u64().unwrap();
-        let consecutive_failures = job_obj.get("consecutive_failures").unwrap().as_u64().unwrap();
+        let consecutive_failures = job_obj
+            .get("consecutive_failures")
+            .unwrap()
+            .as_u64()
+            .unwrap();
         let last_success_timestamp = job_obj.get("last_success_timestamp").unwrap().as_i64();
         let last_failure_timestamp = job_obj.get("last_failure_timestamp").unwrap().as_i64();
 
@@ -260,7 +277,7 @@ pub async fn get_job_health(
 /// Get job metrics for Prometheus
 pub async fn get_job_metrics() -> impl IntoResponse {
     use prometheus::{Encoder, TextEncoder};
-    
+
     let registry = &crate::observability::metrics::REGISTRY;
     let metric_families = registry.gather();
     let encoder = TextEncoder::new();

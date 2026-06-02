@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct SchemaConfig {
     pub prefix: Option<String>,
 }

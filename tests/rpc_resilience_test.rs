@@ -133,8 +133,6 @@ async fn test_circuit_breaker_fallback() {
 
     // Best-effort: nudge shared breaker toward closed so other tests are not starved.
     for _ in 0..8 {
-        let _: Result<(), failsafe::Error<RpcError>> = circuit_breaker
-            .call(async { Ok(()) })
-            .await;
+        let _: Result<(), failsafe::Error<RpcError>> = circuit_breaker.call(async { Ok(()) }).await;
     }
 }

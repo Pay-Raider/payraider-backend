@@ -102,9 +102,7 @@ impl AssetDb {
         let assets = query
             .fetch_all(&self.pool)
             .await
-            .with_context(|| {
-                format!("Failed to get assets for {} anchor ids", anchor_ids.len())
-            })?;
+            .with_context(|| format!("Failed to get assets for {} anchor ids", anchor_ids.len()))?;
 
         let mut result: std::collections::HashMap<String, Vec<Asset>> =
             std::collections::HashMap::new();
