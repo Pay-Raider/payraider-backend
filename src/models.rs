@@ -24,6 +24,8 @@ pub mod network_aware_rpc_client;
 pub mod network_context_middleware;
 pub mod network_status_endpoint;
 pub mod push_notification_service;
+pub mod push_notification_registration;
+pub mod sep10_for_mobile;
 pub mod rate_limiting_advanced;
 pub mod rate_limiting_by_client;
 pub mod redis_caching_models;

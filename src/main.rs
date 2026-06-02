@@ -58,6 +58,19 @@ use stellar_insights_backend::{
     },
     state::AppState,
     websocket::WsState,
+    middleware::{
+        NetworkContextMiddleware, NetworkAwareRpcClient, MobilePaginationEndpoints,
+        DatabaseSchemaSeparation, WebSocketRealTimeUpdates, ApiVersioning,
+        DeprecationWarnings, MobileRequestLogging,
+        ConcurrencyLimitState, concurrency_limit_middleware, panic_recovery_middleware,
+        FieldSelectionParameter,
+        ETagCachingSupport,
+        BatchEndpoints,
+        ResponseCompression,
+        PushNotificationService,
+        PushNotificationRegistration,
+        Sep10ForMobile,
+    },
 };
 
 const DB_POOL_LOG_INTERVAL: Duration = Duration::from_secs(60);
@@ -219,6 +232,18 @@ async fn main() -> anyhow::Result<()> {
         stellar_insights_backend::models::push_notification_service::Config::default(),
     );
     tracing::info!("Push notification service initialized");
+
+    // Initialize SEP-10 for mobile (issue #1376)
+    let _sep10_for_mobile = Sep10ForMobile::new(
+        stellar_insights_backend::models::sep10_for_mobile::Config::default(),
+    );
+    tracing::info!("SEP-10 for mobile initialized");
+
+    // Initialize push notification registration (issue #1377)
+    let _push_notification_registration = PushNotificationRegistration::new(
+        stellar_insights_backend::models::push_notification_registration::Config::default(),
+    );
+    tracing::info!("Push notification registration initialized");
 
     let fee_bump_tracker = services.fee_bump_tracker;
     let account_merge_detector = services.account_merge_detector;
