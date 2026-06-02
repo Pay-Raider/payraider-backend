@@ -31,6 +31,8 @@ pub mod rate_limiting_by_client;
 pub mod network_status_endpoint;
 pub mod jwt_token_refresh;
 pub mod push_notification_service;
+pub mod push_notification_registration;
+pub mod sep10_for_mobile;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]

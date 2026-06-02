@@ -57,6 +57,8 @@ use stellar_insights_backend::{
         BatchEndpoints,
         ResponseCompression,
         PushNotificationService,
+        PushNotificationRegistration,
+        Sep10ForMobile,
     },
 };
 
@@ -210,6 +212,18 @@ async fn main() -> anyhow::Result<()> {
         stellar_insights_backend::models::push_notification_service::Config::default(),
     );
     tracing::info!("Push notification service initialized");
+
+    // Initialize SEP-10 for mobile (issue #1376)
+    let _sep10_for_mobile = Sep10ForMobile::new(
+        stellar_insights_backend::models::sep10_for_mobile::Config::default(),
+    );
+    tracing::info!("SEP-10 for mobile initialized");
+
+    // Initialize push notification registration (issue #1377)
+    let _push_notification_registration = PushNotificationRegistration::new(
+        stellar_insights_backend::models::push_notification_registration::Config::default(),
+    );
+    tracing::info!("Push notification registration initialized");
 
     let fee_bump_tracker = services.fee_bump_tracker;
     let account_merge_detector = services.account_merge_detector;
