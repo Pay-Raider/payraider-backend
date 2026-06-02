@@ -75,7 +75,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_disabled_service() {
-        let config = Config { enabled: false, max_retries: 3 };
+        let config = Config {
+            enabled: false,
+            max_retries: 3,
+        };
         let instance = PushNotificationService::new(config);
         let result = instance.process(&NetworkContext::testnet()).await;
         assert!(result.is_ok());

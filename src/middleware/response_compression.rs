@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::models::response_compression::{CompressionAlgorithm, CompressionConfig};
 use crate::models::network_context_middleware::Network;
+use crate::models::response_compression::{CompressionAlgorithm, CompressionConfig};
 
 /// Middleware component that selects and validates compression settings
 /// based on network context and client type.
@@ -82,7 +82,10 @@ mod tests {
         let mut cfg = CompressionConfig::default();
         cfg.enabled = false;
         let m = ResponseCompression::new(cfg);
-        assert_eq!(m.effective_algorithm(Network::Mainnet, false), CompressionAlgorithm::None);
+        assert_eq!(
+            m.effective_algorithm(Network::Mainnet, false),
+            CompressionAlgorithm::None
+        );
     }
 
     #[test]

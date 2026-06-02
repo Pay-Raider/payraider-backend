@@ -22,14 +22,20 @@ impl DistributedLock {
         let client = match redis::Client::open(redis_url) {
             Ok(c) => c,
             Err(e) => {
-                tracing::warn!("DistributedLock: Redis unavailable ({}), running job anyway", e);
+                tracing::warn!(
+                    "DistributedLock: Redis unavailable ({}), running job anyway",
+                    e
+                );
                 return true;
             }
         };
         let mut conn = match client.get_multiplexed_tokio_connection().await {
             Ok(c) => c,
             Err(e) => {
-                tracing::warn!("DistributedLock: Redis connect failed ({}), running job anyway", e);
+                tracing::warn!(
+                    "DistributedLock: Redis connect failed ({}), running job anyway",
+                    e
+                );
                 return true;
             }
         };

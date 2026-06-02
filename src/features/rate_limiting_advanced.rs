@@ -1,4 +1,3 @@
-use crate::error::AppError;
 use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -32,7 +31,7 @@ impl Default for RateLimitConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RateLimitingAdvanced {
     config: RateLimitConfig,
     redis_client: Arc<ConnectionManager>,
@@ -57,7 +56,10 @@ impl Default for Response {
 
 impl RateLimitingAdvanced {
     pub fn new(config: RateLimitConfig, redis_client: Arc<ConnectionManager>) -> Self {
-        Self { config, redis_client }
+        Self {
+            config,
+            redis_client,
+        }
     }
 
     pub async fn execute(&self, client_id: &str) -> Result<Response, RateLimitError> {
@@ -66,12 +68,12 @@ impl RateLimitingAdvanced {
         let key = format!("rate_limit:{}", client_id);
         let burst_key = format!("rate_limit_burst:{}", client_id);
 
-        let mut conn = self.redis_client.clone();
+        let mut conn = (*self.redis_client).clone();
 
         // Check burst limit first
         let burst_count: u32 = redis::cmd("GET")
             .arg(&burst_key)
-            .query_async(&mut conn)
+            .query_async::<_, Option<u32>>(&mut conn)
             .await
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?
             .unwrap_or(0);
@@ -84,7 +86,7 @@ impl RateLimitingAdvanced {
         // Check sliding window rate limit
         let current_count: u32 = redis::cmd("GET")
             .arg(&key)
-            .query_async(&mut conn)
+            .query_async::<_, Option<u32>>(&mut conn)
             .await
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?
             .unwrap_or(0);
@@ -97,31 +99,34 @@ impl RateLimitingAdvanced {
         // Increment counters
         redis::cmd("INCR")
             .arg(&key)
-            .query_async(&mut conn)
+            .query_async::<_, ()>(&mut conn)
             .await
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
 
         redis::cmd("EXPIRE")
             .arg(&key)
             .arg(self.config.window_size_seconds)
-            .query_async(&mut conn)
+            .query_async::<_, ()>(&mut conn)
             .await
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
 
         redis::cmd("INCR")
             .arg(&burst_key)
-            .query_async(&mut conn)
+            .query_async::<_, ()>(&mut conn)
             .await
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
 
         redis::cmd("EXPIRE")
             .arg(&burst_key)
             .arg(1)
-            .query_async(&mut conn)
+            .query_async::<_, ()>(&mut conn)
             .await
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
 
-        let remaining = self.config.requests_per_window.saturating_sub(current_count + 1);
+        let remaining = self
+            .config
+            .requests_per_window
+            .saturating_sub(current_count + 1);
 
         info!(
             "Rate limit check passed for client: {}, remaining: {}",
@@ -139,12 +144,12 @@ impl RateLimitingAdvanced {
         let key = format!("rate_limit:{}", client_id);
         let burst_key = format!("rate_limit_burst:{}", client_id);
 
-        let mut conn = self.redis_client.clone();
+        let mut conn = (*self.redis_client).clone();
 
         redis::cmd("DEL")
             .arg(&key)
             .arg(&burst_key)
-            .query_async(&mut conn)
+            .query_async::<_, ()>(&mut conn)
             .await
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
 

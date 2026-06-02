@@ -8,12 +8,7 @@
 ///   `API_LOG_BODIES=true` is set in the environment.
 ///
 /// Sensitive headers (Authorization, Cookie, Set-Cookie) are never logged.
-use axum::{
-    body::Body,
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, extract::Request, middleware::Next, response::Response};
 use http_body_util::BodyExt;
 use std::time::Instant;
 
@@ -29,10 +24,7 @@ fn log_bodies() -> bool {
         .unwrap_or(false)
 }
 
-pub async fn request_response_logging_middleware(
-    req: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn request_response_logging_middleware(req: Request<Body>, next: Next) -> Response {
     let start = Instant::now();
 
     // Extract request metadata before consuming the request

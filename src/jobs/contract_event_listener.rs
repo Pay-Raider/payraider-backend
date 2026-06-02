@@ -100,7 +100,7 @@ impl ContractEventListenerJob {
                     Err(e)
                 }
             };
-            
+
             match result {
                 Ok(_) => {
                     _metrics.complete_success();

@@ -213,8 +213,7 @@ impl BackfillJob {
         let delay_ms = req.delay_ms.unwrap_or(DEFAULT_BACKFILL_DELAY_MS);
 
         tokio::spawn(async move {
-            let result =
-                run_backfill(indexer, rpc, state_ref.clone(), req, gaps, delay_ms).await;
+            let result = run_backfill(indexer, rpc, state_ref.clone(), req, gaps, delay_ms).await;
 
             let mut state = state_ref.write().await;
             state.finished_at = Some(Utc::now());
@@ -320,11 +319,7 @@ async fn run_backfill(
             }
 
             // Check if we've covered the range
-            let last_ledger = result
-                .ledgers
-                .last()
-                .map(|l| l.sequence)
-                .unwrap_or(current);
+            let last_ledger = result.ledgers.last().map(|l| l.sequence).unwrap_or(current);
 
             if last_ledger >= range_end || result.cursor.is_none() {
                 break;
@@ -434,10 +429,7 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("must be <="));
+        assert!(result.unwrap_err().to_string().contains("must be <="));
     }
 
     #[tokio::test]
@@ -470,10 +462,7 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("exceeds maximum"));
+        assert!(result.unwrap_err().to_string().contains("exceeds maximum"));
     }
 
     #[tokio::test]

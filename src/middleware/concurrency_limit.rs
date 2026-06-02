@@ -69,10 +69,7 @@ pub async fn concurrency_limit_middleware(
         }));
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            [(
-                header::RETRY_AFTER,
-                HeaderValue::from_static("5"),
-            )],
+            [(header::RETRY_AFTER, HeaderValue::from_static("5"))],
             body,
         )
             .into_response();
@@ -86,8 +83,8 @@ pub async fn concurrency_limit_middleware(
 /// Panic-recovery middleware — converts handler panics into 500 responses
 /// instead of dropping the connection, which avoids confusing client errors.
 pub async fn panic_recovery_middleware(req: Request<Body>, next: Next) -> Response {
-    use std::panic::AssertUnwindSafe;
     use futures::FutureExt;
+    use std::panic::AssertUnwindSafe;
 
     match AssertUnwindSafe(next.run(req)).catch_unwind().await {
         Ok(response) => response,

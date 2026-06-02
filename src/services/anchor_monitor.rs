@@ -101,11 +101,7 @@ impl AnchorMonitor {
             let cache_key = format!("anchor_metrics:{}", anchor.id);
 
             // Try the cache first (1-minute TTL reduces repeated expensive DB/RPC calls)
-            let current_metrics = match self
-                .cache
-                .get::<CachedAnchorMetrics>(&cache_key)
-                .await
-            {
+            let current_metrics = match self.cache.get::<CachedAnchorMetrics>(&cache_key).await {
                 Ok(Some(cached)) => {
                     tracing::debug!(
                         "Cache hit for anchor metrics: {} ({})",
@@ -148,11 +144,7 @@ impl AnchorMonitor {
                         .set(&cache_key, &cached, ANCHOR_METRICS_CACHE_TTL_SECS)
                         .await
                     {
-                        tracing::warn!(
-                            "Failed to cache anchor metrics for {}: {}",
-                            anchor.id,
-                            e
-                        );
+                        tracing::warn!("Failed to cache anchor metrics for {}: {}", anchor.id, e);
                     }
 
                     metrics

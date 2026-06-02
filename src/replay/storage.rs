@@ -166,10 +166,9 @@ impl EventStorage {
 
     /// Get the latest ledger with events
     pub async fn get_latest_ledger(&self) -> Result<Option<u64>> {
-        let ledger: Option<i64> =
-            sqlx::query_scalar("SELECT MAX(ledger) FROM contract_events")
-                .fetch_optional(&self.pool)
-                .await?;
+        let ledger: Option<i64> = sqlx::query_scalar("SELECT MAX(ledger) FROM contract_events")
+            .fetch_optional(&self.pool)
+            .await?;
 
         Ok(ledger.map(|l| l as u64))
     }

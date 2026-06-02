@@ -2,7 +2,6 @@ use crate::error::ApiError;
 use redis::aio::MultiplexedConnection;
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, error, info};
 
 /// Redis caching layer configuration
@@ -58,7 +57,7 @@ impl RedisCachingLayer {
     pub async fn new(config: RedisCachingConfig) -> Result<Self, ApiError> {
         let client = redis::Client::open(config.redis_url.as_str()).map_err(|e| {
             error!("Failed to create Redis client: {}", e);
-            ApiError::InternalServerError("Redis connection failed".to_string())
+            ApiError::internal("REDIS_CONNECTION_FAILED", "Redis connection failed")
         })?;
 
         let connection = client
@@ -66,7 +65,7 @@ impl RedisCachingLayer {
             .await
             .map_err(|e| {
                 error!("Failed to connect to Redis: {}", e);
-                ApiError::InternalServerError("Redis connection failed".to_string())
+                ApiError::internal("REDIS_CONNECTION_FAILED", "Redis connection failed")
             })?;
 
         info!("Redis caching layer initialized");
@@ -86,13 +85,13 @@ impl RedisCachingLayer {
         let conn = self.connection.read().await;
         let conn = conn.as_ref().ok_or_else(|| {
             error!("Redis connection not available");
-            ApiError::InternalServerError("Cache unavailable".to_string())
+            ApiError::internal("CACHE_UNAVAILABLE", "Cache unavailable")
         })?;
 
         let mut conn = conn.clone();
         let serialized = serde_json::to_string(value).map_err(|e| {
             error!("Failed to serialize value: {}", e);
-            ApiError::InternalServerError("Serialization failed".to_string())
+            ApiError::internal("CACHE_SERIALIZATION_FAILED", "Serialization failed")
         })?;
 
         let ttl = ttl_secs.unwrap_or(self.config.default_ttl_secs);
@@ -102,11 +101,11 @@ impl RedisCachingLayer {
             .arg(&serialized)
             .arg("EX")
             .arg(ttl)
-            .query_async(&mut conn)
+            .query_async::<_, Option<String>>(&mut conn)
             .await
             .map_err(|e| {
                 error!("Failed to set cache key {}: {}", key, e);
-                ApiError::InternalServerError("Cache operation failed".to_string())
+                ApiError::internal("CACHE_OPERATION_FAILED", "Cache operation failed")
             })?;
 
         debug!("Cache set: {} (TTL: {}s)", key, ttl);
@@ -118,24 +117,24 @@ impl RedisCachingLayer {
         let conn = self.connection.read().await;
         let conn = conn.as_ref().ok_or_else(|| {
             error!("Redis connection not available");
-            ApiError::InternalServerError("Cache unavailable".to_string())
+            ApiError::internal("CACHE_UNAVAILABLE", "Cache unavailable")
         })?;
 
         let mut conn = conn.clone();
         let value: Option<String> = redis::cmd("GET")
             .arg(key)
-            .query_async(&mut conn)
+            .query_async::<_, Option<String>>(&mut conn)
             .await
             .map_err(|e| {
                 error!("Failed to get cache key {}: {}", key, e);
-                ApiError::InternalServerError("Cache operation failed".to_string())
+                ApiError::internal("CACHE_OPERATION_FAILED", "Cache operation failed")
             })?;
 
         match value {
             Some(v) => {
                 let deserialized = serde_json::from_str(&v).map_err(|e| {
                     error!("Failed to deserialize cache value: {}", e);
-                    ApiError::InternalServerError("Deserialization failed".to_string())
+                    ApiError::internal("CACHE_DESERIALIZATION_FAILED", "Deserialization failed")
                 })?;
                 debug!("Cache hit: {}", key);
                 Ok(Some(deserialized))
@@ -152,17 +151,17 @@ impl RedisCachingLayer {
         let conn = self.connection.read().await;
         let conn = conn.as_ref().ok_or_else(|| {
             error!("Redis connection not available");
-            ApiError::InternalServerError("Cache unavailable".to_string())
+            ApiError::internal("CACHE_UNAVAILABLE", "Cache unavailable")
         })?;
 
         let mut conn = conn.clone();
         redis::cmd("DEL")
             .arg(key)
-            .query_async(&mut conn)
+            .query_async::<_, ()>(&mut conn)
             .await
             .map_err(|e| {
                 error!("Failed to delete cache key {}: {}", key, e);
-                ApiError::InternalServerError("Cache operation failed".to_string())
+                ApiError::internal("CACHE_OPERATION_FAILED", "Cache operation failed")
             })?;
 
         debug!("Cache deleted: {}", key);
@@ -174,16 +173,16 @@ impl RedisCachingLayer {
         let conn = self.connection.read().await;
         let conn = conn.as_ref().ok_or_else(|| {
             error!("Redis connection not available");
-            ApiError::InternalServerError("Cache unavailable".to_string())
+            ApiError::internal("CACHE_UNAVAILABLE", "Cache unavailable")
         })?;
 
         let mut conn = conn.clone();
         redis::cmd("FLUSHDB")
-            .query_async(&mut conn)
+            .query_async::<_, ()>(&mut conn)
             .await
             .map_err(|e| {
                 error!("Failed to clear cache: {}", e);
-                ApiError::InternalServerError("Cache operation failed".to_string())
+                ApiError::internal("CACHE_OPERATION_FAILED", "Cache operation failed")
             })?;
 
         info!("Cache cleared");
@@ -195,7 +194,7 @@ impl RedisCachingLayer {
         let conn = self.connection.read().await;
         let conn = conn.as_ref().ok_or_else(|| {
             error!("Redis connection not available");
-            ApiError::InternalServerError("Cache unavailable".to_string())
+            ApiError::internal("CACHE_UNAVAILABLE", "Cache unavailable")
         })?;
 
         let mut conn = conn.clone();
@@ -205,7 +204,7 @@ impl RedisCachingLayer {
             .await
             .map_err(|e| {
                 error!("Failed to get cache stats: {}", e);
-                ApiError::InternalServerError("Cache operation failed".to_string())
+                ApiError::internal("CACHE_OPERATION_FAILED", "Cache operation failed")
             })?;
 
         Ok(CacheStats {

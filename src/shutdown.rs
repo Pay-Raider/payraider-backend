@@ -156,7 +156,10 @@ pub async fn shutdown_signal() {
                 }
             }
             (Err(e), _) | (_, Err(e)) => {
-                warn!("Failed to install signal handler: {}; falling back to Ctrl+C", e);
+                warn!(
+                    "Failed to install signal handler: {}; falling back to Ctrl+C",
+                    e
+                );
                 let _ = tokio::signal::ctrl_c().await;
                 info!("Received Ctrl+C, shutting down");
             }

@@ -13,7 +13,6 @@ use crate::services::account_merge_detector::AccountMergeDetector;
 use crate::services::fee_bump_tracker::FeeBumpTrackerService;
 use crate::services::liquidity_pool_analyzer::LiquidityPoolAnalyzer;
 use crate::services::price_feed::PriceFeedClient;
-use std::sync::Arc;
 use crate::state::AppState;
 use axum::{
     middleware,
@@ -22,6 +21,7 @@ use axum::{
 };
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 /// Job monitoring routes

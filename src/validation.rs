@@ -177,7 +177,10 @@ pub fn validate_stellar_address(address: &str) -> ApiResult<()> {
     if address.len() != 56 {
         return Err(ApiError::bad_request(
             "INVALID_ADDRESS",
-            format!("Stellar address must be 56 characters (got {})", address.len()),
+            format!(
+                "Stellar address must be 56 characters (got {})",
+                address.len()
+            ),
         ));
     }
     if !address.starts_with('G') {
@@ -187,7 +190,10 @@ pub fn validate_stellar_address(address: &str) -> ApiResult<()> {
         ));
     }
     // Validate base32 characters (A-Z, 2-7)
-    if !address[1..].chars().all(|c| c.is_ascii_uppercase() || ('2'..='7').contains(&c)) {
+    if !address[1..]
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || ('2'..='7').contains(&c))
+    {
         return Err(ApiError::bad_request(
             "INVALID_ADDRESS",
             "Stellar address contains invalid characters (must be A-Z, 2-7)",
@@ -215,10 +221,9 @@ pub fn validate_asset_code(code: &str) -> ApiResult<()> {
 
 /// Validates webhook URL (must be HTTPS and not internal/private IP)
 pub fn validate_webhook_url(url: &str) -> ApiResult<()> {
-    let parsed = url::Url::parse(url).map_err(|_| {
-        ApiError::bad_request("INVALID_URL", "Invalid URL format")
-    })?;
-    
+    let parsed = url::Url::parse(url)
+        .map_err(|_| ApiError::bad_request("INVALID_URL", "Invalid URL format"))?;
+
     // Must be HTTPS
     if parsed.scheme() != "https" {
         return Err(ApiError::bad_request(
@@ -226,7 +231,7 @@ pub fn validate_webhook_url(url: &str) -> ApiResult<()> {
             "Webhook URL must use HTTPS scheme",
         ));
     }
-    
+
     // Check for SSRF vulnerabilities - block private/internal IPs
     if let Some(host) = parsed.host_str() {
         // Block localhost
@@ -236,11 +241,11 @@ pub fn validate_webhook_url(url: &str) -> ApiResult<()> {
                 "Webhook URL cannot point to localhost",
             ));
         }
-        
+
         // Block private IP ranges
-        if host.starts_with("10.") 
-            || host.starts_with("192.168.") 
-            || host.starts_with("172.16.") 
+        if host.starts_with("10.")
+            || host.starts_with("192.168.")
+            || host.starts_with("172.16.")
             || host.starts_with("172.17.")
             || host.starts_with("172.18.")
             || host.starts_with("172.19.")
@@ -256,14 +261,15 @@ pub fn validate_webhook_url(url: &str) -> ApiResult<()> {
             || host.starts_with("172.29.")
             || host.starts_with("172.30.")
             || host.starts_with("172.31.")
-            || host.starts_with("169.254.") {
+            || host.starts_with("169.254.")
+        {
             return Err(ApiError::bad_request(
                 "INVALID_URL",
                 "Webhook URL cannot point to private IP ranges",
             ));
         }
     }
-    
+
     Ok(())
 }
 
@@ -275,16 +281,27 @@ pub fn sanitize_string(input: &str, max_length: usize) -> ApiResult<String> {
             format!("Input exceeds maximum length of {} characters", max_length),
         ));
     }
-    
+
     // Remove control characters and potential XSS vectors
     let sanitized: String = input
         .chars()
         .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
         .collect();
-    
+
     // Check for SQL injection patterns
     let lower = sanitized.to_lowercase();
-    let sql_patterns = ["drop table", "delete from", "insert into", "update ", "union select", "--", "/*", "*/", "xp_", "sp_"];
+    let sql_patterns = [
+        "drop table",
+        "delete from",
+        "insert into",
+        "update ",
+        "union select",
+        "--",
+        "/*",
+        "*/",
+        "xp_",
+        "sp_",
+    ];
     for pattern in &sql_patterns {
         if lower.contains(pattern) {
             return Err(ApiError::bad_request(
@@ -293,7 +310,7 @@ pub fn sanitize_string(input: &str, max_length: usize) -> ApiResult<String> {
             ));
         }
     }
-    
+
     Ok(sanitized)
 }
 
@@ -302,7 +319,10 @@ pub fn validate_payload_size(size: usize, max_size: usize) -> ApiResult<()> {
     if size > max_size {
         return Err(ApiError::bad_request(
             "PAYLOAD_TOO_LARGE",
-            format!("Payload size {} exceeds maximum of {} bytes", size, max_size),
+            format!(
+                "Payload size {} exceeds maximum of {} bytes",
+                size, max_size
+            ),
         ));
     }
     Ok(())
@@ -422,7 +442,8 @@ mod tests {
         assert!(validate_webhook_url("https://127.0.0.1/webhook").is_err()); // Localhost IP
         assert!(validate_webhook_url("https://10.0.0.1/webhook").is_err()); // Private IP
         assert!(validate_webhook_url("https://192.168.1.1/webhook").is_err()); // Private IP
-        assert!(validate_webhook_url("https://169.254.169.254/metadata").is_err()); // AWS metadata
+        assert!(validate_webhook_url("https://169.254.169.254/metadata").is_err());
+        // AWS metadata
     }
 
     #[test]

@@ -96,9 +96,7 @@ pub async fn start_backfill(
 ///   "error": null
 /// }
 /// ```
-pub async fn get_backfill_status(
-    State(job): State<Arc<BackfillJob>>,
-) -> Json<BackfillState> {
+pub async fn get_backfill_status(State(job): State<Arc<BackfillJob>>) -> Json<BackfillState> {
     Json(job.status().await)
 }
 

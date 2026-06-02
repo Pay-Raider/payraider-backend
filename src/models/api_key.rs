@@ -51,7 +51,11 @@ impl From<ApiKey> for ApiKeyInfo {
 
 #[derive(Debug, Clone, Deserialize, Validate)]
 pub struct CreateApiKeyRequest {
-    #[validate(length(min = 1, max = 100, message = "name must be between 1 and 100 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 100,
+        message = "name must be between 1 and 100 characters"
+    ))]
     pub name: String,
     pub scopes: Option<String>,
     pub expires_at: Option<String>,

@@ -27,7 +27,6 @@ use crate::services::price_feed::PriceFeedClient;
 use crate::state::AppState;
 use tracing::warn;
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnchorMetrics {
     pub anchor_id: Uuid,

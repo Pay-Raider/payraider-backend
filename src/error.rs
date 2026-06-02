@@ -81,6 +81,8 @@ pub enum ApiError {
     },
 }
 
+pub type AppError = ApiError;
+
 impl ApiError {
     /// Create a `NotFound` error with a specific code
     pub fn not_found(code: impl Into<String>, message: impl Into<String>) -> Self {

@@ -39,9 +39,17 @@ pub struct AlertHistory {
 pub struct CreateAlertRuleRequest {
     #[validate(length(max = 256, message = "corridor_id must not exceed 256 characters"))]
     pub corridor_id: Option<String>,
-    #[validate(length(min = 1, max = 64, message = "metric_type must be between 1 and 64 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 64,
+        message = "metric_type must be between 1 and 64 characters"
+    ))]
     pub metric_type: String,
-    #[validate(length(min = 1, max = 32, message = "condition must be between 1 and 32 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 32,
+        message = "condition must be between 1 and 32 characters"
+    ))]
     pub condition: String,
     #[validate(range(min = 0.0, message = "threshold must be non-negative"))]
     pub threshold: f64,
@@ -57,9 +65,17 @@ pub struct CreateAlertRuleRequest {
 pub struct UpdateAlertRuleRequest {
     #[validate(length(max = 256, message = "corridor_id must not exceed 256 characters"))]
     pub corridor_id: Option<String>,
-    #[validate(length(min = 1, max = 64, message = "metric_type must be between 1 and 64 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 64,
+        message = "metric_type must be between 1 and 64 characters"
+    ))]
     pub metric_type: Option<String>,
-    #[validate(length(min = 1, max = 32, message = "condition must be between 1 and 32 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 32,
+        message = "condition must be between 1 and 32 characters"
+    ))]
     pub condition: Option<String>,
     #[validate(range(min = 0.0, message = "threshold must be non-negative"))]
     pub threshold: Option<f64>,

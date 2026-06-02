@@ -225,4 +225,3 @@ mod tests {
         assert!(!service.apply_filters(&payload, &mismatched_filters));
     }
 }
-

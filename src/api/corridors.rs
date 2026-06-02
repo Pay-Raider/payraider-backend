@@ -510,7 +510,12 @@ pub async fn list_corridors(
                 .take(params.limit as usize)
                 .collect();
 
-            Ok(PaginatedResponse::new(page, total, params.limit, params.offset))
+            Ok(PaginatedResponse::new(
+                page,
+                total,
+                params.limit,
+                params.offset,
+            ))
         },
     )
     .await?;
