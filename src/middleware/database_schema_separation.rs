@@ -7,6 +7,7 @@ use crate::models::network_context_middleware::NetworkContext;
 
 #[derive(Clone)]
 pub struct DatabaseSchemaSeparation {
+    #[allow(dead_code)]
     config: SchemaConfig,
     state: Arc<RwLock<String>>,
 }

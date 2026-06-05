@@ -42,6 +42,7 @@ impl Default for ApiGatewayConfig {
 
 #[derive(Debug, Clone)]
 pub struct APIGateway {
+    #[allow(dead_code)]
     config: ApiGatewayConfig,
     route_cache: Arc<std::sync::Mutex<HashMap<String, RouteConfig>>>,
 }

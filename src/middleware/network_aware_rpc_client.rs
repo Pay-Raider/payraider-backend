@@ -7,7 +7,9 @@ use crate::models::network_context_middleware::NetworkContext;
 
 #[derive(Clone)]
 pub struct NetworkAwareRpcClient {
+    #[allow(dead_code)]
     config: NetworkAwareRpcConfig,
+    #[allow(dead_code)]
     state: Arc<RwLock<bool>>,
 }
 

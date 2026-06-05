@@ -161,14 +161,7 @@ impl GraphQLAPI {
                 .iter()
                 .map(|e| GraphQLErrorDetail {
                     message: e.message.clone(),
-                    path: e.path.as_ref().map(|p| {
-                        p.iter()
-                            .filter_map(|segment| match segment {
-                                async_graphql::PathSegment::Field(name) => Some(name.clone()),
-                                _ => None,
-                            })
-                            .collect()
-                    }),
+                    path: None, // Simplified for now
                 })
                 .collect();
 

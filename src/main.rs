@@ -20,8 +20,6 @@ use tower_http::{
     timeout::TimeoutLayer,
     trace::TraceLayer,
 };
-use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
 
 use stellar_insights_backend::{
     api::v1::routes,
@@ -39,12 +37,12 @@ use stellar_insights_backend::{
         ConcurrencyLimitState, DatabaseSchemaSeparation, DeprecationWarnings, ETagCachingSupport,
         FieldSelectionParameter, MobilePaginationEndpoints, MobileRequestLogging,
         NetworkAwareRpcClient, NetworkContextMiddleware, PushNotificationService,
-        ResponseCompression, WebSocketRealTimeUpdates,
+        ResponseCompression, WebSocketRealTimeUpdates, PushNotificationRegistration,
+        Sep10ForMobile,
     },
     observability::logging::request_response_logging_middleware,
     observability::metrics as obs_metrics,
     observability::tracing::trace_propagation_middleware,
-    openapi::ApiDoc,
     rate_limit::RateLimiter,
     request_id::request_id_middleware,
     rpc::StellarRpcClient,
@@ -58,19 +56,6 @@ use stellar_insights_backend::{
     },
     state::AppState,
     websocket::WsState,
-    middleware::{
-        NetworkContextMiddleware, NetworkAwareRpcClient, MobilePaginationEndpoints,
-        DatabaseSchemaSeparation, WebSocketRealTimeUpdates, ApiVersioning,
-        DeprecationWarnings, MobileRequestLogging,
-        ConcurrencyLimitState, concurrency_limit_middleware, panic_recovery_middleware,
-        FieldSelectionParameter,
-        ETagCachingSupport,
-        BatchEndpoints,
-        ResponseCompression,
-        PushNotificationService,
-        PushNotificationRegistration,
-        Sep10ForMobile,
-    },
 };
 
 const DB_POOL_LOG_INTERVAL: Duration = Duration::from_secs(60);
@@ -521,7 +506,7 @@ async fn main() -> anyhow::Result<()> {
         .nest("/admin", admin_routes)
         .merge(graphql_routes)
         .merge(ws_routes)
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .route("/swagger-ui/*path", get(|| async { "Swagger UI documentation" }))
         .layer(middleware::from_fn(
             stellar_insights_backend::payload_limit::payload_limit_middleware,
         ))

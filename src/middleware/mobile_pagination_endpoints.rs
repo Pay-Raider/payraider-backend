@@ -7,7 +7,9 @@ use crate::models::network_context_middleware::NetworkContext;
 
 #[derive(Clone)]
 pub struct MobilePaginationEndpoints {
+    #[allow(dead_code)]
     config: PaginationConfig,
+    #[allow(dead_code)]
     state: Arc<RwLock<u64>>,
 }
 
