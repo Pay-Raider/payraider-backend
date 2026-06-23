@@ -18,6 +18,16 @@ use crate::error::{ApiError, ApiResult};
 use crate::models::PaymentRow;
 use crate::state::AppState;
 
+/// Prefix any cell that begins with a formula-trigger character so spreadsheet
+/// applications treat it as literal text instead of executing it as a formula.
+fn sanitize_csv_field(value: String) -> String {
+    if value.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        format!("'{value}")
+    } else {
+        value
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ExportQuery {
     pub format: String, // "csv", "json", "excel"
@@ -68,11 +78,11 @@ pub async fn export_corridors(
 
             for m in corridors {
                 wtr.write_record(&[
-                    m.corridor_key,
-                    m.source_asset_code,
-                    m.source_asset_issuer,
-                    m.destination_asset_code,
-                    m.destination_asset_issuer,
+                    sanitize_csv_field(m.corridor_key),
+                    sanitize_csv_field(m.source_asset_code),
+                    sanitize_csv_field(m.source_asset_issuer),
+                    sanitize_csv_field(m.destination_asset_code),
+                    sanitize_csv_field(m.destination_asset_issuer),
                     format!("{:.2}", m.avg_success_rate),
                     m.total_transactions.to_string(),
                     m.successful_transactions.to_string(),
@@ -232,16 +242,16 @@ pub async fn export_anchors(
 
             for a in anchors {
                 wtr.write_record(&[
-                    a.id,
-                    a.name,
-                    a.stellar_account,
-                    a.home_domain.unwrap_or_default(),
+                    sanitize_csv_field(a.id),
+                    sanitize_csv_field(a.name),
+                    sanitize_csv_field(a.stellar_account),
+                    sanitize_csv_field(a.home_domain.unwrap_or_default()),
                     format!("{:.2}", a.reliability_score),
                     a.total_transactions.to_string(),
                     a.successful_transactions.to_string(),
                     a.failed_transactions.to_string(),
                     format!("{:.2}", a.total_volume_usd),
-                    a.status,
+                    sanitize_csv_field(a.status),
                     a.updated_at.to_rfc3339(),
                 ])
                 .map_err(|e| ApiError::internal("EXPORT_ERROR", e.to_string()))?;
@@ -410,14 +420,17 @@ pub async fn export_payments(
 
             for p in payments {
                 wtr.write_record(&[
-                    p.transaction_hash,
-                    p.source_account,
-                    p.destination_account,
-                    format!("{}:{}", p.source_asset_code, p.source_asset_issuer),
-                    format!(
+                    sanitize_csv_field(p.transaction_hash),
+                    sanitize_csv_field(p.source_account),
+                    sanitize_csv_field(p.destination_account),
+                    sanitize_csv_field(format!(
+                        "{}:{}",
+                        p.source_asset_code, p.source_asset_issuer
+                    )),
+                    sanitize_csv_field(format!(
                         "{}:{}",
                         p.destination_asset_code, p.destination_asset_issuer
-                    ),
+                    )),
                     p.amount.to_string(),
                     p.successful.to_string(),
                     p.created_at.to_rfc3339(),
