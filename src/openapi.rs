@@ -162,6 +162,9 @@ use utoipa::OpenApi;
         crate::api::verification_rewards::get_leaderboard,
         crate::api::verification_rewards::get_user_verifications,
         crate::api::verification_rewards::get_public_user_stats,
+        // Snapshots
+        crate::api::snapshots::generate_snapshot,
+        crate::api::snapshots::contract_health_check,
     ),
     components(
         schemas(
@@ -182,6 +185,10 @@ use utoipa::OpenApi;
             crate::api::cost_calculator::RouteEstimate,
             crate::api::cost_calculator::CostCalculationResponse,
             crate::api::cost_calculator::ErrorResponse,
+            crate::api::snapshots::SnapshotResponse,
+            crate::api::snapshots::SubmissionInfo,
+            crate::api::snapshots::GenerateSnapshotRequest,
+            crate::api::snapshots::ContractHealthResponse,
         )
     ),
     tags(
@@ -214,6 +221,31 @@ use utoipa::OpenApi;
         (name = "SEP-10", description = "SEP-10 authentication endpoints"),
         (name = "SEP-24", description = "SEP-24 hosted deposit/withdrawal endpoints"),
         (name = "Verification Rewards", description = "Snapshot verification reward endpoints"),
+        (name = "Snapshots", description = "Snapshot generation and submission endpoints"),
     )
 )]
 pub struct ApiDoc;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::Path;
+
+    #[test]
+    fn generate_openapi_json() {
+        let json = ApiDoc::openapi()
+            .to_pretty_json()
+            .expect("Failed to serialize OpenAPI spec");
+        
+        let path = if Path::new("../docs").exists() {
+            "../docs/openapi.json"
+        } else {
+            "docs/openapi.json"
+        };
+        
+        let mut file = File::create(path).expect("Failed to create docs/openapi.json");
+        file.write_all(json.as_bytes()).expect("Failed to write to docs/openapi.json");
+    }
+}

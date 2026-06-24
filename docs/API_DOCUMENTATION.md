@@ -55,8 +55,28 @@ Content-Type: application/json
 
 ### Payment Corridors
 - `GET /api/corridors` - List payment corridors
-- `GET /api/corridors/{source}/{destination}` - Get corridor details
-- `GET /api/corridors/{source}/{destination}/metrics` - Get corridor metrics
+- `GET /api/corridors/{corridor_key}` - Get corridor details
+
+### Contract Events
+- `GET /api/analytics/verification-summary` - Get smart contract verification summary
+- `GET /api/analytics/contract-events` - List contract events
+- `GET /api/analytics/contract-events/{id}` - Get details of a contract event
+- `GET /api/analytics/contract-events/epoch/{epoch}` - List contract events for a specific epoch
+- `GET /api/analytics/event-stats` - Get contract event statistics
+
+### SEP-31 Proxy
+- `GET /api/sep31/info` - Get SEP-31 anchor info
+- `POST /api/sep31/quote` - Create a SEP-31 payment quote
+- `POST /api/sep31/transactions` - Create a SEP-31 transaction
+- `GET /api/sep31/transactions` - List SEP-31 transactions
+- `GET /api/sep31/transactions/{id}` - Get a specific SEP-31 transaction
+- `GET /api/sep31/customer` - Get KYC customer information
+- `PUT /api/sep31/customer` - Update KYC customer information
+- `GET /api/sep31/anchors` - List configured SEP-31 anchors
+
+### Snapshots
+- `POST /api/snapshots/generate` - Generate a ledger state snapshot
+- `GET /api/snapshots/contract/health` - Check health of snapshot contract service
 
 ### Price Feed
 - `GET /api/prices` - Get current asset prices
