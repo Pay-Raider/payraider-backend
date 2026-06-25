@@ -24,6 +24,7 @@ resources:
 - redis/service.yaml
 - ingress/ingress.yaml
 - network-policy.yaml
+- monitoring/prometheus.yaml
 - monitoring/servicemonitor.yaml
 
 commonLabels:
