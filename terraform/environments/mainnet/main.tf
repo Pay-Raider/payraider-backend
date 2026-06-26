@@ -3,7 +3,7 @@ terraform {
 
   backend "s3" {
     bucket         = "stellar-insights-terraform-state-ACCOUNT_ID"
-    key            = "production/terraform.tfstate"
+    key            = "mainnet/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-locks"
     encrypt        = true
@@ -37,7 +37,7 @@ data "aws_ecr_repository" "backend" {
 }
 
 # ============================================================================
-# NETWORKING (3 AZs, Full HA)
+# NETWORKING (3 AZs, Full HA - production grade)
 # ============================================================================
 
 module "networking" {
@@ -45,13 +45,13 @@ module "networking" {
 
   vpc_cidr                = var.vpc_cidr
   environment             = var.environment
-  enable_nat_per_az       = false  # Single NAT for cost optimization (saves ~$60/month)
-  enable_vpc_flow_logs    = true   # Enable for security & compliance
-  azs                     = 3      # 3 AZs for full HA
+  enable_nat_per_az       = true   # Multi-AZ NAT for mainnet HA
+  enable_vpc_flow_logs    = true   # Full security monitoring
+  azs                     = 3      # 3 AZs for geographic redundancy
 }
 
 # ============================================================================
-# DATABASE (RDS PostgreSQL - Multi-AZ)
+# DATABASE (RDS PostgreSQL - Multi-AZ for mainnet)
 # ============================================================================
 
 module "database" {
@@ -62,13 +62,13 @@ module "database" {
   db_subnet_ids        = module.networking.private_db_subnet_ids
 
   identifier         = "stellar-insights-${var.environment}"
-  instance_class     = "db.t3.medium"  # Mainnet minimum: handles transaction volume at network scale
+  instance_class     = "db.t3.medium"  # Mainnet minimum for transaction volume
   allocated_storage  = 500
   storage_type       = "gp3"
   engine_version     = "14.8"
 
-  multi_az                 = true   # Full failover
-  backup_retention_period  = 30     # 30-day retention
+  multi_az                 = true   # Automatic failover across AZs
+  backup_retention_period  = 30     # 30-day retention for mainnet
   enable_cloudwatch_logs_exports = ["postgresql"]
   enable_enhanced_monitoring = true
   monitoring_interval      = 60
@@ -79,7 +79,7 @@ module "database" {
 }
 
 # ============================================================================
-# CACHING (Redis - Multi-AZ)
+# CACHING (Redis - Multi-AZ cluster)
 # ============================================================================
 
 module "caching" {
@@ -119,15 +119,15 @@ module "load_balancing" {
 
   # ACM certificate (wildcard or specific domain)
   certificate_arn = "arn:aws:acm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:certificate/REPLACE_WITH_CERT_ID"
-  domain_name     = "api.stellar-insights.com"
+  domain_name     = "api.mainnet.stellar-insights.com"
 
   # Enable request logging to S3
-  enable_logs = false  # Set to true if S3 bucket exists for ALB logs
+  enable_logs = true  # Important for mainnet audit trails
 
   # WAF can be enabled separately
-  enable_waf = false   # Set to true if WAF Web ACL exists
+  enable_waf = false  # Set to true if WAF Web ACL exists
 
-  # Blue-green deployment: creates green target group + test listener
+  # Blue-green deployment
   enable_blue_green = true
 
   environment = var.environment
@@ -136,7 +136,7 @@ module "load_balancing" {
 }
 
 # ============================================================================
-# COMPUTE - ECS CLUSTER (HA with auto-scaling)
+# COMPUTE - ECS CLUSTER (HA with aggressive auto-scaling)
 # ============================================================================
 
 module "compute" {
@@ -148,19 +148,19 @@ module "compute" {
   container_cpu   = 512
   container_memory = 1024
 
-  # Fargate configuration (serverless - cost optimized)
+  # Fargate configuration (serverless)
   launch_type     = "FARGATE"
   enable_fargate  = true
 
-  desired_count = 3
-  min_size      = 3  # For Fargate, this controls min task count
-  max_size      = 10 # For Fargate, this controls max task count
+  desired_count = 4
+  min_size      = 4  # Minimum 4 tasks for mainnet HA
+  max_size      = 20 # Scale up to 20 tasks under load
 
   subnets         = module.networking.private_app_subnet_ids
   security_groups = [module.networking.security_group_backend_id]
   target_group_arn = module.load_balancing.target_group_arn
 
-  # Blue-green deployment: switches to CODE_DEPLOY controller
+  # Blue-green deployment
   enable_blue_green = true
 
   # Configuration
@@ -169,9 +169,9 @@ module "compute" {
   redis_url  = module.caching.redis_connection_string
 
   environment         = var.environment
-  log_retention_days = 30  # Full retention for production
+  log_retention_days  = 90  # Longer retention for mainnet compliance
   enable_auto_scaling = true
-  cpu_target_percentage = 70
+  cpu_target_percentage = 60  # More aggressive scaling for mainnet
 
   depends_on = [module.load_balancing, module.database, module.caching]
 }
@@ -210,7 +210,7 @@ module "vault" {
 }
 
 # ============================================================================
-# MONITORING (Full monitoring for production)
+# MONITORING (Production-grade monitoring and alerting)
 # ============================================================================
 
 module "monitoring" {
@@ -239,19 +239,19 @@ output "alb_dns_name" {
 }
 
 output "database_endpoint" {
-  description = "RDS PostgreSQL endpoint (Multi-AZ)"
+  description = "RDS PostgreSQL endpoint (Multi-AZ with failover)"
   value       = module.database.rds_endpoint
   sensitive   = false
 }
 
 output "redis_endpoints" {
-  description = "Redis primary and replica endpoints"
+  description = "Redis primary and replica endpoints (Multi-AZ cluster)"
   value       = module.caching.redis_connection_string
   sensitive   = true
 }
 
 output "vault_secret_paths" {
-  description = "Vault secret paths"
+  description = "Vault secret paths for mainnet secrets"
   value       = module.vault.vault_secret_paths
 }
 
@@ -266,20 +266,21 @@ output "codedeploy_deployment_group_name" {
 }
 
 output "cost_estimate" {
-  description = "Estimated monthly cost for production (Fargate - cost optimized)"
+  description = "Estimated monthly cost for mainnet (production-grade HA)"
   value = {
-    alb                     = "$20/month"
-    nat_gateway             = "$30/month"
-    fargate_vcpu_hours      = "$25/month"  # ~500 vCPU-hours @ $0.04/vCPU-hour
-    fargate_memory_hours    = "$20/month"  # ~1000 GB-hours @ $0.008/GB-hour
-    fargate_requests        = "$10/month"  # Request charges if applicable
-    rds_t3_medium_multiaz  = "$150/month"
-    redis_3_node_multiaz    = "$40/month"
-    data_transfer           = "$20/month"
-    cloudwatch_logs         = "$10/month"
-    waf_optional            = "$5/month"
-    total_monthly           = "~$330/month"
-    savings_vs_ec2          = "~$175/month (38% savings from Fargate migration)"
+    alb                    = "$20/month"
+    nat_gateway_per_az     = "$90/month"    # 3 NATs (one per AZ)
+    fargate_vcpu_hours     = "$60/month"    # ~800 vCPU-hours @ $0.04/vCPU-hour
+    fargate_memory_hours   = "$50/month"    # ~2000 GB-hours @ $0.008/GB-hour
+    fargate_requests       = "$20/month"
+    rds_t3_medium_multiaz  = "$200/month"   # Multi-AZ premium
+    redis_3_node_multiaz   = "$50/month"
+    data_transfer          = "$30/month"
+    cloudwatch_logs        = "$20/month"    # 90-day retention
+    alb_logging            = "$5/month"
+    waf_optional           = "$5/month"
+    total_monthly          = "~$450-500/month"
+    notes                  = "Multi-AZ HA across 3 regions; autoscaling to 20 tasks"
   }
 }
 
@@ -287,19 +288,20 @@ output "cost_estimate" {
 # PRE-DEPLOYMENT CHECKLIST
 # ============================================================================
 #
+# [ ] Account and permissions properly configured
 # [ ] VPC and networking deployed and tested
-# [ ] Database: RDS created, backups tested, restore procedure documented
-# [ ] Cache: Redis cluster healthy, failover tested
-# [ ] ALB: Health checks passing, HTTPS listener functional
-# [ ] ECS: Tasks deploying successfully, logs flowing
-# [ ] Vault: Secrets configured, GitHub Actions authenticated
-# [ ] Monitoring: Alarms configured, SNS notifications tested
-# [ ] DNS: Route53 records pointing to ALB
-# [ ] Security: Security groups properly configured, NACLs reviewed
-# [ ] Load testing: Verified 100+ req/sec, auto-scaling functional
-# [ ] Disaster recovery: Backup/restore procedures tested
+# [ ] Database: RDS Multi-AZ created, backups tested, restore procedure documented
+# [ ] Cache: Redis 3-node cluster healthy, failover tested
+# [ ] ALB: Health checks passing, HTTPS listener functional, WAF configured
+# [ ] ECS: Tasks deploying successfully, logs flowing, auto-scaling tested
+# [ ] Vault: Mainnet secrets configured, GitHub Actions authenticated
+# [ ] Monitoring: CloudWatch dashboard configured, SNS notifications tested
+# [ ] DNS: Route53 records pointing to ALB (mainnet domain)
+# [ ] Security: Security groups properly configured, NACLs reviewed, no 0.0.0.0/0 to backend
+# [ ] Load testing: Verified 1000+ req/sec, auto-scaling functional
+# [ ] Disaster recovery: Backup/restore procedures tested, Multi-AZ failover validated
 # [ ] On-call playbooks created and reviewed
-# [ ] Team trained on incident response
+# [ ] Team trained on mainnet incident response
+# [ ] RTO/RPO defined and tested
 #
-# Post-deployment: Monitor CloudWatch dashboard, validate logs, test failover
-
+# Post-deployment: Monitor dashboard 24/7, validate logs, test failover, document runbooks
