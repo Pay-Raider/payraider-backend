@@ -274,6 +274,10 @@ async fn run_backfill(
         let mut cursor: Option<String> = None;
         let mut current = range_start;
 
+        let mut events_buffer = Vec::new();
+        let mut chunk_ledgers = 0;
+        let mut uncommitted_events = 0;
+
         loop {
             // Fetch a page of ledgers
             let result = rpc
@@ -295,17 +299,19 @@ async fn run_backfill(
                 }
 
                 // Build synthetic events from ledger metadata.
-                // In a production system this would parse ledger.metadata_xdr
-                // to extract actual Soroban contract events. Here we record a
-                // ledger-processed marker so gap detection works correctly.
                 let events = extract_events_from_ledger(ledger, req.contract_id.as_deref());
+                page_events += events.len() as u64;
+                uncommitted_events += events.len() as u64;
+                events_buffer.extend(events);
+                chunk_ledgers += 1;
 
-                for event in events {
-                    if let Err(e) = indexer.index_event(event).await {
-                        warn!(ledger = ledger.sequence, error = %e, "Failed to index event — skipping");
-                    } else {
-                        page_events += 1;
+                if chunk_ledgers >= 1000 {
+                    if let Err(e) = indexer.index_events_with_checkpoint(std::mem::take(&mut events_buffer), ledger.sequence).await {
+                        warn!(ledger = ledger.sequence, error = %e, "Failed to index event chunk — aborting");
+                        return Err(e);
                     }
+                    chunk_ledgers = 0;
+                    uncommitted_events = 0;
                 }
 
                 // Update progress
@@ -313,9 +319,13 @@ async fn run_backfill(
                     let mut state = state_ref.write().await;
                     state.current_ledger = ledger.sequence;
                     state.ledgers_processed += 1;
-                    state.events_indexed += page_events;
-                    page_events = 0; // reset after writing
                 }
+            }
+
+            // Update events indexed for the page
+            {
+                let mut state = state_ref.write().await;
+                state.events_indexed += page_events;
             }
 
             // Check if we've covered the range
@@ -331,6 +341,17 @@ async fn run_backfill(
             // Rate-limit between pages
             if delay_ms > 0 {
                 sleep(Duration::from_millis(delay_ms)).await;
+            }
+        }
+
+        // Commit any remaining events in the buffer for this gap
+        if !events_buffer.is_empty() {
+            let last_ledger = current - 1; // It was updated before the break, wait, `current` is the next ledger to fetch, but the last processed is what we should checkpoint.
+            // Better to use the last processed ledger from state
+            let current_ledger = state_ref.read().await.current_ledger;
+            if let Err(e) = indexer.index_events_with_checkpoint(std::mem::take(&mut events_buffer), current_ledger).await {
+                warn!(ledger = current_ledger, error = %e, "Failed to index remaining event chunk — aborting");
+                return Err(e);
             }
         }
     }
