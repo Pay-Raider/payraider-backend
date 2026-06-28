@@ -235,6 +235,53 @@ impl EventIndexer {
         Ok(())
     }
 
+    /// Index a batch of contract events and record a checkpoint ledger in a single transaction
+    pub async fn index_events_with_checkpoint(&self, events: Vec<IndexedEvent>, checkpoint_ledger: u64) -> Result<()> {
+        debug!("Indexing {} events and setting checkpoint to {}", events.len(), checkpoint_ledger);
+
+        let mut tx = self.db.pool().begin().await.context("Failed to begin transaction")?;
+
+        let event_query = r"
+            INSERT OR REPLACE INTO contract_events (
+                id, contract_id, event_type, epoch, hash, timestamp,
+                ledger, transaction_hash, created_at, verification_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ";
+
+        for event in events {
+            sqlx::query(event_query)
+                .bind(&event.id)
+                .bind(&event.contract_id)
+                .bind(&event.event_type)
+                .bind(event.epoch.map(|e| e as i64))
+                .bind(&event.hash)
+                .bind(event.timestamp.map(|t| t as i64))
+                .bind(event.ledger as i64)
+                .bind(&event.transaction_hash)
+                .bind(event.created_at)
+                .bind(&event.verification_status)
+                .execute(&mut *tx)
+                .await
+                .context("Failed to insert event in batch")?;
+        }
+
+        let state_query = r"
+            INSERT OR REPLACE INTO backfill_state (id, current_ledger, updated_at)
+            VALUES ('default', ?, CURRENT_TIMESTAMP)
+        ";
+
+        sqlx::query(state_query)
+            .bind(checkpoint_ledger as i64)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to update backfill checkpoint")?;
+
+        tx.commit().await.context("Failed to commit transaction")?;
+
+        debug!("Successfully indexed batch and updated checkpoint");
+        Ok(())
+    }
+
     /// Query events with filters
     pub async fn query_events(&self, query: EventQuery) -> Result<Vec<IndexedEvent>> {
         debug!("Querying events with filters: {:?}", query);
