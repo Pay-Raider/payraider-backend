@@ -77,7 +77,7 @@ stellar-insights/
 |-----------|------------|
 | Language | Rust (edition 2021) |
 | Web Framework | Axum 0.7 with Tower middleware |
-| Database | PostgreSQL (primary), SQLite (dev), accessed via SQLx with compile-time query verification |
+| Database | SQLite (WAL mode) in every environment, accessed via SQLx with compile-time query verification. Postgres is not supported — see issue #1876 for the evaluation |
 | Cache | Redis with in-memory fallback |
 | Async Runtime | Tokio |
 | Observability | OpenTelemetry + Jaeger for distributed tracing, Prometheus for metrics, structured JSON logging via tracing-subscriber |
