@@ -38,7 +38,7 @@ The backend is built in Rust using the **Axum** web framework and is the heart o
 
 - **Language:** Rust (edition 2021)
 - **Web framework:** Axum 0.7 with Tower middleware
-- **Database:** PostgreSQL (primary) with SQLite fallback for local development, accessed via SQLx with compile-time query verification
+- **Database:** SQLite (WAL mode) for every environment, accessed via SQLx with compile-time query verification. Postgres is not currently supported — see issue #1876 for the evaluation
 - **Cache:** Redis with in-memory fallback
 - **Async runtime:** Tokio
 - **Observability:** OpenTelemetry + Jaeger for distributed tracing, Prometheus for metrics, structured JSON logging via tracing-subscriber
