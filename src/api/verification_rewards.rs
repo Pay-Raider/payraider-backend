@@ -1,4 +1,8 @@
 //! API handlers for snapshot verification rewards
+//!
+//! #1868 N+1 audit: verify/stats/history/leaderboard handlers each call a
+//! single service method backed by one (or a fixed small number of) queries.
+//! No per-row await loops in these handlers.
 
 use axum::{
     extract::{Path, Query, State},
