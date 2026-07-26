@@ -136,6 +136,21 @@ impl PoolConfig {
 
     /// Create a configured `SQLite` pool with these settings.
     /// Uses WAL journal mode and configurable SQL query logging (all in dev, slow-only in prod).
+    /// How long a connection waits for SQLite's single write lock before
+    /// giving up with `SQLITE_BUSY`.
+    ///
+    /// Five seconds by default: long enough to absorb the short write bursts the
+    /// ingestion pipeline produces, short enough that a genuinely stuck writer
+    /// still surfaces rather than hanging the request indefinitely.
+    fn busy_timeout_ms_inner() -> u64 {
+        const DEFAULT_BUSY_TIMEOUT_MS: u64 = 5_000;
+        std::env::var("DB_BUSY_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|ms| *ms > 0)
+            .unwrap_or(DEFAULT_BUSY_TIMEOUT_MS)
+    }
+
     pub async fn create_pool(&self, database_url: &str) -> Result<SqlitePool> {
         let sql_log = SqlLogConfig::from_env();
 
@@ -145,6 +160,16 @@ impl PoolConfig {
             .context("Failed to parse DATABASE_URL for SQLite connection")?;
 
         opts = opts.journal_mode(SqliteJournalMode::Wal);
+
+        // SQLite allows exactly one writer at a time. Its default busy_timeout
+        // is 0, meaning a connection that finds the write lock held returns
+        // SQLITE_BUSY *immediately* rather than waiting for it — so concurrent
+        // writes fail outright instead of queueing, surfacing as spurious 500s
+        // under exactly the load where the system should degrade gracefully.
+        //
+        // With a timeout set, contention becomes a bounded wait. See
+        // docs/adr/0001-sqlite-vs-postgres.md.
+        opts = opts.busy_timeout(Duration::from_millis(Self::busy_timeout_ms_inner()));
 
         if sql_log.level != log::LevelFilter::Off {
             if sql_log.log_all_in_dev {
