@@ -15,6 +15,8 @@
 mod issue_analytics_nplusone;
 #[path = "regression/issue_cursor_pagination.rs"]
 mod issue_cursor_pagination;
+#[path = "regression/issue_liquidity_pool_nplusone.rs"]
+mod issue_liquidity_pool_nplusone;
 #[path = "regression/issue_reserve_offbyone.rs"]
 mod issue_reserve_offbyone;
 #[path = "regression/issue_template.rs"]

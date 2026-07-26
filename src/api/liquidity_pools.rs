@@ -1,3 +1,9 @@
+//! Liquidity pool API handlers.
+//!
+//! #1868 N+1 audit: list/stats/rankings/detail/snapshot handlers each perform
+//! a constant number of DB queries. Snapshotting used to insert one row per
+//! pool in a loop — batched in `LiquidityPoolAnalyzer::take_snapshots`.
+
 use axum::{
     extract::{Path, Query, State},
     routing::get,
