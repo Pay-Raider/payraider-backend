@@ -94,6 +94,20 @@ pub fn validate_env() -> Result<()> {
         }
     }
 
+    // SNAPSHOT_CONTRACT_ID must not be the placeholder value when set.
+    // This is the primary contract ID consumed by ContractService for
+    // snapshot submission; a placeholder silently disables on-chain anchoring.
+    if let Ok(contract_id) = env::var("SNAPSHOT_CONTRACT_ID") {
+        if contract_id == "CHANGE_ME_source_contracts_env_testnet" {
+            errors.push(
+                "SNAPSHOT_CONTRACT_ID is set to the placeholder value. \
+                Source contracts/.env.testnet to get the real deployed contract ID: \
+                source contracts/.env.testnet && export SNAPSHOT_CONTRACT_ID=$STELLAR_INSIGHTS_CONTRACT_ID"
+                    .to_string(),
+            );
+        }
+    }
+
     // SEP10_SERVER_PUBLIC_KEY must be a valid Stellar public key when set
     if let Ok(sep10_key) = env::var("SEP10_SERVER_PUBLIC_KEY") {
         if !validate_stellar_public_key(&sep10_key) {
@@ -141,6 +155,22 @@ pub fn log_env_config() {
     // Network
     log_var("STELLAR_NETWORK");
     log_var("RPC_MOCK_MODE");
+
+    // Soroban contract IDs
+    log_var("SOROBAN_RPC_URL");
+    log_var("SNAPSHOT_CONTRACT_ID");
+    // Remaining contract IDs (optional; used by future services)
+    log_var("ACCESS_CONTROL_CONTRACT_ID");
+    log_var("ANALYTICS_CONTRACT_ID");
+    log_var("GOVERNANCE_CONTRACT_ID");
+    log_var("ESCROW_CONTRACT_ID");
+    log_var("TOKEN_SWAP_CONTRACT_ID");
+    log_var("MULTI_SIG_WALLET_CONTRACT_ID");
+    log_var("TIME_LOCKED_TRANSACTIONS_CONTRACT_ID");
+    log_var("UPGRADE_CONTRACT_ID");
+    if env::var("STELLAR_SOURCE_SECRET_KEY").is_ok() {
+        tracing::info!("  STELLAR_SOURCE_SECRET_KEY: [REDACTED]");
+    }
 
     // Pool config
     log_var("DB_POOL_MAX_CONNECTIONS");
