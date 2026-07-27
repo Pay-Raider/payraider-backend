@@ -2,7 +2,7 @@ use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 
 use crate::cache::helpers::cached_query;
-use crate::cache::{keys, CacheManager};
+use crate::cache::keys;
 use crate::state::AppState;
 
 #[derive(Serialize, Deserialize, Clone)]
