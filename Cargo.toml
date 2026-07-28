@@ -31,7 +31,6 @@ expect_used = "allow"
 panic = "allow"
 
 [features]
-legacy_sep10_tests = []
 sep-integration = []
 testnet-smoke = []
 
