@@ -276,7 +276,6 @@ async fn run_backfill(
 
         let mut events_buffer = Vec::new();
         let mut chunk_ledgers = 0;
-        let mut uncommitted_events = 0;
 
         loop {
             // Fetch a page of ledgers
@@ -301,7 +300,6 @@ async fn run_backfill(
                 // Build synthetic events from ledger metadata.
                 let events = extract_events_from_ledger(ledger, req.contract_id.as_deref());
                 page_events += events.len() as u64;
-                uncommitted_events += events.len() as u64;
                 events_buffer.extend(events);
                 chunk_ledgers += 1;
 
@@ -311,7 +309,6 @@ async fn run_backfill(
                         return Err(e);
                     }
                     chunk_ledgers = 0;
-                    uncommitted_events = 0;
                 }
 
                 // Update progress
@@ -344,10 +341,10 @@ async fn run_backfill(
             }
         }
 
-        // Commit any remaining events in the buffer for this gap
+        // Commit any remaining events in the buffer for this gap.
+        // `current` has already been advanced past the last processed ledger,
+        // so use the state's `current_ledger` as the checkpoint target.
         if !events_buffer.is_empty() {
-            let last_ledger = current - 1; // It was updated before the break, wait, `current` is the next ledger to fetch, but the last processed is what we should checkpoint.
-            // Better to use the last processed ledger from state
             let current_ledger = state_ref.read().await.current_ledger;
             if let Err(e) = indexer.index_events_with_checkpoint(std::mem::take(&mut events_buffer), current_ledger).await {
                 warn!(ledger = current_ledger, error = %e, "Failed to index remaining event chunk — aborting");
