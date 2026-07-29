@@ -149,6 +149,11 @@ pub fn routes(
         .nest("/webhooks", webhooks::routes(pool.clone()))
         .layer(middleware::from_fn(auth_middleware));
 
+    // GDPR endpoints — require auth; mounted at /api/gdpr
+    let gdpr_routes = Router::new()
+        .nest("/gdpr", crate::api::gdpr::routes(pool.clone()))
+        .layer(middleware::from_fn(auth_middleware));
+
     // 4. RPC routes
     let rpc_routes = Router::new()
         .route("/rpc/health", get(rpc::rpc_health_check))
@@ -187,6 +192,7 @@ pub fn routes(
         .merge(export_routes)
         .merge(protected_routes)
         .merge(protected_webhook_routes)
+        .merge(gdpr_routes)
         .merge(rpc_routes)
         .merge(service_routes)
         .merge(oauth_routes);
