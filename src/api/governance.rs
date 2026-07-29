@@ -1,3 +1,9 @@
+//! Governance API handlers.
+//!
+//! #1868 N+1 audit: proposal list/detail use JOIN + GROUP BY for vote tallies
+//! in a single query (no per-proposal vote fetch loop). Vote/comment list
+//! endpoints are single-query fetches.
+
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderName, HeaderValue, StatusCode},

@@ -3,7 +3,7 @@
 
 use axum::{
     extract::{Query, State},
-    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     Json,
 };

@@ -1,3 +1,9 @@
+//! Trustline analytics API handlers.
+//!
+//! #1868 N+1 audit: handlers delegate to single analyzer queries
+//! (`get_metrics`, `get_trustline_rankings`, `get_asset_history`) with no
+//! per-item `.await` loops. Sync-time upserts run inside one transaction.
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,

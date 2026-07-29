@@ -1,0 +1,819 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Stellar Insights API",
+    "description": "API for Stellar network analytics, anchor monitoring, and payment corridor insights",
+    "contact": {
+      "name": "Stellar Insights Team",
+      "email": "support@stellarinsights.io"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development server"
+    },
+    {
+      "url": "https://api.stellarinsights.io",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/api/anchors": {
+      "get": {
+        "tags": ["Anchors"],
+        "summary": "List anchors",
+        "operationId": "get_anchors",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 20 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of anchors",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AnchorsResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/anchors/{anchor_id}": {
+      "get": {
+        "tags": ["Anchors"],
+        "summary": "Get anchor by ID",
+        "operationId": "get_anchor",
+        "parameters": [
+          {
+            "name": "anchor_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Anchor details",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AnchorMetricsResponse" }
+              }
+            }
+          },
+          "404": { "description": "Anchor not found" }
+        }
+      }
+    },
+    "/api/anchors/account/{account_id}": {
+      "get": {
+        "tags": ["Anchors"],
+        "summary": "Get anchor by Stellar account ID",
+        "operationId": "get_anchor_by_account",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Anchor details",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AnchorMetricsResponse" }
+              }
+            }
+          },
+          "404": { "description": "Anchor not found" }
+        }
+      }
+    },
+    "/api/corridors": {
+      "get": {
+        "tags": ["Corridors"],
+        "summary": "List payment corridors",
+        "operationId": "list_corridors",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 20 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of corridors",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/CorridorResponse" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/corridors/{corridor_id}": {
+      "get": {
+        "tags": ["Corridors"],
+        "summary": "Get corridor detail",
+        "operationId": "get_corridor_detail",
+        "parameters": [
+          {
+            "name": "corridor_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Corridor details",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CorridorDetailResponse" }
+              }
+            }
+          },
+          "404": { "description": "Corridor not found" }
+        }
+      }
+    },
+    "/api/price/{asset}": {
+      "get": {
+        "tags": ["Prices"],
+        "summary": "Get price for a single asset",
+        "operationId": "get_price",
+        "parameters": [
+          {
+            "name": "asset",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset price",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PriceResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prices": {
+      "get": {
+        "tags": ["Prices"],
+        "summary": "Get prices for multiple assets",
+        "operationId": "get_prices",
+        "parameters": [
+          {
+            "name": "assets",
+            "in": "query",
+            "schema": { "type": "string", "description": "Comma-separated asset codes" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset prices",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PricesResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cost/estimate": {
+      "post": {
+        "tags": ["Cost Calculator"],
+        "summary": "Estimate cross-border payment costs",
+        "operationId": "estimate_costs",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CostCalculationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cost estimation result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CostCalculationResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alerts/rules": {
+      "get": {
+        "tags": ["Alerts"],
+        "summary": "List alert rules",
+        "operationId": "list_rules",
+        "responses": {
+          "200": { "description": "List of alert rules" }
+        }
+      },
+      "post": {
+        "tags": ["Alerts"],
+        "summary": "Create an alert rule",
+        "operationId": "create_rule",
+        "responses": {
+          "201": { "description": "Alert rule created" }
+        }
+      }
+    },
+    "/api/alerts/rules/{rule_id}": {
+      "put": {
+        "tags": ["Alerts"],
+        "summary": "Update an alert rule",
+        "operationId": "update_rule",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Alert rule updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Alerts"],
+        "summary": "Delete an alert rule",
+        "operationId": "delete_rule",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Alert rule deleted" }
+        }
+      }
+    },
+    "/api/alerts/history": {
+      "get": {
+        "tags": ["Alerts"],
+        "summary": "List alert history",
+        "operationId": "list_history",
+        "responses": {
+          "200": { "description": "Alert history" }
+        }
+      }
+    },
+    "/api/transactions": {
+      "post": {
+        "tags": ["Transactions"],
+        "summary": "Create a transaction",
+        "operationId": "create_transaction",
+        "responses": {
+          "200": { "description": "Transaction created" }
+        }
+      }
+    },
+    "/api/transactions/{transaction_id}": {
+      "get": {
+        "tags": ["Transactions"],
+        "summary": "Get transaction by ID",
+        "operationId": "get_transaction",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Transaction details" },
+          "404": { "description": "Transaction not found" }
+        }
+      }
+    },
+    "/api/metrics": {
+      "get": {
+        "tags": ["Metrics"],
+        "summary": "Get system metrics overview",
+        "operationId": "metrics_overview",
+        "responses": {
+          "200": { "description": "Metrics overview" }
+        }
+      }
+    },
+    "/api/network": {
+      "get": {
+        "tags": ["Network"],
+        "summary": "Get network info",
+        "operationId": "get_network_info",
+        "responses": {
+          "200": { "description": "Network information" }
+        }
+      }
+    },
+    "/api/rpc/health": {
+      "get": {
+        "tags": ["RPC"],
+        "summary": "RPC health check",
+        "operationId": "rpc_health_check",
+        "responses": {
+          "200": { "description": "RPC is healthy" }
+        }
+      }
+    },
+    "/api/rpc/ledger/latest": {
+      "get": {
+        "tags": ["RPC"],
+        "summary": "Get latest ledger",
+        "operationId": "get_latest_ledger",
+        "responses": {
+          "200": { "description": "Latest ledger info" }
+        }
+      }
+    },
+    "/api/rpc/payments": {
+      "get": {
+        "tags": ["RPC"],
+        "summary": "Get payments",
+        "operationId": "get_payments",
+        "responses": {
+          "200": { "description": "Payment list" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login",
+        "operationId": "login",
+        "responses": {
+          "200": { "description": "Authentication token" }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Refresh token",
+        "operationId": "refresh",
+        "responses": {
+          "200": { "description": "Refreshed token" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Logout",
+        "operationId": "logout",
+        "responses": {
+          "204": { "description": "Logged out" }
+        }
+      }
+    },
+    "/api/webhooks": {
+      "get": {
+        "tags": ["Webhooks"],
+        "summary": "List webhooks",
+        "operationId": "list_webhooks",
+        "responses": {
+          "200": { "description": "Webhook list" }
+        }
+      },
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Register a webhook",
+        "operationId": "register_webhook",
+        "responses": {
+          "201": { "description": "Webhook registered" }
+        }
+      }
+    },
+    "/api/webhooks/{webhook_id}": {
+      "get": {
+        "tags": ["Webhooks"],
+        "summary": "Get webhook",
+        "operationId": "get_webhook",
+        "parameters": [
+          {
+            "name": "webhook_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Webhook details" }
+        }
+      },
+      "delete": {
+        "tags": ["Webhooks"],
+        "summary": "Delete webhook",
+        "operationId": "delete_webhook",
+        "parameters": [
+          {
+            "name": "webhook_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Webhook deleted" }
+        }
+      }
+    },
+    "/api/governance/proposals": {
+      "get": {
+        "tags": ["Governance"],
+        "summary": "List governance proposals",
+        "operationId": "list_proposals",
+        "responses": {
+          "200": { "description": "Proposals list" }
+        }
+      },
+      "post": {
+        "tags": ["Governance"],
+        "summary": "Create governance proposal",
+        "operationId": "create_proposal",
+        "responses": {
+          "201": { "description": "Proposal created" }
+        }
+      }
+    },
+    "/api/sep10/info": {
+      "get": {
+        "tags": ["SEP-10"],
+        "summary": "SEP-10 info",
+        "operationId": "sep10_get_info",
+        "responses": {
+          "200": { "description": "SEP-10 server info" }
+        }
+      }
+    },
+    "/api/sep10/challenge": {
+      "get": {
+        "tags": ["SEP-10"],
+        "summary": "Request SEP-10 challenge",
+        "operationId": "request_challenge",
+        "responses": {
+          "200": { "description": "Challenge transaction" }
+        }
+      }
+    },
+    "/api/liquidity-pools": {
+      "get": {
+        "tags": ["Liquidity Pools"],
+        "summary": "List liquidity pools",
+        "operationId": "list_pools",
+        "responses": {
+          "200": { "description": "Liquidity pool list" }
+        }
+      }
+    },
+    "/api/api-keys": {
+      "get": {
+        "tags": ["API Keys"],
+        "summary": "List API keys",
+        "operationId": "list_api_keys",
+        "responses": {
+          "200": { "description": "API key list" }
+        }
+      },
+      "post": {
+        "tags": ["API Keys"],
+        "summary": "Create API key",
+        "operationId": "create_api_key",
+        "responses": {
+          "201": { "description": "API key created" }
+        }
+      }
+    },
+    "/api/assets/verify": {
+      "post": {
+        "tags": ["Asset Verification"],
+        "summary": "Verify an asset",
+        "operationId": "verify_asset",
+        "responses": {
+          "200": { "description": "Verification result" }
+        }
+      }
+    },
+    "/api/assets/verified": {
+      "get": {
+        "tags": ["Asset Verification"],
+        "summary": "List verified assets",
+        "operationId": "list_verified_assets",
+        "responses": {
+          "200": { "description": "Verified asset list" }
+        }
+      }
+    },
+    "/api/ml/predict": {
+      "post": {
+        "tags": ["ML"],
+        "summary": "Predict payment success",
+        "operationId": "predict_payment_success",
+        "responses": {
+          "200": { "description": "Prediction result" }
+        }
+      }
+    },
+    "/api/ml/status": {
+      "get": {
+        "tags": ["ML"],
+        "summary": "Get ML model status",
+        "operationId": "get_model_status",
+        "responses": {
+          "200": { "description": "Model status" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnchorsResponse": {
+        "type": "object",
+        "properties": {
+          "anchors": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AnchorMetricsResponse" }
+          },
+          "total": { "type": "integer" }
+        }
+      },
+      "AnchorMetricsResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "home_domain": { "type": "string" },
+          "account_id": { "type": "string" },
+          "success_rate": { "type": "number", "format": "double" },
+          "total_transactions": { "type": "integer", "format": "int64" },
+          "volume_usd": { "type": "number", "format": "double" },
+          "avg_latency_ms": { "type": "number", "format": "double" }
+        }
+      },
+      "CorridorResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "source_asset": { "type": "string" },
+          "destination_asset": { "type": "string" },
+          "success_rate": { "type": "number", "format": "double" },
+          "volume_usd": { "type": "number", "format": "double" },
+          "avg_latency_ms": { "type": "number", "format": "double" }
+        }
+      },
+      "CorridorDetailResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "source_asset": { "type": "string" },
+          "destination_asset": { "type": "string" },
+          "success_rate": { "type": "number", "format": "double" },
+          "volume_usd": { "type": "number", "format": "double" },
+          "avg_latency_ms": { "type": "number", "format": "double" },
+          "success_rate_history": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SuccessRateDataPoint" }
+          },
+          "latency_history": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/LatencyDataPoint" }
+          },
+          "liquidity_history": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/LiquidityDataPoint" }
+          }
+        }
+      },
+      "SuccessRateDataPoint": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "value": { "type": "number", "format": "double" }
+        }
+      },
+      "LatencyDataPoint": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "value_ms": { "type": "number", "format": "double" }
+        }
+      },
+      "LiquidityDataPoint": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "value_usd": { "type": "number", "format": "double" }
+        }
+      },
+      "PriceResponse": {
+        "type": "object",
+        "properties": {
+          "asset": { "type": "string" },
+          "price_usd": { "type": "number", "format": "double" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PricesResponse": {
+        "type": "object",
+        "properties": {
+          "prices": {
+            "type": "object",
+            "additionalProperties": { "type": "number", "format": "double" }
+          },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ConvertResponse": {
+        "type": "object",
+        "properties": {
+          "from_asset": { "type": "string" },
+          "from_amount": { "type": "number", "format": "double" },
+          "usd_amount": { "type": "number", "format": "double" }
+        }
+      },
+      "CacheStatsResponse": {
+        "type": "object",
+        "properties": {
+          "hits": { "type": "integer", "format": "int64" },
+          "misses": { "type": "integer", "format": "int64" },
+          "hit_rate": { "type": "number", "format": "double" }
+        }
+      },
+      "PaymentRoute": {
+        "type": "object",
+        "properties": {
+          "source_asset": { "type": "string" },
+          "destination_asset": { "type": "string" },
+          "anchor_id": { "type": "string" }
+        }
+      },
+      "CostCalculationRequest": {
+        "type": "object",
+        "required": ["amount_usd", "source_asset", "destination_asset"],
+        "properties": {
+          "amount_usd": { "type": "number", "format": "double" },
+          "source_asset": { "type": "string" },
+          "destination_asset": { "type": "string" }
+        }
+      },
+      "RouteCostBreakdown": {
+        "type": "object",
+        "properties": {
+          "anchor_fee_usd": { "type": "number", "format": "double" },
+          "network_fee_xlm": { "type": "number", "format": "double" },
+          "network_fee_usd": { "type": "number", "format": "double" },
+          "spread_usd": { "type": "number", "format": "double" },
+          "total_cost_usd": { "type": "number", "format": "double" }
+        }
+      },
+      "RouteEstimate": {
+        "type": "object",
+        "properties": {
+          "route": { "$ref": "#/components/schemas/PaymentRoute" },
+          "cost": { "$ref": "#/components/schemas/RouteCostBreakdown" },
+          "estimated_time_seconds": { "type": "integer" }
+        }
+      },
+      "CostCalculationResponse": {
+        "type": "object",
+        "properties": {
+          "routes": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/RouteEstimate" }
+          },
+          "best_route": { "$ref": "#/components/schemas/RouteEstimate" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "code": { "type": "string" }
+        }
+      },
+      "SnapshotResponse": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": { "type": "string" },
+          "contract_id": { "type": "string" },
+          "data_hash": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SubmissionInfo": {
+        "type": "object",
+        "properties": {
+          "transaction_hash": { "type": "string" },
+          "submitted_at": { "type": "string", "format": "date-time" },
+          "status": { "type": "string" }
+        }
+      },
+      "GenerateSnapshotRequest": {
+        "type": "object",
+        "required": ["contract_id"],
+        "properties": {
+          "contract_id": { "type": "string" },
+          "include_metrics": { "type": "boolean", "default": true }
+        }
+      },
+      "ContractHealthResponse": {
+        "type": "object",
+        "properties": {
+          "contract_id": { "type": "string" },
+          "healthy": { "type": "boolean" },
+          "last_checked": { "type": "string", "format": "date-time" },
+          "issues": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  },
+  "tags": [
+    { "name": "Alerts", "description": "Alert management and notification endpoints" },
+    { "name": "Analytics", "description": "API analytics endpoints" },
+    { "name": "Anchors", "description": "Anchor management and metrics endpoints" },
+    { "name": "API Keys", "description": "API key management endpoints" },
+    { "name": "Contract Events", "description": "Smart contract event tracking" },
+    { "name": "Corridors", "description": "Payment corridor analytics endpoints" },
+    { "name": "Fee Bumps", "description": "Fee bump transaction tracking" },
+    { "name": "Liquidity Pools", "description": "Liquidity pool analytics" },
+    { "name": "Metrics", "description": "System metrics and monitoring" },
+    { "name": "ML", "description": "Machine learning prediction endpoints" },
+    { "name": "Network", "description": "Stellar network configuration" },
+    { "name": "Prediction", "description": "Payment prediction endpoints" },
+    { "name": "Prices", "description": "Real-time asset price feed endpoints" },
+    { "name": "Cost Calculator", "description": "Cross-border payment cost estimation and route comparison" },
+    { "name": "RPC", "description": "Stellar RPC integration endpoints" },
+    { "name": "SEP-31", "description": "SEP-31 cross-border payment endpoints" },
+    { "name": "Transactions", "description": "Transaction management endpoints" },
+    { "name": "Trustlines", "description": "Trustline analytics endpoints" },
+    { "name": "Webhooks", "description": "Webhook management endpoints" },
+    { "name": "Account Merges", "description": "Account merge tracking endpoints" },
+    { "name": "Achievements", "description": "Quest and achievement definitions" },
+    { "name": "Asset Verification", "description": "Asset verification and reporting" },
+    { "name": "Auth", "description": "Authentication endpoints" },
+    { "name": "Cache", "description": "Cache management endpoints" },
+    { "name": "Governance", "description": "Governance proposal and voting endpoints" },
+    { "name": "OAuth", "description": "OAuth integration endpoints" },
+    { "name": "SEP-10", "description": "SEP-10 authentication endpoints" },
+    { "name": "SEP-24", "description": "SEP-24 hosted deposit/withdrawal endpoints" },
+    { "name": "Verification Rewards", "description": "Snapshot verification reward endpoints" },
+    { "name": "Snapshots", "description": "Snapshot generation and submission endpoints" }
+  ]
+}

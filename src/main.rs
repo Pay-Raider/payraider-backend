@@ -391,6 +391,16 @@ async fn main() -> anyhow::Result<()> {
     let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
         .unwrap_or_else(|_| "http://localhost:3000".to_string());
     let wildcard_origins = allowed_origins.trim() == "*";
+
+    // Security: reject wildcard origins in production (non-mock mode)
+    if wildcard_origins && !mock_mode {
+        anyhow::bail!(
+            "CORS: wildcard origin ('*') is not permitted in production. \
+            Set CORS_ALLOWED_ORIGINS to comma-separated list of actual frontend domains. \
+            Example: https://stellar-insights.com,https://app.stellar-insights.com"
+        );
+    }
+
     let origins: Vec<HeaderValue> = allowed_origins
         .split(',')
         .filter_map(|origin| {
@@ -423,7 +433,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let allow_origin = if wildcard_origins {
-        tracing::info!("CORS: wildcard origin configured; mirroring request origin");
+        tracing::info!("CORS: wildcard origin configured (dev/mock mode only); mirroring request origin");
         AllowOrigin::mirror_request()
     } else {
         AllowOrigin::list(origins)

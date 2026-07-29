@@ -1,3 +1,8 @@
+//! Alert rule / history API handlers.
+//!
+//! #1868 N+1 audit: list/create/update/delete handlers issue one DB call each.
+//! No loops over related entities with per-iteration queries.
+
 use axum::{
     extract::{ws::WebSocket, Path, State, WebSocketUpgrade},
     http::StatusCode,

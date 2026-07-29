@@ -43,7 +43,10 @@ struct ApiVersion {
 
 async fn get_api_version() -> Json<ApiVersion> {
     let mut sunset_dates = HashMap::new();
-    sunset_dates.insert("v1".to_string(), "2025-01-01T00:00:00Z".to_string());
+    // Sunset date is intentionally far-future until v2 is fully implemented.
+    // Update this once v2 reaches feature parity with v1.
+    // See docs/API_V2_COVERAGE_1864.md for the current gap analysis.
+    sunset_dates.insert("v1".to_string(), "2026-12-31T00:00:00Z".to_string());
 
     Json(ApiVersion {
         current: "v1".to_string(),
@@ -61,7 +64,13 @@ async fn v2_not_implemented() -> Json<serde_json::Value> {
 }
 
 fn v2_routes() -> Router {
-    Router::new().route("/status", get(v2_not_implemented))
+    Router::new()
+        .route("/status", get(v2_not_implemented))
+        // Catch-all: return a structured JSON "not implemented" response for any
+        // /api/v2/* path that doesn't exist yet, rather than a bare 404. This
+        // prevents clients from getting a confusing empty response while v2 is
+        // still a stub. See docs/API_V2_COVERAGE_1864.md for full gap analysis.
+        .fallback(v2_not_implemented)
 }
 
 pub fn routes(
@@ -140,6 +149,11 @@ pub fn routes(
         .nest("/webhooks", webhooks::routes(pool.clone()))
         .layer(middleware::from_fn(auth_middleware));
 
+    // GDPR endpoints — require auth; mounted at /api/gdpr
+    let gdpr_routes = Router::new()
+        .nest("/gdpr", crate::api::gdpr::routes(pool.clone()))
+        .layer(middleware::from_fn(auth_middleware));
+
     // 4. RPC routes
     let rpc_routes = Router::new()
         .route("/rpc/health", get(rpc::rpc_health_check))
@@ -178,6 +192,7 @@ pub fn routes(
         .merge(export_routes)
         .merge(protected_routes)
         .merge(protected_webhook_routes)
+        .merge(gdpr_routes)
         .merge(rpc_routes)
         .merge(service_routes)
         .merge(oauth_routes);

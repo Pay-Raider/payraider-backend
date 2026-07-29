@@ -156,6 +156,22 @@ impl RateLimiter {
         })
     }
 
+    /// Construct a rate limiter that never attempts Redis (in-memory path only).
+    /// Used by integration tests to compare Redis vs memory behavior (#1869).
+    pub fn new_memory_only(db_pool: Option<sqlx::SqlitePool>) -> Self {
+        Self {
+            redis_connection: Arc::new(RwLock::new(None)),
+            endpoint_configs: Arc::new(RwLock::new(HashMap::new())),
+            fallback_memory_store: Arc::new(RwLock::new(HashMap::new())),
+            db_pool,
+        }
+    }
+
+    /// Whether this limiter is currently backed by a live Redis connection.
+    pub async fn is_using_redis(&self) -> bool {
+        self.redis_connection.read().await.is_some()
+    }
+
     /// Register a rate limit config for an endpoint
     pub async fn register_endpoint(&self, path: String, config: RateLimitConfig) {
         self.endpoint_configs.write().await.insert(path, config);

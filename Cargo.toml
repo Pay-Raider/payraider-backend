@@ -31,7 +31,6 @@ expect_used = "allow"
 panic = "allow"
 
 [features]
-legacy_sep10_tests = []
 sep-integration = []
 testnet-smoke = []
 
@@ -51,7 +50,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 reqwest = { version = "0.13", features = ["json"] }
 anyhow = "1.0"
 async-trait = "0.1"
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-log = "0.2"
@@ -71,6 +70,8 @@ async-lock = "3.3"
 futures = "0.3"
 tokio-tungstenite = "0.30"
 dashmap = "5.5"
+tokio-tungstenite = "0.29"
+dashmap = "6.2"
 stellar-xdr = { version = "25.0.0", features = ["std", "curr"] }
 stellar_sdk = "0.1"
 base64 = "0.22"
