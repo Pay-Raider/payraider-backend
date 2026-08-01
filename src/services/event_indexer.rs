@@ -59,6 +59,7 @@ use tracing::{debug, info, warn};
 
 /// Indexed contract event with metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(utoipa::ToSchema)]
 pub struct IndexedEvent {
     pub id: String,
     pub contract_id: String,
@@ -109,6 +110,7 @@ pub enum EventOrderBy {
 
 /// Event statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(utoipa::ToSchema)]
 pub struct EventStats {
     pub total_events: i64,
     pub verified_snapshots: i64,
@@ -808,6 +810,7 @@ impl EventIndexer {
 
 /// Verification summary for UI display
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(utoipa::ToSchema)]
 pub struct VerificationSummary {
     pub epoch: u64,
     pub hash: Option<String>,

@@ -527,7 +527,7 @@ async fn main() -> anyhow::Result<()> {
         .nest("/admin", admin_routes)
         .merge(graphql_routes)
         .merge(ws_routes)
-        .route("/swagger-ui/*path", get(|| async { "Swagger UI documentation" }))
+        .route("/swagger-ui/{*path}", get(|| async { "Swagger UI documentation" }))
         .layer(middleware::from_fn(
             stellar_insights_backend::payload_limit::payload_limit_middleware,
         ))
@@ -561,7 +561,7 @@ async fn main() -> anyhow::Result<()> {
                 .br(true)
                 .quality(compression_level)
                 .compress_when(
-                    SizeAbove::new(compression_min_size)
+                    SizeAbove::new(compression_min_size.into())
                         .and(NotForContentType::IMAGES)
                         .and(NotForContentType::SSE),
                 ),
