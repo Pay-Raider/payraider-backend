@@ -163,7 +163,13 @@ Interactive deposit and withdrawal flow testers for SEP-6 (non-interactive) and 
 
 **Transaction Builder (`/transactions/builder`)**
 
-A visual Stellar transaction builder that lets users construct, sign, and submit transactions from the browser.
+A UI for assembling a multi-operation Stellar transaction (payment, createAccount,
+changeTrust) with per-operation destination/amount/asset input and address validation.
+**Not yet wired to real signing/submission**: XDR generation currently base64-encodes a
+JSON description of the operations rather than building a real Stellar transaction
+envelope via `stellar-sdk`, so the output is not valid, signable XDR yet
+([`TransactionBuilder.tsx`](../frontend/src/components/transactions/TransactionBuilder.tsx)).
+Tracked in issue #1838.
 
 **Quests (`/quests`)**
 
@@ -198,7 +204,7 @@ The frontend is configured as a PWA with a web manifest, service worker for offl
 
 ## Soroban Smart Contracts
 
-The contracts layer is built with Soroban (Stellar's smart contract platform) in Rust with `no_std`. They provide tamper-proof on-chain anchoring of analytics data and governance.
+The contracts layer is built with Soroban (Stellar's smart contract platform) in Rust with `no_std`. Only `payraider` is an active workspace member, built in CI, and integrated with the backend (via `SNAPSHOT_CONTRACT_ID`) and deployed to testnet. The other contracts described below (governance, escrow, token-swap, multi-sig-wallet, access-control, time-locked-transactions, plus `analytics`, `multi-admin`, `pausable`, `snapshot-verification-rewards`, `upgrade`) live under `contracts/archive/`: they are **not** workspace members, are **not** built or tested in CI, and are not wired into any product flow — see [`contracts/archive/README.md`](../contracts/archive/README.md). They were moved there in #2227 because nothing outside `contracts/` referenced, deployed, or called them. Treat the descriptions below as a design/roadmap reference for those, not as shipped functionality.
 
 ### Contracts Overview
 
