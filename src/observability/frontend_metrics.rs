@@ -34,7 +34,7 @@ lazy_static! {
         ],
         REGISTRY
     )
-    .unwrap();
+    .expect("frontend_metric_value histogram registration");
     pub static ref FRONTEND_BUDGET_VIOLATIONS: IntCounterVec =
         register_int_counter_vec_with_registry!(
             "frontend_budget_violations_total",
@@ -42,14 +42,14 @@ lazy_static! {
             &["metric"],
             REGISTRY
         )
-        .unwrap();
+        .expect("frontend_budget_violations_total counter registration");
     pub static ref FRONTEND_ERRORS_TOTAL: IntCounterVec = register_int_counter_vec_with_registry!(
         "frontend_errors_total",
         "Client-side errors reported by the frontend",
         &["kind"],
         REGISTRY
     )
-    .unwrap();
+    .expect("frontend_errors_total counter registration");
 }
 
 /// Performance budgets (Core Web Vitals "good" thresholds and API latency target).

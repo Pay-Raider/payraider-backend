@@ -212,10 +212,10 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|s| s.parse::<StellarNetwork>().ok())
         .unwrap_or(StellarNetwork::Mainnet);
 
-    let rpc_client = Arc::new(StellarRpcClient::new_with_network(
-        stellar_network,
-        mock_mode,
-    ));
+    let rpc_client = Arc::new(
+        StellarRpcClient::try_new_with_network(stellar_network, mock_mode)
+            .context("Failed to build Stellar RPC HTTP client")?,
+    );
 
     let ws_state = Arc::new(WsState::new());
     ws_state.spawn_redis_subscriber();

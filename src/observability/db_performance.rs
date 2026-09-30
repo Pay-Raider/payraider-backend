@@ -27,7 +27,7 @@ lazy_static! {
             &["table"],
             REGISTRY
         )
-        .unwrap();
+        .expect("db_full_table_scans_total counter registration");
 }
 
 /// A captured slow query with its execution plan.
