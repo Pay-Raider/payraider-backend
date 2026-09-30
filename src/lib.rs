@@ -18,6 +18,7 @@ pub mod cache;
 pub mod cache_invalidation;
 pub mod client_ip;
 // cache_middleware removed in favor of cache helper APIs
+pub mod cors;
 pub mod crypto;
 pub mod database;
 

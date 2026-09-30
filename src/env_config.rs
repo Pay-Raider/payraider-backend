@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use std::env;
+use std::path::{Path, PathBuf};
 
 /// Required environment variables that must be set
 const REQUIRED_VARS: &[&str] = &["DATABASE_URL", "ENCRYPTION_KEY", "JWT_SECRET"];
@@ -40,6 +41,68 @@ const VALIDATED_VARS: &[(&str, fn(&str) -> bool)] = &[
     ("JWT_SECRET", validate_jwt_secret),
     ("ENCRYPTION_KEY", validate_encryption_key),
 ];
+
+/// Outcome of trying to load a `.env` file at startup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DotenvStatus {
+    /// A `.env` file was found and every entry was loaded.
+    Loaded(PathBuf),
+    /// No `.env` file exists; configuration comes from the process environment only.
+    NotFound,
+}
+
+impl DotenvStatus {
+    /// Human-readable description, suitable for log lines and error context.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Loaded(path) => format!("loaded environment from {}", path.display()),
+            Self::NotFound => {
+                ".env file not found, using process environment variables only".to_string()
+            }
+        }
+    }
+}
+
+/// Turns the raw `dotenvy` result into a [`DotenvStatus`].
+///
+/// A missing file is a normal deployment mode (containers, CI, secrets injected
+/// by the orchestrator). Anything else - a malformed line, an unreadable file -
+/// means the operator intended to supply configuration and it was not applied,
+/// so it is returned as an error instead of being swallowed.
+fn interpret_dotenv_result(result: Result<PathBuf, dotenvy::Error>) -> Result<DotenvStatus> {
+    match result {
+        Ok(path) => Ok(DotenvStatus::Loaded(path)),
+        Err(dotenvy::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(DotenvStatus::NotFound)
+        }
+        Err(e) => Err(anyhow::anyhow!(
+            ".env file is present but could not be loaded: {e}. \
+             Fix the file or remove it; refusing to start with partial configuration"
+        )),
+    }
+}
+
+/// Loads `.env` from the current directory (or a parent). See [`interpret_dotenv_result`].
+///
+/// This runs before the tracing subscriber exists, so it only reports through
+/// its return value; pass the result to [`log_dotenv_status`] once logging is up.
+pub fn load_dotenv() -> Result<DotenvStatus> {
+    interpret_dotenv_result(dotenvy::dotenv())
+}
+
+/// Loads a specific env file. See [`interpret_dotenv_result`].
+pub fn load_dotenv_from(path: &Path) -> Result<DotenvStatus> {
+    interpret_dotenv_result(dotenvy::from_path(path).map(|()| path.to_path_buf()))
+}
+
+/// Logs the outcome of [`load_dotenv`]. A missing file is a warning, not an error.
+pub fn log_dotenv_status(status: &DotenvStatus) {
+    match status {
+        DotenvStatus::Loaded(_) => tracing::info!("{}", status.describe()),
+        DotenvStatus::NotFound => tracing::warn!("{}", status.describe()),
+    }
+}
 
 /// Validates all required environment variables are set
 pub fn validate_env() -> Result<()> {
@@ -877,4 +940,3 @@ mod tests {
         );
     }
 }
-

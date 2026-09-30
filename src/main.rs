@@ -1,9 +1,5 @@
 use anyhow::Context;
 use axum::{
-    http::{
-        header::{AUTHORIZATION, CONTENT_TYPE},
-        HeaderValue, Method,
-    },
     middleware,
     routing::{get, post},
     Router,
@@ -16,7 +12,6 @@ use tower_http::{
         predicate::{NotForContentType, Predicate, SizeAbove},
         CompressionLayer, CompressionLevel,
     },
-    cors::{AllowOrigin, CorsLayer},
     timeout::TimeoutLayer,
     trace::TraceLayer,
 };
@@ -26,6 +21,7 @@ use payraider_backend::{
     api::v1::routes,
     backup::{BackupConfig, BackupManager},
     cache::{CacheConfig, CacheManager},
+    cors::{build_cors_layer, DEFAULT_ALLOWED_ORIGINS},
     database::{Database, PoolConfig},
     distributed_lock::{instance_id, DistributedLock},
     env_config,
@@ -45,7 +41,7 @@ use payraider_backend::{
     observability::metrics as obs_metrics,
     observability::tracing::trace_propagation_middleware,
     rate_limit::RateLimiter,
-    request_id::{request_id_middleware, CORRELATION_ID_HEADER, REQUEST_ID_HEADER},
+    request_id::request_id_middleware,
     rpc::StellarRpcClient,
     services::{
         event_indexer::EventIndexer, service_container::ServiceContainer,
@@ -74,20 +70,24 @@ const MAX_REQUEST_TIMEOUT_SECONDS: u64 = 300;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::info!("Loaded environment from {}", path.display()),
-        Err(dotenvy::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            tracing::warn!(".env file not found, using environment variables only");
-        }
-        Err(e) => tracing::warn!("Failed to load .env file: {}", e),
-    }
-    env_config::log_env_config();
+    // Load .env before anything reads the environment. The tracing subscriber
+    // does not exist yet, so keep the outcome and log it once logging is up;
+    // a present-but-malformed file aborts startup right here instead of
+    // letting the server run with partial configuration.
+    let dotenv_status =
+        env_config::load_dotenv().context("Failed to load .env - refusing to start")?;
 
-    env_config::validate_env()
-        .context("Environment validation failed - please check your configuration")?;
+    env_config::validate_env().with_context(|| {
+        format!(
+            "Environment validation failed - please check your configuration ({})",
+            dotenv_status.describe()
+        )
+    })?;
 
     let _tracing_guard =
         payraider_backend::observability::tracing::init_tracing("payraider-backend")?;
+    env_config::log_dotenv_status(&dotenv_status);
+    env_config::log_env_config();
     payraider_backend::observability::metrics::init_metrics();
     tracing::info!(
         instance_id = instance_id(),
@@ -519,71 +519,11 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // CORS configuration
-    let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
-    let wildcard_origins = allowed_origins.trim() == "*";
-
-    // Security: reject wildcard origins in production (non-mock mode)
-    if wildcard_origins && !mock_mode {
-        anyhow::bail!(
-            "CORS: wildcard origin ('*') is not permitted in production. \
-            Set CORS_ALLOWED_ORIGINS to comma-separated list of actual frontend domains. \
-            Example: https://payraider.com,https://app.payraider.com"
-        );
-    }
-
-    let origins: Vec<HeaderValue> = allowed_origins
-        .split(',')
-        .filter_map(|origin| {
-            let trimmed = origin.trim();
-            if trimmed == "*" {
-                return None;
-            }
-            match trimmed.parse::<HeaderValue>() {
-                Ok(value) => {
-                    tracing::info!("CORS: allowing origin '{}'", trimmed);
-                    Some(value)
-                }
-                Err(_) => {
-                    tracing::warn!(
-                        "CORS: skipping invalid origin '{}' — check CORS_ALLOWED_ORIGINS",
-                        trimmed
-                    );
-                    None
-                }
-            }
-        })
-        .collect();
-
-    if origins.is_empty() && !wildcard_origins {
-        tracing::warn!(
-            "CORS: no valid origins parsed from CORS_ALLOWED_ORIGINS='{}'. \
-             All cross-origin requests will be rejected.",
-            allowed_origins
-        );
-    }
-
-    let allow_origin = if wildcard_origins {
-        tracing::info!("CORS: wildcard origin configured (dev/mock mode only); mirroring request origin");
-        AllowOrigin::mirror_request()
-    } else {
-        AllowOrigin::list(origins)
-    };
-
-    let cors = CorsLayer::new()
-        .allow_origin(allow_origin)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_headers([
-            CONTENT_TYPE,
-            AUTHORIZATION,
-            REQUEST_ID_HEADER.clone(),
-            CORRELATION_ID_HEADER.clone(),
-        ])
-        // Let browser clients read the IDs so they can be quoted in bug reports.
-        .expose_headers([REQUEST_ID_HEADER.clone(), CORRELATION_ID_HEADER.clone()])
-        .allow_credentials(true)
-        .max_age(Duration::from_secs(3600));
+    // CORS: allow-list from CORS_ALLOWED_ORIGINS (see `cors` module). A wildcard
+    // is only accepted in mock mode; production startup fails on it.
+    let cors_origins = std::env::var("CORS_ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| DEFAULT_ALLOWED_ORIGINS.to_string());
+    let cors = build_cors_layer(&cors_origins, mock_mode)?;
 
     // Compression configuration
     let compression_min_size: u16 = std::env::var("COMPRESSION_MIN_SIZE")
