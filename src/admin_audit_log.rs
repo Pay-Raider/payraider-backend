@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
@@ -139,8 +139,8 @@ impl AdminAuditLogger {
 
     /// Verify integrity of audit log by checking hash chain
     pub async fn verify_integrity(&self) -> Result<IntegrityCheckResult> {
-        let entries = sqlx::query_as::<_, (String, String, String)>(
-            "SELECT id, hash, action FROM admin_audit_log ORDER BY timestamp ASC",
+        let entries = sqlx::query_as::<_, (String, String)>(
+            "SELECT id, hash FROM admin_audit_log ORDER BY timestamp ASC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -148,7 +148,7 @@ impl AdminAuditLogger {
         let mut invalid_entries = Vec::new();
         let mut expected_prev_hash: Option<String> = None;
 
-        for (id, stored_hash, action) in entries.iter() {
+        for (id, stored_hash) in entries.iter() {
             // Reconstruct the data that was hashed
             let entry = sqlx::query_as::<_, (
                 String,

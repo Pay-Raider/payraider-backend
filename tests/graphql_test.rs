@@ -3,7 +3,6 @@
 //! Tests the consolidated GraphQL schema including queries, mutations, and
 //! the health endpoint. Uses an in-memory SQLite database for testing.
 
-use async_graphql::*;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::broadcast;

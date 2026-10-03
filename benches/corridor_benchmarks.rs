@@ -21,7 +21,9 @@
 //! cargo bench --bench corridor_benchmarks -- --baseline main
 //! ```
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use payraider_backend::models::corridor::{compute_median, Corridor, PaymentRecord};
 use uuid::Uuid;
 

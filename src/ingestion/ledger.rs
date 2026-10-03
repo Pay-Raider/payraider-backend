@@ -81,7 +81,7 @@ impl LedgerIngestionService {
             Some(l + 1)
         } else {
             let client = &self.rpc_client;
-            let health = Retry::spawn(retry_strategy(), || async {
+            let health = Retry::start(retry_strategy(), || async {
                 client
                     .check_health()
                     .await
@@ -99,7 +99,7 @@ impl LedgerIngestionService {
 
         let client = &self.rpc_client;
         let cursor_ref = cursor.as_deref();
-        let result = Retry::spawn(retry_strategy(), || async {
+        let result = Retry::start(retry_strategy(), || async {
             client
                 .fetch_ledgers(start_ledger, batch_size, cursor_ref)
                 .await
@@ -132,7 +132,7 @@ impl LedgerIngestionService {
             // Fetch real payments from Horizon
             let seq = ledger.sequence;
             let client = &self.rpc_client;
-            match Retry::spawn(retry_strategy(), || async {
+            match Retry::start(retry_strategy(), || async {
                 client
                     .fetch_payments_for_ledger(seq)
                     .await
@@ -170,7 +170,7 @@ impl LedgerIngestionService {
             }
 
             // Fetch and process transactions for fee bumps
-            match Retry::spawn(retry_strategy(), || async {
+            match Retry::start(retry_strategy(), || async {
                 client
                     .fetch_transactions_for_ledger(seq)
                     .await

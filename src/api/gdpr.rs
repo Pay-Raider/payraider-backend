@@ -661,6 +661,9 @@ async fn cancel_deletion_request(
         status: String,
         requested_at: String,
         scheduled_deletion_at: Option<String>,
+        // Selected to match the checked-in query cache; a cancelled request
+        // never hands its token back.
+        #[allow(dead_code)]
         confirmation_token: Option<String>,
     }
 

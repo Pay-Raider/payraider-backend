@@ -133,15 +133,18 @@ pub fn log_dotenv_status(status: &DotenvStatus) {
 
 /// Validates all required environment variables are set
 pub fn validate_env() -> Result<()> {
+    let mut errors = Vec::new();
+
     // STELLAR_NETWORK is a fatal startup guard: a missing or unknown value would
-    // silently route a testnet deployment against mainnet data.
+    // silently route a testnet deployment against mainnet data. It is reported
+    // with the other problems so one failed deploy shows everything to fix.
     match env::var("STELLAR_NETWORK") {
         Ok(ref n) if n == "mainnet" || n == "testnet" => {}
-        Ok(ref n) => panic!("STELLAR_NETWORK must be set to 'mainnet' or 'testnet', got '{n}'"),
-        Err(_) => panic!("STELLAR_NETWORK must be set to 'mainnet' or 'testnet'"),
+        Ok(ref n) => errors.push(format!(
+            "STELLAR_NETWORK must be set to 'mainnet' or 'testnet', got '{n}'"
+        )),
+        Err(_) => errors.push("STELLAR_NETWORK must be set to 'mainnet' or 'testnet'".to_string()),
     }
-
-    let mut errors = Vec::new();
 
     // Check required variables
     for var in REQUIRED_VARS {
@@ -325,11 +328,6 @@ fn validate_port(value: &str) -> bool {
     value.parse::<u16>().map(|p| p > 0).unwrap_or(false)
 }
 
-/// Validate positive number
-fn validate_positive_number(value: &str) -> bool {
-    value.parse::<u32>().map(|n| n > 0).unwrap_or(false)
-}
-
 /// Validate positive number with maximum bound
 fn validate_positive_number_with_max(value: &str, max: u32) -> bool {
     value
@@ -462,12 +460,10 @@ fn validate_max_in_flight_requests(value: &str) -> bool {
     validate_positive_number_with_max(value, 10_000)
 }
 
-/// Validate COMPRESSION_MIN_SIZE: must be in range [100, 65535]
+/// Validate COMPRESSION_MIN_SIZE: must be in range [100, 65535] (the upper
+/// bound is u16::MAX, enforced by the parse)
 fn validate_compression_min_size(value: &str) -> bool {
-    value
-        .parse::<u16>()
-        .map(|n| n >= 100 && n <= 65_535)
-        .unwrap_or(false)
+    value.parse::<u16>().map(|n| n >= 100).unwrap_or(false)
 }
 
 /// Validate WEBHOOK_DISPATCHER_MAX_RESTARTS: must be in range [0, 100]
@@ -654,15 +650,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_positive_number() {
-        assert!(validate_positive_number("1"));
-        assert!(validate_positive_number("100"));
-        assert!(!validate_positive_number("0"));
-        assert!(!validate_positive_number("-1"));
-        assert!(!validate_positive_number("abc"));
-    }
-
-    #[test]
     fn test_validate_env_rejects_jwt_placeholder() {
         let _guard = crate::lock_env_test();
         std::env::set_var("STELLAR_NETWORK", "testnet");
@@ -738,25 +725,43 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "STELLAR_NETWORK must be set to 'mainnet' or 'testnet'")]
-    fn test_validate_env_panics_when_stellar_network_missing() {
+    fn test_validate_env_rejects_missing_stellar_network() {
         let _guard = crate::lock_env_test();
         std::env::remove_var("STELLAR_NETWORK");
         std::env::set_var("DATABASE_URL", "sqlite://test.db");
         std::env::set_var("ENCRYPTION_KEY", "a".repeat(32));
         std::env::set_var("JWT_SECRET", "a".repeat(48));
-        let _ = validate_env();
+        let err = validate_env()
+            .expect_err("must reject the network")
+            .to_string();
+        assert!(
+            err.contains("STELLAR_NETWORK must be set to 'mainnet' or 'testnet'"),
+            "{err}"
+        );
+        std::env::remove_var("STELLAR_NETWORK");
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("ENCRYPTION_KEY");
+        std::env::remove_var("JWT_SECRET");
     }
 
     #[test]
-    #[should_panic(expected = "STELLAR_NETWORK must be set to 'mainnet' or 'testnet'")]
-    fn test_validate_env_panics_on_unknown_network() {
+    fn test_validate_env_rejects_unknown_network() {
         let _guard = crate::lock_env_test();
         std::env::set_var("STELLAR_NETWORK", "devnet");
         std::env::set_var("DATABASE_URL", "sqlite://test.db");
         std::env::set_var("ENCRYPTION_KEY", "a".repeat(32));
         std::env::set_var("JWT_SECRET", "a".repeat(48));
-        let _ = validate_env();
+        let err = validate_env()
+            .expect_err("must reject the network")
+            .to_string();
+        assert!(
+            err.contains("STELLAR_NETWORK must be set to 'mainnet' or 'testnet'"),
+            "{err}"
+        );
+        std::env::remove_var("STELLAR_NETWORK");
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("ENCRYPTION_KEY");
+        std::env::remove_var("JWT_SECRET");
     }
 
     #[test]

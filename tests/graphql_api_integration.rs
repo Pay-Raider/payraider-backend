@@ -7,7 +7,6 @@
 //! - Error handling and validation
 //! - SQL injection prevention
 
-use async_graphql::*;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::broadcast;

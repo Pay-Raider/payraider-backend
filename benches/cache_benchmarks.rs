@@ -18,8 +18,9 @@
 //! # Start Redis: docker run -p 6379:6379 redis:alpine
 //! ```
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use std::time::Duration;
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use tokio::runtime::Runtime;
 
 // Mock cache manager for benchmarking (avoids Redis dependency in benchmarks)
@@ -52,11 +53,6 @@ impl MockCacheManager {
 
     async fn set<T>(&self, _key: &str, _value: &T, _ttl: usize) {
         // Simulate cache set
-        tokio::task::yield_now().await;
-    }
-
-    async fn delete(&self, _key: &str) {
-        // Simulate cache delete
         tokio::task::yield_now().await;
     }
 

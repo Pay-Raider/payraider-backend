@@ -100,15 +100,12 @@ fn ws_message_rate_limit_window() -> Duration {
     )
 }
 
-// Legacy constant aliases kept for any internal code that still references them.
-const MAX_CONCURRENT_CONNECTIONS: usize = DEFAULT_MAX_CONCURRENT_CONNECTIONS;
+// Defaults used by the per-message rate limiter and by the tests; the other
+// limits are read through the env-aware functions above.
+#[cfg(test)]
 const MAX_CONNECTIONS_PER_IP: usize = DEFAULT_MAX_CONNECTIONS_PER_IP;
+#[cfg(test)]
 const MAX_CONNECT_ATTEMPTS_PER_IP: u32 = DEFAULT_MAX_CONNECT_ATTEMPTS_PER_IP;
-const IP_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(DEFAULT_IP_RATE_LIMIT_WINDOW_SECS);
-const MAX_PENDING_OUTGOING_MESSAGES: usize = DEFAULT_MAX_PENDING_OUTGOING_MESSAGES;
-const MAX_TEXT_MESSAGE_SIZE: usize = DEFAULT_MAX_TEXT_MESSAGE_SIZE;
-const MAX_BINARY_MESSAGE_SIZE: usize = DEFAULT_MAX_BINARY_MESSAGE_SIZE;
-const WS_IDLE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_WS_IDLE_TIMEOUT_SECS);
 const MAX_MESSAGES_PER_WINDOW: u32 = DEFAULT_MAX_MESSAGES_PER_WINDOW;
 const MESSAGE_RATE_LIMIT_WINDOW: Duration =
     Duration::from_secs(DEFAULT_MESSAGE_RATE_LIMIT_WINDOW_SECS);

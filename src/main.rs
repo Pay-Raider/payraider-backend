@@ -239,7 +239,6 @@ async fn main() -> anyhow::Result<()> {
     let account_merge_detector = services.account_merge_detector;
     let lp_analyzer = services.lp_analyzer;
     let price_feed = services.price_feed.clone();
-    let webhook_event_service = services.webhook_event_service.clone();
 
     // Start the realtime broadcaster background task
     let mut broadcaster = services.realtime_broadcaster;
@@ -473,7 +472,6 @@ async fn main() -> anyhow::Result<()> {
             let bot = TelegramBot::new(
                 &token,
                 Arc::clone(&db),
-                Arc::clone(&cache),
                 Arc::clone(&rpc_client),
                 subscriptions,
                 &alert_manager,

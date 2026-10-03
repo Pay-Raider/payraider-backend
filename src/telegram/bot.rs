@@ -4,7 +4,6 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 
 use crate::alerts::{Alert, AlertManager};
-use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::rpc::StellarRpcClient;
 use crate::telegram::client::{BotCommand, TelegramClient};
@@ -24,7 +23,6 @@ impl TelegramBot {
     pub fn new(
         token: &str,
         db: Arc<Database>,
-        cache: Arc<CacheManager>,
         rpc_client: Arc<StellarRpcClient>,
         subscriptions: Arc<SubscriptionService>,
         alert_manager: &AlertManager,
@@ -32,7 +30,6 @@ impl TelegramBot {
         let client = Arc::new(TelegramClient::new(token));
         let command_handler = Arc::new(CommandHandler::new(
             db,
-            cache,
             rpc_client,
             Arc::clone(&subscriptions),
         ));

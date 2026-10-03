@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::cache::CacheManager;
 use crate::database::Database;
 use crate::rpc::{circuit_breaker::rpc_circuit_breaker, StellarRpcClient};
 use crate::telegram::formatter;
@@ -9,7 +8,6 @@ use failsafe::futures::CircuitBreaker as _;
 
 pub struct CommandHandler {
     db: Arc<Database>,
-    cache: Arc<CacheManager>,
     rpc_client: Arc<StellarRpcClient>,
     subscriptions: Arc<SubscriptionService>,
 }
@@ -18,13 +16,11 @@ impl CommandHandler {
     #[must_use]
     pub const fn new(
         db: Arc<Database>,
-        cache: Arc<CacheManager>,
         rpc_client: Arc<StellarRpcClient>,
         subscriptions: Arc<SubscriptionService>,
     ) -> Self {
         Self {
             db,
-            cache,
             rpc_client,
             subscriptions,
         }

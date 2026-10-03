@@ -9,7 +9,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-use rand::{Rng, RngExt};
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -189,13 +189,14 @@ impl EncryptionService {
             return Err(format!("Invalid nonce length: {}", nonce_bytes.len()));
         }
 
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::try_from(nonce_bytes.as_slice())
+            .map_err(|_| format!("Invalid nonce length: {}", nonce_bytes.len()))?;
 
         let ciphertext_bytes = hex::decode(&encrypted.ciphertext)
             .map_err(|e| format!("Invalid ciphertext hex: {}", e))?;
 
         let plaintext_bytes = cipher
-            .decrypt(nonce, ciphertext_bytes.as_slice())
+            .decrypt(&nonce, ciphertext_bytes.as_slice())
             .map_err(|e| format!("Decryption failed (authentication tag invalid?): {}", e))?;
 
         String::from_utf8(plaintext_bytes)

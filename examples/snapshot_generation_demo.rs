@@ -12,7 +12,7 @@
 
 use payraider_backend::database::Database;
 use payraider_backend::rpc::StellarRpcClient;
-use payraider_backend::services::contract::{ContractConfig, ContractService};
+use payraider_backend::services::contract::ContractService;
 use payraider_backend::services::snapshot::SnapshotService;
 use std::sync::Arc;
 use tracing::{info, Level};

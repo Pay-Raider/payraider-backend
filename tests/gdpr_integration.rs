@@ -1,4 +1,4 @@
-use payraider_backend::services::gdpr::{GdprService, UserInfo};
+use payraider_backend::services::gdpr::GdprService;
 use sqlx::sqlite::SqlitePoolOptions;
 
 async fn create_test_db() -> sqlx::SqlitePool {
