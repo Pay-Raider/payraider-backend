@@ -1,7 +1,6 @@
 use payraider_backend::openapi::ApiDoc;
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
 use utoipa::OpenApi;
 
 fn main() {
