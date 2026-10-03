@@ -456,25 +456,21 @@ pub(crate) async fn compute_live_corridors(
     .await
     .map_err(|e| anyhow::anyhow!("Failed to fetch payments from RPC: {e}"))?;
 
-    // **RPC DATA**: Fetch recent trades with pagination for volume data
-    let _trades = with_retry(
-        || async {
-            rpc_client
-                .fetch_all_trades(Some(1000))
-                .await
-                .map_err(|e| RpcError::categorize(&e.to_string()))
-        },
-        RetryConfig::default(),
-        circuit_breaker.clone(),
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("Failed to fetch trades from RPC: {e}"))?;
+    // (Recent trades used to be fetched here too and then ignored.)
+    Ok(corridors_from_payments(&payments, price_feed).await)
+}
 
+/// Build the corridor table from a set of payments. Separate from the fetch
+/// so it can be tested without the network or the shared circuit breaker.
+pub(crate) async fn corridors_from_payments(
+    payments: &[crate::rpc::Payment],
+    price_feed: &PriceFeedClient,
+) -> Vec<CorridorResponse> {
     // Group payments by asset pairs to identify corridors
     use std::collections::HashMap;
     let mut corridor_map: HashMap<String, Vec<&crate::rpc::Payment>> = HashMap::new();
 
-    for payment in &payments {
+    for payment in payments {
         // Extract the actual asset pair from the payment
         if let Some(asset_pair) = extract_asset_pair_from_payment(payment) {
             let corridor_key = asset_pair.to_corridor_key();
@@ -578,7 +574,7 @@ pub(crate) async fn compute_live_corridors(
         corridor_responses.push(corridor_response);
     }
 
-    Ok(corridor_responses)
+    corridor_responses
 }
 
 /// Calculate historical success rate data points (30-day buckets)
@@ -1101,13 +1097,11 @@ mod tests {
     async fn live_corridors_count_failed_payments() {
         use crate::services::price_feed::{default_asset_mapping, PriceFeedConfig};
 
-        // Mock mode marks every seventh payment as failed.
-        let rpc_client = StellarRpcClient::new_with_defaults(true);
+        // Mock data marks every seventh payment as failed.
+        let payments = crate::rpc::mock_stellar::mock_payments(200);
         let price_feed = PriceFeedClient::new(PriceFeedConfig::default(), default_asset_mapping());
 
-        let corridors = compute_live_corridors(&rpc_client, &price_feed)
-            .await
-            .expect("mock corridors");
+        let corridors = corridors_from_payments(&payments, &price_feed).await;
 
         assert!(!corridors.is_empty());
         for corridor in &corridors {
