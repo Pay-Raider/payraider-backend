@@ -6,12 +6,10 @@
 //! 3. OpenTelemetry configuration
 //! 4. Correlation ID handling
 
-/// Resolve a path given relative to the repository root. `cargo test` runs
-/// with the crate directory (backend/) as the working directory, so
-/// repo-relative literals such as "elk/..." did not resolve.
+/// Resolve a path given relative to the repository root, which is also the
+/// crate root.
 fn repo_file(relative: &str) -> String {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
         .join(relative)
         .to_string_lossy()
         .into_owned()
@@ -116,7 +114,7 @@ fn test_tracing_module_supports_json() {
 fn test_request_id_correlation() {
     // Verify that request/response logging includes request_id for APM correlation
 
-    let logging_rs_path = &repo_file("backend/src/observability/logging.rs");
+    let logging_rs_path = &repo_file("src/observability/logging.rs");
     let logging_src = std::fs::read_to_string(logging_rs_path).expect("Failed to read logging.rs");
 
     assert!(
@@ -129,7 +127,7 @@ fn test_request_id_correlation() {
 fn test_w3c_trace_context_support() {
     // Verify W3C Trace Context (traceparent) header support
 
-    let tracing_rs_path = &repo_file("backend/src/observability/tracing.rs");
+    let tracing_rs_path = &repo_file("src/observability/tracing.rs");
     let tracing_src = std::fs::read_to_string(tracing_rs_path).expect("Failed to read tracing.rs");
 
     // Should use W3C TraceContext propagator
@@ -175,7 +173,7 @@ fn test_apm_documentation_exists() {
 fn test_error_tracking_capability() {
     // Verify that the app can track errors through APM
 
-    let main_rs_path = &repo_file("backend/src/main.rs");
+    let main_rs_path = &repo_file("src/main.rs");
     let main_src = std::fs::read_to_string(main_rs_path).expect("Failed to read main.rs");
 
     // Should initialize tracing (which enables error tracking)

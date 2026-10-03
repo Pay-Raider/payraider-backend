@@ -1,6 +1,6 @@
 //! Generates the OpenAPI 3 spec and a Postman collection from the utoipa annotations.
 //!
-//! Usage: `cargo run --bin export_openapi -- [output_dir]` (default: `../docs/api`)
+//! Usage: `cargo run --bin export_openapi -- [output_dir]` (default: `docs/api`)
 
 use std::path::PathBuf;
 
@@ -12,7 +12,7 @@ fn main() -> anyhow::Result<()> {
     let out_dir = PathBuf::from(
         std::env::args()
             .nth(1)
-            .unwrap_or_else(|| "../docs/api".to_string()),
+            .unwrap_or_else(|| "docs/api".to_string()),
     );
     std::fs::create_dir_all(&out_dir)?;
 

@@ -6,12 +6,10 @@
 //! 3. Request/response logging middleware is functional
 //! 4. Sensitive data is properly redacted
 
-/// Resolve a path given relative to the repository root. `cargo test` runs
-/// with the crate directory (backend/) as the working directory, so
-/// repo-relative literals such as "elk/..." did not resolve.
+/// Resolve a path given relative to the repository root, which is also the
+/// crate root.
 fn repo_file(relative: &str) -> String {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
         .join(relative)
         .to_string_lossy()
         .into_owned()
