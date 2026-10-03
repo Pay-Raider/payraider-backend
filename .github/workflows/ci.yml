@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Compile-time SQL checks use the checked-in .sqlx cache.
+  SQLX_OFFLINE: "true"
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --lib -- -W clippy::all
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: "sqlite::memory:"
+      REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --no-fail-fast
+
+  openapi:
+    name: OpenAPI spec is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --lib openapi
+      - name: Fail if docs/openapi.json changed
+        run: git diff --exit-code -- docs/openapi.json
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit --deny warnings
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t payraider-backend:ci .
+      - name: Start and probe /health
+        run: |
+          docker run -d --name api -p 8080:8080 \
+            -e JWT_SECRET="$(openssl rand -base64 48)" \
+            -e ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+            -e SEP10_SERVER_PUBLIC_KEY=GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN \
+            -e STELLAR_NETWORK=testnet \
+            -e STELLAR_RPC_URL_MAINNET=https://soroban-rpc.mainnet.stellar.gateway.fm \
+            -e STELLAR_HORIZON_URL_MAINNET=https://horizon.stellar.org \
+            -e STELLAR_RPC_URL_TESTNET=https://soroban-testnet.stellar.org \
+            -e STELLAR_HORIZON_URL_TESTNET=https://horizon-testnet.stellar.org \
+            -e RPC_MOCK_MODE=true \
+            payraider-backend:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs api
+          exit 1
