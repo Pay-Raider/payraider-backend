@@ -76,6 +76,10 @@ docker run -p 8080:8080 -v payraider-data:/data --env-file .env payraider-backen
 
 Migrations run automatically at startup. The database lives at `/data/payraider.db`. The server listens on `$PORT` when the host sets it.
 
+### Render
+
+`render.yaml` is a Render Blueprint for the API and Redis. Step-by-step guide, including the web app and MCP server: [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Configuration
 
 | Variable | Required | Purpose |
