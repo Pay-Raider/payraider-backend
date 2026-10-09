@@ -313,7 +313,7 @@ async fn main() -> anyhow::Result<()> {
     // Concurrency limiter — caps in-flight requests to prevent 500s under spike load
     let concurrency_state = ConcurrencyLimitState::from_env();
     tracing::info!(
-        max_in_flight = concurrency_state.current(),
+        max_in_flight = concurrency_state.max(),
         "Concurrency limit initialized (MAX_IN_FLIGHT_REQUESTS env var, default 500)"
     );
 
@@ -623,6 +623,20 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/swagger-ui",
             get(|| async { axum::response::Redirect::permanent("/api/docs/") }),
+        )
+        // The bare URL is what people and uptime checks open first; answer
+        // with where to go instead of a 404.
+        .route(
+            "/",
+            get(|| async {
+                axum::Json(serde_json::json!({
+                    "service": "PayRaider API",
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "health": "/health",
+                    "docs": "/api/docs/",
+                    "preflight": "/api/v1/preflight?source_asset=USDC&destination_asset=NGN&amount_usd=2500",
+                }))
+            }),
         )
         .layer(middleware::from_fn(
             payraider_backend::payload_limit::payload_limit_middleware,

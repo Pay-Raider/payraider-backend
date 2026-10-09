@@ -57,7 +57,10 @@ tracing-log = "0.2"
 tracing-appender = "0.2"
 opentelemetry = { version = "0.32", features = ["trace"] }
 opentelemetry_sdk = { version = "0.32", features = ["trace"] }
-opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "http-proto", "reqwest-client"] }
+# The batch span processor exports from its own thread, outside the Tokio
+# runtime, so it needs the blocking reqwest client; the async one panics with
+# "there is no reactor running".
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "http-proto", "reqwest-blocking-client"] }
 tracing-opentelemetry = "0.33"
 dotenvy = "0.15"
 sha2 = "0.11"

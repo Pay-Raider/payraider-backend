@@ -10,17 +10,27 @@ pub type CircuitBreaker =
     StateMachine<failure_policy::ConsecutiveFailures<std::iter::Repeat<Duration>>, ()>;
 pub type SharedCircuitBreaker = Arc<CircuitBreaker>;
 
+fn new_breaker() -> SharedCircuitBreaker {
+    let config = CircuitBreakerConfig::default();
+    let backoff = backoff::constant(config.timeout_duration);
+    let policy = failure_policy::consecutive_failures(config.failure_threshold, backoff);
+    let cb: CircuitBreaker = Config::new().failure_policy(policy).build();
+    Arc::new(cb)
+}
+
+/// Breaker for Horizon, which serves payments, ledgers, trades and accounts:
+/// everything the corridor and pre-payment endpoints need.
 pub fn rpc_circuit_breaker() -> SharedCircuitBreaker {
     static BREAKER: OnceLock<SharedCircuitBreaker> = OnceLock::new();
-    BREAKER
-        .get_or_init(|| {
-            let config = CircuitBreakerConfig::default();
-            let backoff = backoff::constant(config.timeout_duration);
-            let policy = failure_policy::consecutive_failures(config.failure_threshold, backoff);
-            let cb: CircuitBreaker = Config::new().failure_policy(policy).build();
-            Arc::new(cb)
-        })
-        .clone()
+    BREAKER.get_or_init(new_breaker).clone()
+}
+
+/// Separate breaker for the Soroban RPC endpoint. A misconfigured or failing
+/// RPC URL must not open the Horizon breaker and take every Horizon-backed
+/// endpoint down with it.
+pub fn soroban_circuit_breaker() -> SharedCircuitBreaker {
+    static BREAKER: OnceLock<SharedCircuitBreaker> = OnceLock::new();
+    BREAKER.get_or_init(new_breaker).clone()
 }
 
 /// Configuration for the circuit breaker.
@@ -72,5 +82,40 @@ impl Default for CircuitBreakerConfig {
             success_threshold: 2,
             timeout_duration: Duration::from_secs(30),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use failsafe::CircuitBreaker as _;
+
+    #[test]
+    fn soroban_and_horizon_use_separate_breakers() {
+        assert!(!Arc::ptr_eq(
+            &soroban_circuit_breaker(),
+            &rpc_circuit_breaker()
+        ));
+    }
+
+    // Uses fresh breakers: the global Horizon breaker is shared with tests
+    // that trip it deliberately, so its state is not stable under parallel runs.
+    #[test]
+    fn tripping_one_breaker_leaves_another_closed() {
+        let soroban = new_breaker();
+        let horizon = new_breaker();
+
+        for _ in 0..CircuitBreakerConfig::default().failure_threshold {
+            let _ = soroban.call(|| Err::<(), ()>(()));
+        }
+
+        assert!(
+            !soroban.is_call_permitted(),
+            "tripped breaker should be open"
+        );
+        assert!(
+            horizon.is_call_permitted(),
+            "other breaker must stay closed"
+        );
     }
 }

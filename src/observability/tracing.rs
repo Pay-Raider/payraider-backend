@@ -63,9 +63,12 @@ pub fn init_tracing(service_name: &str) -> Result<Option<WorkerGuard>> {
     let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "json".to_string());
     let use_json = log_format.eq_ignore_ascii_case("json");
 
-    let otel_enabled = std::env::var("OTEL_ENABLED")
-        .map(|v| v.eq_ignore_ascii_case("true"))
-        .unwrap_or(true);
+    // Export traces only when there is somewhere to send them. Defaulting to
+    // on made every deploy without a collector try localhost:4318.
+    let otel_enabled = match std::env::var("OTEL_ENABLED") {
+        Ok(v) => v.eq_ignore_ascii_case("true"),
+        Err(_) => std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok_and(|v| !v.trim().is_empty()),
+    };
 
     // Optional rotating file appender
     let log_dir = std::env::var("LOG_DIR").ok();

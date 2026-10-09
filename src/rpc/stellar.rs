@@ -1,6 +1,6 @@
 use crate::network::{NetworkConfig, StellarNetwork};
 use crate::observability::tracing::inject_trace_context;
-use crate::rpc::circuit_breaker::{rpc_circuit_breaker, CircuitBreaker};
+use crate::rpc::circuit_breaker::{rpc_circuit_breaker, soroban_circuit_breaker, CircuitBreaker};
 use crate::rpc::config::{initial_backoff_from_env, max_backoff_from_env, max_retries_from_env};
 use crate::rpc::error::{with_retry, RetryConfig, RpcError};
 use crate::rpc::metrics;
@@ -80,7 +80,11 @@ pub struct StellarRpcClient {
     network_config: NetworkConfig,
     mock_mode: bool,
     rate_limiter: RpcRateLimiter,
+    /// Guards Horizon requests.
     circuit_breaker: Arc<CircuitBreaker>,
+    /// Guards Soroban RPC requests, kept apart so a bad RPC URL cannot
+    /// block Horizon.
+    soroban_circuit_breaker: Arc<CircuitBreaker>,
     /// Maximum records per single request (default: 200)
     max_records_per_request: u32,
     /// Maximum total records across all paginated requests (default: 10_000)
@@ -583,6 +587,7 @@ impl StellarRpcClient {
             mock_mode,
             rate_limiter,
             circuit_breaker,
+            soroban_circuit_breaker: soroban_circuit_breaker(),
             max_records_per_request,
             max_total_records,
             pagination_delay_ms,
@@ -642,6 +647,7 @@ impl StellarRpcClient {
             mock_mode,
             rate_limiter,
             circuit_breaker,
+            soroban_circuit_breaker: soroban_circuit_breaker(),
             max_records_per_request,
             max_total_records,
             pagination_delay_ms,
@@ -711,6 +717,26 @@ impl StellarRpcClient {
         with_retry(operation, retry_config, self.circuit_breaker.clone()).await
     }
 
+    /// Like [`Self::execute_with_retry`], for requests to the Soroban RPC URL.
+    async fn execute_soroban_with_retry<F, Fut, T>(&self, operation: F) -> Result<T, RpcError>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<T, RpcError>>,
+    {
+        let retry_config = RetryConfig {
+            max_attempts: self.max_retries + 1,
+            base_delay_ms: self.initial_backoff.as_millis() as u64,
+            max_delay_ms: self.max_backoff.as_millis() as u64,
+        };
+
+        with_retry(
+            operation,
+            retry_config,
+            self.soroban_circuit_breaker.clone(),
+        )
+        .await
+    }
+
     /// Check the health of the RPC endpoint
     pub async fn check_health(&self) -> Result<HealthResponse, RpcError> {
         if self.mock_mode {
@@ -720,7 +746,7 @@ impl StellarRpcClient {
         info!("Checking RPC health at {}", self.rpc_url);
 
         let result = self
-            .execute_with_retry(|| self.check_health_internal())
+            .execute_soroban_with_retry(|| self.check_health_internal())
             .await;
 
         result.inspect_err(|e| {
@@ -851,7 +877,7 @@ impl StellarRpcClient {
         }
 
         let result = self
-            .execute_with_retry(|| self.fetch_ledgers_internal(start_ledger, limit, cursor))
+            .execute_soroban_with_retry(|| self.fetch_ledgers_internal(start_ledger, limit, cursor))
             .await;
 
         result.inspect_err(|e| {

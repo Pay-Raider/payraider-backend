@@ -44,6 +44,11 @@ impl ConcurrencyLimitState {
     pub fn current(&self) -> usize {
         self.in_flight.load(Ordering::Relaxed)
     }
+
+    /// The configured cap on concurrent requests.
+    pub fn max(&self) -> usize {
+        self.max_in_flight
+    }
 }
 
 /// Axum middleware function — call via `middleware::from_fn_with_state`.
