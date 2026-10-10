@@ -4,8 +4,43 @@ use chrono::Utc;
 use redis::aio::MultiplexedConnection;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, RwLock};
+
+/// Challenges and sessions kept in process memory when Redis is not
+/// configured, each with its expiry. A single backend instance enforces
+/// single use of challenges just as Redis would; entries do not survive a
+/// restart, so a restart signs everyone out.
+#[derive(Default)]
+struct MemoryStore {
+    entries: HashMap<String, (Instant, String)>,
+}
+
+impl MemoryStore {
+    fn set(&mut self, key: String, value: String, ttl_seconds: u64) {
+        let now = Instant::now();
+        self.entries.retain(|_, (expires, _)| *expires > now);
+        self.entries
+            .insert(key, (now + Duration::from_secs(ttl_seconds), value));
+    }
+
+    fn get(&self, key: &str) -> Option<String> {
+        self.entries
+            .get(key)
+            .filter(|(expires, _)| *expires > Instant::now())
+            .map(|(_, value)| value.clone())
+    }
+
+    /// Remove and return a live entry.
+    fn take(&mut self, key: &str) -> Option<String> {
+        self.entries
+            .remove(key)
+            .filter(|(expires, _)| *expires > Instant::now())
+            .map(|(_, value)| value)
+    }
+}
 
 /// SEP-10 challenge transaction validity duration (default: 5 minutes)
 fn default_challenge_expiry_seconds() -> i64 {
@@ -88,6 +123,7 @@ pub struct Sep10Service {
     pub network_passphrase: String,
     pub home_domain: String,
     redis_connection: Arc<RwLock<Option<MultiplexedConnection>>>,
+    memory: Mutex<MemoryStore>,
 }
 
 impl Sep10Service {
@@ -119,6 +155,7 @@ impl Sep10Service {
             network_passphrase,
             home_domain,
             redis_connection,
+            memory: Mutex::new(MemoryStore::default()),
         })
     }
 
@@ -272,6 +309,11 @@ impl Sep10Service {
             conn.del::<_, ()>(&key)
                 .await
                 .map_err(|e| anyhow!("Failed to invalidate session: {e}"))?;
+        } else {
+            self.memory
+                .lock()
+                .await
+                .take(&format!("sep10:session:{token}"));
         }
         Ok(())
     }
@@ -300,6 +342,12 @@ impl Sep10Service {
             conn.set_ex::<_, _, ()>(&key, "1", expiry as u64)
                 .await
                 .map_err(|e| anyhow!("Failed to store challenge: {e}"))?;
+        } else {
+            self.memory.lock().await.set(
+                format!("sep10:challenge:{account}:{nonce}"),
+                "1".to_string(),
+                expiry.max(1) as u64,
+            );
         }
         Ok(())
     }
@@ -324,11 +372,13 @@ impl Sep10Service {
                 .await
                 .map_err(|e| anyhow!("Failed to consume challenge: {e}"))?;
         } else {
-            // Fail closed: refuse to validate without Redis (SEC-007)
-            tracing::error!(
-                "Redis unavailable - refusing SEP-10 challenge validation (fail closed)"
-            );
-            return Err(anyhow!("Challenge validation service unavailable"));
+            // Without Redis the in-memory store enforces the same single use
+            // (SEC-007): a challenge that was never issued, has expired or was
+            // already consumed is rejected.
+            let key = format!("sep10:challenge:{account}:{nonce}");
+            if self.memory.lock().await.take(&key).is_none() {
+                return Err(anyhow!("Challenge not found or already used"));
+            }
         }
         Ok(())
     }
@@ -343,6 +393,13 @@ impl Sep10Service {
             conn.set_ex::<_, _, ()>(&key, session_json, expiry as u64)
                 .await
                 .map_err(|e| anyhow!("Failed to store session: {e}"))?;
+        } else {
+            let expiry = session_expiry_days() * 24 * 60 * 60;
+            self.memory.lock().await.set(
+                format!("sep10:session:{token}"),
+                serde_json::to_string(session)?,
+                expiry.max(1) as u64,
+            );
         }
         Ok(())
     }
@@ -361,6 +418,13 @@ impl Sep10Service {
                 let session: Sep10Session = serde_json::from_str(&json)?;
                 return Ok(session);
             }
+        } else if let Some(json) = self
+            .memory
+            .lock()
+            .await
+            .get(&format!("sep10:session:{token}"))
+        {
+            return Ok(serde_json::from_str(&json)?);
         }
         Err(anyhow!("Session not found"))
     }
@@ -480,6 +544,41 @@ mod tests {
         assert!(
             verify_account_signature("GNOTAKEY", b"c", Some(&BASE64.encode([0u8; 64]))).is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn signs_in_without_redis_and_rejects_replay() {
+        let service = Sep10Service::new(
+            "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN".to_string(),
+            "Test SDF Network ; September 2015".to_string(),
+            "example.com".to_string(),
+            Arc::new(RwLock::new(None)),
+        )
+        .unwrap();
+        let (account, key) = account_and_key(7);
+
+        let challenge = service
+            .generate_challenge(ChallengeRequest {
+                account: account.clone(),
+                home_domain: Some("example.com".to_string()),
+                client_domain: None,
+                memo: None,
+            })
+            .await
+            .unwrap();
+        let request = || VerificationRequest {
+            transaction: challenge.transaction.clone(),
+            signature: Some(sign(&key, challenge.transaction.as_bytes())),
+        };
+
+        let session = service.verify_challenge(request()).await.unwrap();
+        assert!(service.validate_session(&session.token).await.is_ok());
+
+        // A challenge can be used once.
+        assert!(service.verify_challenge(request()).await.is_err());
+
+        service.invalidate_session(&session.token).await.unwrap();
+        assert!(service.validate_session(&session.token).await.is_err());
     }
 
     #[tokio::test]

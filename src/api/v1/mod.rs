@@ -41,8 +41,9 @@ fn sep10_service_from_env(
         server_public_key,
         network_passphrase,
         home_domain,
-        // Challenges and sessions live in Redis. Without a connection the
-        // service fails closed, so wallet sign-in only works with REDIS_URL.
+        // Challenges and sessions live in Redis when it is configured, and
+        // in this service's memory otherwise. Every route shares this one
+        // instance, so the in-memory store is consistent across them.
         cache.redis_handle(),
     ) {
         Ok(service) => Some(Arc::new(service)),
