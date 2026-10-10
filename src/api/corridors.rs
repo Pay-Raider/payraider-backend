@@ -256,7 +256,25 @@ impl ListCorridorsQuery {
     }
 }
 
+/// Lower bound of the 95% Wilson score interval for a success rate, in
+/// percent. Two settled payments out of two gives about 34%, not 100%: a
+/// corridor has to show many payments before it can score as reliable.
+fn wilson_lower_bound(success_rate: f64, total: i64) -> f64 {
+    if total <= 0 {
+        return 0.0;
+    }
+    let n = total as f64;
+    let p = (success_rate / 100.0).clamp(0.0, 1.0);
+    let z = 1.96_f64;
+    let z2 = z * z;
+    let centre = p + z2 / (2.0 * n);
+    let margin = z * (p * (1.0 - p) / n + z2 / (4.0 * n * n)).sqrt();
+    ((centre - margin) / (1.0 + z2 / n) * 100.0).max(0.0)
+}
+
 fn calculate_health_score(success_rate: f64, total_transactions: i64, volume_usd: f64) -> f64 {
+    // Score the success rate we can be confident in, not the raw ratio.
+    let success_rate = wilson_lower_bound(success_rate, total_transactions);
     let success_weight = 0.6;
     let volume_weight = 0.2;
     let transaction_weight = 0.2;
@@ -932,6 +950,15 @@ mod tests {
     fn test_health_score_calculation() {
         let score = calculate_health_score(95.0, 1000, 1_000_000.0);
         assert!(score > 0.0 && score <= 100.0);
+    }
+
+    #[test]
+    fn tiny_samples_do_not_score_as_reliable() {
+        let tiny = calculate_health_score(100.0, 2, 4_000_000.0);
+        let busy = calculate_health_score(98.0, 500, 4_000_000.0);
+        assert!(tiny < 60.0, "2/2 payments scored {tiny}");
+        assert!(busy > tiny + 25.0, "busy {busy} vs tiny {tiny}");
+        assert!((wilson_lower_bound(100.0, 2) - 34.2).abs() < 0.5);
     }
 
     #[test]
