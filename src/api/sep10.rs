@@ -307,12 +307,119 @@ impl IntoResponse for Sep10ApiError {
     }
 }
 
+/// The account a SEP-10 session belongs to. Lets clients check that a
+/// stored token is still valid (sessions end on expiry, logout, and, without
+/// Redis, on a backend restart).
+pub async fn get_session(
+    axum::extract::Extension(user): axum::extract::Extension<crate::auth::Sep10User>,
+) -> Response {
+    Json(json!({ "account": user.account })).into_response()
+}
+
 /// Create SEP-10 routes
 pub fn routes(sep10_service: Arc<Sep10Service>) -> Router {
+    // logout and session read the token the auth middleware attaches; without
+    // it logout failed with "Missing request extension" (500).
+    let authenticated = Router::new()
+        .route("/api/sep10/logout", post(logout))
+        .route("/api/sep10/session", get(get_session))
+        .route_layer(axum::middleware::from_fn_with_state(
+            sep10_service.clone(),
+            crate::auth::sep10_auth_middleware,
+        ));
+
     Router::new()
         .route("/api/sep10/info", get(get_info))
         .route("/api/sep10/auth", post(request_challenge))
         .route("/api/sep10/verify", post(verify_challenge))
-        .route("/api/sep10/logout", post(logout))
+        .merge(authenticated)
         .with_state(sep10_service)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    async fn call(app: &Router, req: Request<Body>) -> (StatusCode, serde_json::Value) {
+        let res = app.clone().oneshot(req).await.unwrap();
+        let status = res.status();
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        )
+    }
+
+    fn post(uri: &str, body: serde_json::Value, token: Option<&str>) -> Request<Body> {
+        let mut req = Request::post(uri).header("content-type", "application/json");
+        if let Some(t) = token {
+            req = req.header("authorization", format!("Bearer {t}"));
+        }
+        req.body(Body::from(body.to_string())).unwrap()
+    }
+
+    #[tokio::test]
+    async fn sign_in_session_and_logout_round_trip() {
+        use ed25519_dalek::Signer;
+        let service = Arc::new(
+            Sep10Service::new(
+                "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN".to_string(),
+                "Test SDF Network ; September 2015".to_string(),
+                "example.com".to_string(),
+                Arc::new(tokio::sync::RwLock::new(None)),
+            )
+            .unwrap(),
+        );
+        let app = routes(service);
+        let key = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
+        let account: String = format!(
+            "{}",
+            stellar_strkey::ed25519::PublicKey(key.verifying_key().to_bytes())
+        );
+
+        let (status, challenge) = call(
+            &app,
+            post(
+                "/api/sep10/auth",
+                json!({ "account": account, "home_domain": "example.com" }),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{challenge}");
+        let transaction = challenge["transaction"].as_str().unwrap().to_string();
+        let signature = BASE64.encode(key.sign(transaction.as_bytes()).to_bytes());
+
+        let (status, verified) = call(
+            &app,
+            post(
+                "/api/sep10/verify",
+                json!({ "transaction": transaction, "signature": signature }),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{verified}");
+        let token = verified["token"].as_str().unwrap().to_string();
+
+        let session = |t: &str| {
+            Request::get("/api/sep10/session")
+                .header("authorization", format!("Bearer {t}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let (status, body) = call(&app, session(&token)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["account"], account.as_str());
+
+        let (status, _) = call(&app, post("/api/sep10/logout", json!({}), Some(&token))).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _) = call(&app, session(&token)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
 }
