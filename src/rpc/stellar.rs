@@ -398,6 +398,21 @@ pub struct EmbeddedRecords<T> {
     pub records: Vec<T>,
 }
 
+/// Turn a page of Horizon `/payments` records into [`Payment`]s.
+///
+/// The endpoint mixes value transfers (payment, path payments) with
+/// operations that carry no asset or amount: create_account, account_merge
+/// and Soroban invoke_host_function. Parsing the page as `Vec<Payment>`
+/// failed on the first such record, and on mainnet every page has them, so
+/// every request failed and tripped the circuit breaker. Records are parsed
+/// one by one and the ones that are not asset transfers are skipped.
+pub(crate) fn payments_from_records(records: Vec<serde_json::Value>) -> Vec<Payment> {
+    records
+        .into_iter()
+        .filter_map(|record| serde_json::from_value::<Payment>(record).ok())
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcLedger {
     pub hash: String,
@@ -972,14 +987,13 @@ impl StellarRpcClient {
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
-        let horizon_response: HorizonResponse<Payment> = response
+        let body: HorizonResponse<serde_json::Value> = response
             .json()
             .await
             .map_err(|e| RpcError::ParseError(e.to_string()))?;
-        Ok(horizon_response
-            .embedded
-            .map(|e| e.records)
-            .unwrap_or_default())
+        Ok(payments_from_records(
+            body.embedded.map(|e| e.records).unwrap_or_default(),
+        ))
     }
 
     /// Fetch recent trades
@@ -1108,14 +1122,13 @@ impl StellarRpcClient {
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
-        let horizon_response: HorizonResponse<Payment> = response
+        let body: HorizonResponse<serde_json::Value> = response
             .json()
             .await
             .map_err(|e| RpcError::ParseError(e.to_string()))?;
-        Ok(horizon_response
-            .embedded
-            .map(|e| e.records)
-            .unwrap_or_default())
+        Ok(payments_from_records(
+            body.embedded.map(|e| e.records).unwrap_or_default(),
+        ))
     }
 
     /// Fetch transactions for a specific ledger
@@ -1284,14 +1297,13 @@ impl StellarRpcClient {
         if !response.status().is_success() {
             return Err(map_response_error(response).await);
         }
-        let horizon_response: HorizonResponse<Payment> = response
+        let body: HorizonResponse<serde_json::Value> = response
             .json()
             .await
             .map_err(|e| RpcError::ParseError(e.to_string()))?;
-        Ok(horizon_response
-            .embedded
-            .map(|e| e.records)
-            .unwrap_or_default())
+        Ok(payments_from_records(
+            body.embedded.map(|e| e.records).unwrap_or_default(),
+        ))
     }
 
     // ============================================================================
@@ -1503,15 +1515,13 @@ impl StellarRpcClient {
                 .await
                 .context("Failed to fetch account payments page")?;
 
-            let horizon_response: HorizonResponse<Payment> = response
+            let body: HorizonResponse<serde_json::Value> = response
                 .json()
                 .await
                 .context("Failed to parse payments response")?;
 
-            let payments = horizon_response
-                .embedded
-                .map(|e| e.records)
-                .unwrap_or_default();
+            let payments =
+                payments_from_records(body.embedded.map(|e| e.records).unwrap_or_default());
 
             if payments.is_empty() {
                 info!("No more payments available for account, stopping pagination");
@@ -1877,6 +1887,43 @@ impl StellarRpcClient {
 )]
 mod tests {
     use super::*;
+
+    // Shapes taken from a live mainnet /payments page: only transfers carry
+    // asset_type and amount.
+    #[test]
+    fn payments_from_records_skips_operations_without_an_asset() {
+        let records: Vec<serde_json::Value> = serde_json::from_str(
+            r#"[
+              {"id":"1","paging_token":"1","transaction_hash":"a","source_account":"GA","type":"payment",
+               "created_at":"2026-10-09T00:00:00Z","transaction_successful":true,
+               "asset_type":"credit_alphanum4","asset_code":"USDC","asset_issuer":"GI",
+               "from":"GA","to":"GB","amount":"10.0000000"},
+              {"id":"2","paging_token":"2","transaction_hash":"b","source_account":"GA","type":"create_account",
+               "created_at":"2026-10-09T00:00:00Z","transaction_successful":true,
+               "starting_balance":"2.0000000","funder":"GA","account":"GC"},
+              {"id":"3","paging_token":"3","transaction_hash":"c","source_account":"GA","type":"invoke_host_function",
+               "created_at":"2026-10-09T00:00:00Z","transaction_successful":true,
+               "function":"HostFunctionTypeHostFunctionTypeInvokeContract","asset_balance_changes":[]},
+              {"id":"4","paging_token":"4","transaction_hash":"d","source_account":"GA","type":"account_merge",
+               "created_at":"2026-10-09T00:00:00Z","transaction_successful":true,"account":"GA","into":"GD"},
+              {"id":"5","paging_token":"5","transaction_hash":"e","source_account":"GA","type":"path_payment_strict_send",
+               "created_at":"2026-10-09T00:00:00Z","transaction_successful":false,
+               "asset_type":"native","from":"GA","to":"GB","amount":"5.0000000",
+               "source_asset_type":"credit_alphanum4","source_asset_code":"USDC","source_asset_issuer":"GI",
+               "source_amount":"1.0000000"}
+            ]"#,
+        )
+        .unwrap();
+
+        let payments = payments_from_records(records);
+
+        let ids: Vec<&str> = payments.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, ["1", "5"]);
+        assert!(
+            !payments[1].succeeded(),
+            "failed transfers are kept, not dropped"
+        );
+    }
     use crate::rpc::mock_stellar;
 
     #[tokio::test]

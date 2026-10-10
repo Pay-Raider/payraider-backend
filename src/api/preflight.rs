@@ -161,6 +161,15 @@ fn corridor_matches(
         && side_matches(dst_side, &destination.0, destination.1.as_deref())
 }
 
+/// Dollar amount with cents below $100, so thin corridors don't read "$0".
+fn format_usd(value: f64) -> String {
+    if value < 100.0 {
+        format!("${value:.2}")
+    } else {
+        format!("${value:.0}")
+    }
+}
+
 fn check(name: &str, status: CheckStatus, detail: String) -> PreflightCheck {
     PreflightCheck {
         name: name.to_string(),
@@ -210,13 +219,19 @@ pub fn run_checks(
             } else {
                 CheckStatus::Fail
             };
-            (
-                status,
+            let detail = if share >= 10.0 {
                 format!(
-                    "payment is {:.1}% of ${depth:.0} observed liquidity",
-                    share * 100.0
-                ),
-            )
+                    "payment is {share:.0}x the {} observed liquidity",
+                    format_usd(depth)
+                )
+            } else {
+                format!(
+                    "payment is {:.1}% of {} observed liquidity",
+                    share * 100.0,
+                    format_usd(depth)
+                )
+            };
+            (status, detail)
         };
         checks.push(check("liquidity", status, detail));
     }
@@ -558,6 +573,20 @@ mod tests {
 
         assert_eq!(result.decision, PreflightDecision::Caution);
         assert_eq!(status_of(&result, "liquidity"), Some(CheckStatus::Warn));
+    }
+
+    #[test]
+    fn thin_liquidity_is_described_in_cents_and_multiples() {
+        let table = vec![corridor("USDC:GA->XLM:native", 99.5, 1.03, 400, 92.0)];
+        let result = evaluate(&table, &request("USDC", "XLM", Some(1_000.0)), now());
+
+        let detail = &result
+            .checks
+            .iter()
+            .find(|c| c.name == "liquidity")
+            .expect("liquidity check")
+            .detail;
+        assert_eq!(detail, "payment is 971x the $1.03 observed liquidity");
     }
 
     #[test]
