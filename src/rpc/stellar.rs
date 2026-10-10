@@ -132,16 +132,40 @@ pub struct JsonRpcError {
 pub struct LedgerInfo {
     pub sequence: u64,
     pub hash: String,
+    // Horizon renamed several ledger fields; the aliases accept the current
+    // names (prev_hash, successful_transaction_count, *_in_stroops) while the
+    // API keeps returning the original ones.
+    #[serde(alias = "prev_hash")]
     pub previous_hash: String,
+    #[serde(alias = "successful_transaction_count")]
     pub transaction_count: u32,
     pub operation_count: u32,
     pub closed_at: String,
     pub total_coins: String,
     pub fee_pool: String,
+    #[serde(alias = "base_fee_in_stroops")]
     pub base_fee: u32,
+    #[serde(
+        alias = "base_reserve_in_stroops",
+        deserialize_with = "string_or_number"
+    )]
     pub base_reserve: String,
     #[serde(default)]
     pub protocol_version: u32,
+}
+
+/// Accept a JSON string or number and keep it as a string.
+fn string_or_number<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        other => Err(serde::de::Error::custom(format!(
+            "expected a string or number, got {other}"
+        ))),
+    }
 }
 
 /// Represents a single asset balance change from the new Horizon API format.
@@ -1887,6 +1911,25 @@ impl StellarRpcClient {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ledger_info_parses_current_horizon_field_names() {
+        let ledger: LedgerInfo = serde_json::from_value(serde_json::json!({
+            "id": "db78", "paging_token": "278576509441015808", "hash": "db78",
+            "prev_hash": "e8c1", "sequence": 64861148,
+            "successful_transaction_count": 285, "failed_transaction_count": 36,
+            "operation_count": 543, "tx_set_operation_count": 680,
+            "closed_at": "2026-10-10T00:18:42Z", "total_coins": "105443902087.3472865",
+            "fee_pool": "10806353.7814855", "base_fee_in_stroops": 100,
+            "base_reserve_in_stroops": 5000000, "max_tx_set_size": 1000, "protocol_version": 29
+        }))
+        .expect("current Horizon ledger record");
+
+        assert_eq!(ledger.previous_hash, "e8c1");
+        assert_eq!(ledger.transaction_count, 285);
+        assert_eq!(ledger.base_fee, 100);
+        assert_eq!(ledger.base_reserve, "5000000");
+    }
 
     // Shapes taken from a live mainnet /payments page: only transfers carry
     // asset_type and amount.
