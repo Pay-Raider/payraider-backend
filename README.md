@@ -4,7 +4,7 @@
 
 It reads recent payments from the Stellar ledger, scores each corridor, and answers `proceed`, `caution`, `hold` or `unknown` for a given payment. It also handles wallet sign-in, API keys and the USDC-paid Pro plan.
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-proprietary-8c4a1c.svg)](LICENSE)
 ![Rust](https://img.shields.io/badge/Rust-Axum-orange)
 ![Stellar](https://img.shields.io/badge/Stellar-Horizon%20%7C%20Soroban-black)
 
@@ -138,4 +138,6 @@ The server never holds user funds or signing keys: billing and multi-signature f
 
 ## License
 
-[Apache 2.0](LICENSE)
+Proprietary. Copyright (c) 2026 PayRaider. All rights reserved.
+
+This is **not open source**. The code is visible for review only; you may not use, copy, modify, deploy or distribute it without written permission from PayRaider. See [LICENSE](LICENSE).

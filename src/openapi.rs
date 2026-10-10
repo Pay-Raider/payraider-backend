@@ -41,8 +41,8 @@ impl Modify for SecurityAddon {
             email = "support@payraider.io"
         ),
         license(
-            name = "MIT",
-            url = "https://opensource.org/licenses/MIT"
+            name = "Proprietary - all rights reserved",
+            url = "https://github.com/Pay-Raider/payraider-backend/blob/main/LICENSE"
         )
     ),
     modifiers(&SecurityAddon),
