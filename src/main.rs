@@ -43,9 +43,9 @@ use payraider_backend::{
     request_id::request_id_middleware,
     rpc::StellarRpcClient,
     services::{
-        event_indexer::EventIndexer, service_container::ServiceContainer,
-        slack_bot::SlackBotService, webhook_dispatcher::WebhookDispatcher,
-        webhook_event_service::WebhookEventService,
+        event_indexer::EventIndexer, payment_window::PaymentWindow,
+        service_container::ServiceContainer, slack_bot::SlackBotService,
+        webhook_dispatcher::WebhookDispatcher, webhook_event_service::WebhookEventService,
     },
     shutdown::{
         flush_cache, log_shutdown_summary, shutdown_background_tasks, shutdown_database,
@@ -692,6 +692,8 @@ async fn main() -> anyhow::Result<()> {
         pool_exhaustion_handle,
         webhook_dispatcher_handle,
         corridor_monitor_handle,
+        // Corridor scores and the pre-payment check read from this window.
+        PaymentWindow::spawn_refresher(rpc_client.clone()),
     ];
     if let Some(handle) = telegram_handle {
         background_tasks.push(handle);

@@ -440,9 +440,15 @@ pub(crate) async fn compute_live_corridors(
     rpc_client: &StellarRpcClient,
     price_feed: &PriceFeedClient,
 ) -> anyhow::Result<Vec<CorridorResponse>> {
-    let circuit_breaker = rpc_circuit_breaker();
+    // Normally served from the rolling window the background refresher keeps.
+    let window = crate::services::payment_window::PaymentWindow::global();
+    let held = window.snapshot().await;
+    if !held.is_empty() {
+        return Ok(corridors_from_payments(&held, price_feed).await);
+    }
 
-    // **RPC DATA**: Fetch recent payments with pagination to identify active corridors
+    // Window not filled yet (just after startup): read the head of the feed.
+    let circuit_breaker = rpc_circuit_breaker();
     let payments = with_retry(
         || async {
             rpc_client
@@ -470,7 +476,10 @@ pub(crate) async fn corridors_from_payments(
     use std::collections::HashMap;
     let mut corridor_map: HashMap<String, Vec<&crate::rpc::Payment>> = HashMap::new();
 
-    for payment in payments {
+    for payment in payments
+        .iter()
+        .filter(|p| !crate::services::payment_window::is_self_payment(p))
+    {
         // Extract the actual asset pair from the payment
         if let Some(asset_pair) = extract_asset_pair_from_payment(payment) {
             let corridor_key = asset_pair.to_corridor_key();
@@ -535,16 +544,12 @@ pub(crate) async fn corridors_from_payments(
                 }
             }
         } else {
-            // Fallback: use raw amounts if price unavailable
-            tracing::warn!(
-                "Price unavailable for {}, using raw amounts",
+            // No price: the asset's dollar value is unknown, so its volume is
+            // reported as zero rather than counting raw token units as dollars.
+            tracing::debug!(
+                "Price unavailable for {}, volume left at 0",
                 source_asset_key
             );
-            volume_usd = corridor_payments
-                .iter()
-                .filter(|p| p.succeeded())
-                .filter_map(|p| p.get_amount().parse::<f64>().ok())
-                .sum();
         }
 
         // Calculate health score

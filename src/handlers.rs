@@ -96,7 +96,7 @@ async fn check_cache(cache: &Arc<CacheManager>) -> ComponentHealth {
         Err(e) => ComponentHealth {
             healthy: false,
             response_time_ms: Some(start.elapsed().as_millis() as u64),
-            message: Some(format!("Cache connection failed: {}", e)),
+            message: Some(format!("Redis unavailable, using in-memory cache: {}", e)),
         },
     }
 }
@@ -118,19 +118,24 @@ async fn check_rpc(rpc: &Arc<StellarRpcClient>) -> ComponentHealth {
     }
 }
 
+fn overall_status(db: bool, cache: bool, rpc: bool) -> &'static str {
+    match (db && rpc, cache) {
+        (true, true) => "healthy",
+        (true, false) => "degraded",
+        (false, _) => "unhealthy",
+    }
+}
+
 /// Detailed health check endpoint with network and client context
 pub async fn health_check(State(app_state): State<AppState>) -> Json<HealthStatus> {
     let db_health = check_database(&app_state.db).await;
     let cache_health = check_cache(&app_state.cache).await;
     let rpc_health = check_rpc(&app_state.rpc_client).await;
 
-    let overall_status = if db_health.healthy && cache_health.healthy && rpc_health.healthy {
-        "healthy"
-    } else if db_health.healthy && cache_health.healthy {
-        "degraded"
-    } else {
-        "unhealthy"
-    };
+    // The database and RPC are required. Without Redis the cache falls back
+    // to memory, so a missing Redis degrades the service but does not stop it.
+    let overall_status =
+        overall_status(db_health.healthy, cache_health.healthy, rpc_health.healthy);
 
     let start_epoch = app_state.server_start_time.load(Ordering::Relaxed);
     let now_epoch = SystemTime::now()
@@ -397,6 +402,14 @@ pub async fn ingestion_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_cache_degrades_missing_rpc_fails() {
+        assert_eq!(overall_status(true, true, true), "healthy");
+        assert_eq!(overall_status(true, false, true), "degraded");
+        assert_eq!(overall_status(true, true, false), "unhealthy");
+        assert_eq!(overall_status(false, true, true), "unhealthy");
+    }
 
     #[test]
     fn test_render_pool_metrics_prometheus() {

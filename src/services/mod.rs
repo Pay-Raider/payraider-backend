@@ -16,6 +16,7 @@ pub mod gdpr;
 pub mod governance;
 pub mod indexing;
 pub mod liquidity_pool_analyzer;
+pub mod payment_window;
 pub mod price_feed;
 pub mod realtime_broadcaster;
 pub mod request_signing;

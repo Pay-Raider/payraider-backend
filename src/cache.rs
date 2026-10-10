@@ -3,6 +3,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 #[path = "cache/helpers.rs"]
@@ -84,6 +85,26 @@ impl Default for CacheConfig {
     }
 }
 
+/// Match a Redis-style key pattern where `*` matches any run of characters.
+fn glob_match(pattern: &str, key: &str) -> bool {
+    let parts: Vec<&str> = pattern.split('*').collect();
+    if parts.len() == 1 {
+        return pattern == key;
+    }
+    let (first, last) = (parts[0], parts[parts.len() - 1]);
+    if !key.starts_with(first) || key.len() < first.len() + last.len() || !key.ends_with(last) {
+        return false;
+    }
+    let mut rest = &key[first.len()..key.len() - last.len()];
+    for part in &parts[1..parts.len() - 1] {
+        match rest.find(part) {
+            Some(i) => rest = &rest[i + part.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
 /// Main cache manager
 pub struct CacheManager {
     redis_connection: Arc<RwLock<Option<MultiplexedConnection>>>,
@@ -91,7 +112,9 @@ pub struct CacheManager {
     hits: Arc<AtomicU64>,
     misses: Arc<AtomicU64>,
     invalidations: Arc<AtomicU64>,
-    in_memory_store: Arc<RwLock<HashMap<String, String>>>,
+    /// Used when Redis is unavailable. Entries carry their expiry so cached
+    /// RPC data refreshes on the same TTL it would have in Redis.
+    in_memory_store: Arc<RwLock<HashMap<String, (Instant, String)>>>,
 }
 
 impl CacheManager {
@@ -166,7 +189,16 @@ impl CacheManager {
     /// Get value from cache, returns None if not found or Redis unavailable
     pub async fn get<T: DeserializeOwned>(&self, key: &str) -> anyhow::Result<Option<T>> {
         if self.redis_connection.read().await.is_none() {
-            if let Some(payload) = self.in_memory_store.read().await.get(key).cloned() {
+            let entry = self.in_memory_store.read().await.get(key).cloned();
+            let payload = match entry {
+                Some((expires_at, payload)) if Instant::now() < expires_at => Some(payload),
+                Some(_) => {
+                    self.in_memory_store.write().await.remove(key);
+                    None
+                }
+                None => None,
+            };
+            if let Some(payload) = payload {
                 self.hits.fetch_add(1, Ordering::Relaxed);
                 crate::observability::metrics::record_cache_lookup(true);
                 tracing::debug!("In-memory cache hit for key: {}", key);
@@ -233,10 +265,11 @@ impl CacheManager {
         if self.redis_connection.read().await.is_none() {
             match serde_json::to_string(value) {
                 Ok(serialized) => {
+                    let expires_at = Instant::now() + Duration::from_secs(ttl_seconds as u64);
                     self.in_memory_store
                         .write()
                         .await
-                        .insert(key.to_string(), serialized);
+                        .insert(key.to_string(), (expires_at, serialized));
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -246,7 +279,6 @@ impl CacheManager {
                     );
                 }
             }
-            let _ = ttl_seconds;
             return Ok(());
         }
 
@@ -287,6 +319,9 @@ impl CacheManager {
 
     /// Delete a cache key using an atomic Lua script to avoid TOCTOU races.
     pub async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        if self.in_memory_store.write().await.remove(key).is_some() {
+            self.invalidations.fetch_add(1, Ordering::Relaxed);
+        }
         if let Some(conn) = self.redis_connection.read().await.as_ref() {
             let mut conn = conn.clone();
             // Lua guarantees the check-and-delete is atomic on the Redis server.
@@ -314,6 +349,15 @@ impl CacheManager {
     /// Delete multiple cache keys matching a pattern
     /// Uses SCAN instead of KEYS to avoid blocking Redis
     pub async fn delete_pattern(&self, pattern: &str) -> anyhow::Result<usize> {
+        if self.redis_connection.read().await.is_none() {
+            let mut store = self.in_memory_store.write().await;
+            let before = store.len();
+            store.retain(|key, _| !glob_match(pattern, key));
+            let deleted = before - store.len();
+            self.invalidations
+                .fetch_add(deleted as u64, Ordering::Relaxed);
+            return Ok(deleted);
+        }
         if let Some(conn) = self.redis_connection.read().await.as_ref() {
             let mut conn = conn.clone();
             let mut cursor: u64 = 0;
@@ -540,5 +584,34 @@ mod tests {
         assert_eq!(keys::corridor_pattern(), "corridor:*");
         assert_eq!(keys::dashboard_stats(), "dashboard:stats");
         assert_eq!(keys::anchor_pattern(), "anchor:*");
+    }
+
+    #[test]
+    fn glob_match_handles_wildcards() {
+        assert!(glob_match("corridor:*", "corridor:list:50:0"));
+        assert!(glob_match("a*c*e", "abcde"));
+        assert!(!glob_match("corridor:*", "anchor:list"));
+        assert!(glob_match("exact", "exact"));
+        assert!(!glob_match("exact", "exactly"));
+    }
+
+    #[tokio::test]
+    async fn in_memory_entries_expire() {
+        let cache = CacheManager::new_in_memory_for_tests(CacheConfig::default());
+        cache.set("k", &1u32, 0).await.unwrap();
+        assert_eq!(cache.get::<u32>("k").await.unwrap(), None);
+
+        cache.set("k", &2u32, 60).await.unwrap();
+        assert_eq!(cache.get::<u32>("k").await.unwrap(), Some(2));
+    }
+
+    #[tokio::test]
+    async fn in_memory_pattern_delete() {
+        let cache = CacheManager::new_in_memory_for_tests(CacheConfig::default());
+        cache.set("corridor:a", &1u32, 60).await.unwrap();
+        cache.set("anchor:a", &1u32, 60).await.unwrap();
+        assert_eq!(cache.delete_pattern("corridor:*").await.unwrap(), 1);
+        assert_eq!(cache.get::<u32>("corridor:a").await.unwrap(), None);
+        assert_eq!(cache.get::<u32>("anchor:a").await.unwrap(), Some(1));
     }
 }
